@@ -1101,10 +1101,11 @@ input[type="range"]::-webkit-slider-thumb {
 /* 单行清单条目 */
 .prereq-row {
   display: grid;
-  grid-template-columns: 46px 245px 120px 1fr 150px;
+  grid-template-columns: 46px 230px 165px 1fr 150px;
   align-items: center;
   gap: 18px;
   padding: 15px 22px;
+
   background: rgba(11, 15, 22, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md);
@@ -1236,16 +1237,18 @@ input[type="range"]::-webkit-slider-thumb {
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-}
-.prereq-pill.pill-running {
+.prereq-pill.pill-running,
+.prereq-pill.pill-pass {
   color: #86efac;
   background: rgba(45, 212, 160, 0.12);
   border: 1px solid rgba(45, 212, 160, 0.35);
 }
-.prereq-pill.pill-running .prereq-dot {
+.prereq-pill.pill-running .prereq-dot,
+.prereq-pill.pill-pass .prereq-dot {
   background: #2dd4a0;
   box-shadow: 0 0 6px #2dd4a0;
 }
+
 .prereq-pill.pill-installed {
   color: #93c5fd;
   background: rgba(111, 195, 232, 0.12);

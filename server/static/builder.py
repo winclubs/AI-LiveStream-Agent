@@ -100,8 +100,11 @@ def build_index_html() -> str:
 
 
 if __name__ == "__main__":
-    print("[*] 正在执行 index.html 模块化组件拆分...")
-    split_index_html()
-    print("[*] 正在验证合并构建...")
+    import sys
+    if "--split" in sys.argv:
+        print("[*] 正在执行 index.html 模块化组件拆分...")
+        split_index_html()
+    print("[*] 正在执行组件模板合并构建...")
     built = build_index_html()
     print(f"[OK] 合并编译完成，生成文件大小: {len(built)} 字节，行数: {len(built.splitlines())}")
+

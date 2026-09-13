@@ -323,7 +323,8 @@ def _detect_prerequisites() -> Dict[str, Any]:
     else:
         partner_status = "missing"
         partner_badge = "未检测到"
-        partner_tip = "未检测到常用直播伴侣（抖音/快手/视频号）。若仅进行本地 MJPEG 调试可无需安装；商业上架需下载对应平台客户端。"
+        partner_tip = "未检测到常用直播伴侣（抖音/快手/视频号/B站）。正式商业推流需启动对应平台客户端并接入数字人画面"
+
 
     items.append({
         "key": "live_partner",
@@ -436,11 +437,11 @@ def _detect_prerequisites() -> Dict[str, Any]:
     if sd_installed and has_cable:
         audio_status = "installed"
         audio_badge = "VB-Cable 已挂载"
-        audio_tip = f"检测到 {audio_count} 个播放设备，包含推荐虚拟声卡 VB-Cable，直播伴侣可无损采集 AI 声音"
+        audio_tip = f"检测到 {audio_count} 个播放设备，包含推荐虚拟声卡 VB-Cable，直播伴侣可无损采集纯净 AI 声音"
     elif sd_installed and audio_count > 0:
         audio_status = "installed"
         audio_badge = f"{audio_count} 个音频设备"
-        audio_tip = f"检测到 {audio_count} 个物理音频设备；若需内录到直播伴侣，强烈推荐安装 VB-Cable 虚拟声卡"
+        audio_tip = f"检测到 {audio_count} 个物理音频设备，但未安装 VB-Cable 虚拟声卡；开播存在微信提示音与系统杂音串录风险，商用直播强烈建议安装"
     else:
         audio_status = "missing"
         audio_badge = "未就绪"
@@ -451,6 +452,7 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "name": "声卡输出与虚拟音频 (VB-Cable)",
         "category": "音频中继",
         "required": False,
+        "has_cable": has_cable,
         "status": audio_status,
         "badge": audio_badge,
         "version": "",
@@ -461,6 +463,7 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "action_text": "下载 VB-Cable 虚拟声卡",
         "action_type": "url"
     })
+
 
     # 计算整体统计与评估状态
     ready_count = sum(1 for item in items if item["status"] in ["running", "installed"])

@@ -835,7 +835,8 @@ async function loadSoftwarePrerequisites(isManual = false) {
                 alertBanner.style.display = "flex";
                 alertBanner.innerHTML = `
                   <div class="prereq-alert-dot"></div>
-                  <div id="prereq-alert-text"><strong>推流就绪提示：</strong>核心主控与驱动已就绪，尚有 ${summary.missing_count} 项配套伴侣未安装（若仅进行本地音画测试可无需安装）。</div>
+                  <div id="prereq-alert-text"><strong>推流就绪提示：</strong>核心主控已就绪，尚有 ${summary.missing_count} 项配套伴侣或音频隔离设备待配置，建议完善以保证商用播出纯净度。</div>
+
                 `;
             } else {
                 alertBanner.className = "prereq-alert-banner success";
@@ -860,14 +861,46 @@ async function loadSoftwarePrerequisites(isManual = false) {
             };
 
             container.innerHTML = items.map(it => {
-                const statusClass = `status-${it.status}`;
-                const pillClass = `pill-${it.status}`;
-                const tipClass = `tip-${it.status}`;
+                let stateText = "";
+                let pillClass = "";
+                let statusClass = `status-${it.status}`;
+
+                if (it.key === "audio_devices") {
+                    if (it.status === "installed" && it.has_cable) {
+                        stateText = "检测通过";
+                        pillClass = "pill-pass";
+                        statusClass = "status-running";
+                    } else if (it.status === "installed" || it.status === "running") {
+                        stateText = "建议修复（推荐项）";
+                        pillClass = "pill-warning";
+                        statusClass = "status-warning";
+                    } else {
+                        stateText = "必须修复（必修项）";
+                        pillClass = "pill-missing";
+                        statusClass = "status-missing";
+                    }
+                } else if (it.status === "running" || it.status === "installed") {
+                    stateText = "检测通过";
+                    pillClass = "pill-pass";
+                    statusClass = it.status === "running" ? "status-running" : "status-installed";
+                } else {
+                    if (it.required) {
+                        stateText = "必须修复（必修项）";
+                        pillClass = "pill-missing";
+                        statusClass = "status-missing";
+                    } else {
+                        stateText = "建议修复（推荐项）";
+                        pillClass = "pill-warning";
+                        statusClass = "status-warning";
+                    }
+                }
+
+                const tipClass = pillClass === "pill-pass" ? "tip-installed" : (pillClass === "pill-warning" ? "tip-warning" : "tip-missing");
                 const iconName = iconMap[it.key] || "monitor";
 
                 let actionBtnHtml = "";
                 if (it.action_type === "url" && it.url) {
-                    actionBtnHtml = `<a href="${it.url}" target="_blank" class="prereq-btn ${it.status === 'missing' ? 'btn-action-primary' : ''}">${svg("external", "icon-sm")} ${it.action_text}</a>`;
+                    actionBtnHtml = `<a href="${it.url}" target="_blank" class="prereq-btn ${pillClass !== 'pill-pass' ? 'btn-action-primary' : ''}">${svg("external", "icon-sm")} ${it.action_text}</a>`;
                 } else if (it.action_type === "copy" && it.command) {
                     actionBtnHtml = `<button class="prereq-btn" onclick="copyPrereqCommand('${it.command}', this)">${svg("copy", "icon-sm")} ${it.action_text}</button>`;
                 } else if (it.action_type === "tip" && it.url) {
@@ -876,7 +909,7 @@ async function loadSoftwarePrerequisites(isManual = false) {
                     actionBtnHtml = `<span class="prereq-ok-label">${svg("check", "icon-sm")} 正常</span>`;
                 }
 
-                const tipIcon = it.status === "missing" ? "warn" : (it.status === "running" ? "check" : "info");
+                const tipIcon = pillClass === "pill-pass" ? "check" : (pillClass === "pill-warning" ? "warn" : "x");
 
                 return `
                 <div class="prereq-row ${statusClass}">
@@ -885,20 +918,20 @@ async function loadSoftwarePrerequisites(isManual = false) {
                     ${svg(iconName, "icon")}
                   </div>
 
-                  <!-- 第 2 列：软件名称与分类 Tag -->
+                  <!-- 第 2 列：软件名称与分类 Tag / 细节 -->
                   <div class="prereq-row-name-col">
                     <span class="prereq-row-name" title="${it.name}">${it.name}</span>
                     <div class="prereq-row-tags">
                       <span class="prereq-row-cat">${it.category}</span>
-                      <span class="prereq-row-type ${it.required ? 'type-required' : 'type-recommended'}">${it.required ? '必修项' : '推荐项'}</span>
+                      <span class="prereq-row-cat" style="color: var(--text-secondary);">${it.badge}</span>
                     </div>
                   </div>
 
-                  <!-- 第 3 列：状态药丸 -->
+                  <!-- 第 3 列：统一标准状态列 -->
                   <div class="prereq-row-status-col">
                     <span class="prereq-pill ${pillClass}">
                       <span class="prereq-dot"></span>
-                      ${it.badge}
+                      ${stateText}
                     </span>
                   </div>
 
@@ -917,6 +950,7 @@ async function loadSoftwarePrerequisites(isManual = false) {
                   </div>
                 </div>`;
             }).join("");
+
         }
 
     } catch (e) {
