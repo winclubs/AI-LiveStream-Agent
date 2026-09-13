@@ -1237,45 +1237,45 @@ input[type="range"]::-webkit-slider-thumb {
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-.prereq-pill.pill-running,
-.prereq-pill.pill-pass {
-  color: #86efac;
-  background: rgba(45, 212, 160, 0.12);
-  border: 1px solid rgba(45, 212, 160, 0.35);
-}
-.prereq-pill.pill-running .prereq-dot,
-.prereq-pill.pill-pass .prereq-dot {
-  background: #2dd4a0;
-  box-shadow: 0 0 6px #2dd4a0;
 }
 
+/* 1. 检测通过 (绿色) */
+.prereq-pill.pill-pass,
+.prereq-pill.pill-running,
 .prereq-pill.pill-installed {
-  color: #93c5fd;
-  background: rgba(111, 195, 232, 0.12);
-  border: 1px solid rgba(111, 195, 232, 0.35);
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.4);
 }
+.prereq-pill.pill-pass .prereq-dot,
+.prereq-pill.pill-running .prereq-dot,
 .prereq-pill.pill-installed .prereq-dot {
-  background: #6fc3e8;
-  box-shadow: 0 0 6px #6fc3e8;
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.8);
 }
-.prereq-pill.pill-missing {
-  color: #fda4af;
-  background: rgba(244, 63, 94, 0.12);
-  border: 1px solid rgba(244, 63, 94, 0.35);
-}
-.prereq-pill.pill-missing .prereq-dot {
-  background: #f43f5e;
-  box-shadow: 0 0 6px #f43f5e;
-}
+
+/* 2. 建议修复 (黄色) */
 .prereq-pill.pill-warning {
-  color: #fde68a;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #facc15;
+  background: rgba(234, 179, 8, 0.14);
+  border: 1px solid rgba(234, 179, 8, 0.45);
 }
 .prereq-pill.pill-warning .prereq-dot {
-  background: #f59e0b;
-  box-shadow: 0 0 6px #f59e0b;
+  background: #eab308;
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.8);
 }
+
+/* 3. 必须修复 (红色) */
+.prereq-pill.pill-missing {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+}
+.prereq-pill.pill-missing .prereq-dot {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+}
+
 
 /* 第 4 列：功能描述与实时诊断提示 */
 .prereq-row-desc-col {

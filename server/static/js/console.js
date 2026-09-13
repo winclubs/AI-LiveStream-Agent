@@ -871,11 +871,11 @@ async function loadSoftwarePrerequisites(isManual = false) {
                         pillClass = "pill-pass";
                         statusClass = "status-running";
                     } else if (it.status === "installed" || it.status === "running") {
-                        stateText = "建议修复（推荐项）";
+                        stateText = "建议修复";
                         pillClass = "pill-warning";
                         statusClass = "status-warning";
                     } else {
-                        stateText = "必须修复（必修项）";
+                        stateText = "必须修复";
                         pillClass = "pill-missing";
                         statusClass = "status-missing";
                     }
@@ -885,15 +885,16 @@ async function loadSoftwarePrerequisites(isManual = false) {
                     statusClass = it.status === "running" ? "status-running" : "status-installed";
                 } else {
                     if (it.required) {
-                        stateText = "必须修复（必修项）";
+                        stateText = "必须修复";
                         pillClass = "pill-missing";
                         statusClass = "status-missing";
                     } else {
-                        stateText = "建议修复（推荐项）";
+                        stateText = "建议修复";
                         pillClass = "pill-warning";
                         statusClass = "status-warning";
                     }
                 }
+
 
                 const tipClass = pillClass === "pill-pass" ? "tip-installed" : (pillClass === "pill-warning" ? "tip-warning" : "tip-missing");
                 const iconName = iconMap[it.key] || "monitor";
@@ -4312,6 +4313,8 @@ async function runPreflight(opts = {}) {
 
 function pfRowHtml(c) {
     const icons = { pass: "check", warn: "warn", fail: "x" };
+    const statusLabels = { pass: "检测通过", warn: "建议修复", fail: "必须修复" };
+    const badgeClass = c.status === "pass" ? "pill-pass" : (c.status === "warn" ? "pill-warning" : "pill-missing");
     const fixHtml = (c.status !== "pass" && (c.fix_hint || c.action_tab))
         ? `<div class="pf-fix">
              <div class="pf-fix-left">
@@ -4325,13 +4328,20 @@ function pfRowHtml(c) {
         <div class="pf-row pf-${c.status}">
             <div class="pf-icon">${svg(icons[c.status] || "info")}</div>
             <div style="flex: 1; min-width: 0;">
-                <div class="pf-title">${c.title}</div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <div class="pf-title">${c.title}</div>
+                    <span class="prereq-pill ${badgeClass}" style="font-size: 11px; padding: 2px 8px;">
+                        <span class="prereq-dot"></span>
+                        ${statusLabels[c.status] || c.status}
+                    </span>
+                </div>
                 <div class="pf-msg">${c.message}</div>
                 ${fixHtml}
             </div>
         </div>
     `;
 }
+
 
 function renderPreflightModal(data, opts = {}) {
     const modal = document.getElementById("preflight-modal");
