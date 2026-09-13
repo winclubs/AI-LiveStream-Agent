@@ -246,11 +246,11 @@ npm.cmd run dist:dir -- --win
 
 ## 7. 已知交付限制
 
-- 桌面目录包**不内置 Python**，不能在完全没有兼容 Python 环境的机器上直接运行后端。
+- 桌面包支持**可选内置便携版 Python (3.12.10)**（由 `scripts/build_portable_python.py` 构建至 `apps/desktop-ui/resources/python/`）；未打包内置环境时，回退要求外部 64 位 CPython 3.12/3.13。
 - 本轮生成的是 `dist:dir` 的 Windows 解包目录，不是已完成签发和干净机器验收的最终安装器。
 - 外部平台发布不由本程序管理，`/live/start` 成功只代表本地直播源启动成功。
 - 当前程序化头像不等同于 MuseTalk 神经口型；相关能力必须单独部署和验收后才能改变状态描述。
-- 工作区不是 Git 仓库，无法提供 Git diff、commit 或基于版本控制的自动回滚证据；本报告以当前文件、实际命令输出和语义审查为依据。
+- 项目已纳入 Git 版本控制（远程 https://github.com/winclubs/AI-LiveStream-Agent ），可提供 Git diff、commit 历史与基于版本控制的回滚证据。
 
 ## 8. 验收结论
 

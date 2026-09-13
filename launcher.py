@@ -98,23 +98,70 @@ def probe_hardware_summary() -> dict:
     except Exception:
         pass
 
-    # NVIDIA GPU 探测
-    try:
-        cmd = ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"]
-        res = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=3)
-        if res.returncode == 0 and res.stdout.strip():
-            lines = res.stdout.strip().splitlines()
-            if lines:
-                parts = [p.strip() for p in lines[0].split(",")]
-                gpu_name = parts[0]
-                vram_mb = float(parts[1]) if len(parts) > 1 else 0
-                driver = parts[2] if len(parts) > 2 else ""
-                info["gpu"] = f"{gpu_name} (驱动: {driver})"
-                info["vram_gb"] = round(vram_mb / 1024.0, 1)
-    except Exception:
-        pass
+    # GPU 探测：1. 尝试多路径 nvidia-smi；2. 失败时回退 WMI/CIM 探测物理显卡
+    gpu_detected = False
+    nvidia_candidates = [
+        "nvidia-smi",
+        r"C:\Windows\System32\nvidia-smi.exe",
+        r"C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe",
+        r"C:\Program Files\NVIDIA Corporation\Driver\nvidia-smi.exe",
+    ]
+    for cand in nvidia_candidates:
+        if cand != "nvidia-smi" and not Path(cand).exists():
+            continue
+        try:
+            cmd = [cand, "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"]
+            res = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=3)
+            if res.returncode == 0 and res.stdout.strip():
+                lines = res.stdout.strip().splitlines()
+                if lines:
+                    parts = [p.strip() for p in lines[0].split(",")]
+                    gpu_name = parts[0]
+                    vram_mb = float(parts[1]) if len(parts) > 1 else 0
+                    driver = parts[2] if len(parts) > 2 else ""
+                    info["gpu"] = f"{gpu_name} (驱动: {driver})"
+                    info["vram_gb"] = round(vram_mb / 1024.0, 1)
+                    gpu_detected = True
+                    break
+        except Exception:
+            pass
+
+    # WMI 兜底探测 (支持老旧入门显卡如 GT 710、AMD Radeon 或 Intel 独显)
+    if not gpu_detected and platform.system() == "Windows":
+        try:
+            ps_cmd = "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion | ConvertTo-Json"
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True, text=True, timeout=8
+            )
+            if out.returncode == 0 and out.stdout.strip():
+                raw_data = json.loads(out.stdout)
+                items = raw_data if isinstance(raw_data, list) else [raw_data]
+                ignore_keywords = {"oray", "virtual", "basic display", "idddriver", "remote", "microsoft 基本显示"}
+                valid_gpus = []
+                for item in items:
+                    name = (item.get("Name") or "").strip()
+                    if not name or any(k in name.lower() for k in ignore_keywords):
+                        continue
+                    ram = item.get("AdapterRAM") or 0
+                    driver = item.get("DriverVersion") or ""
+                    valid_gpus.append((ram, name, driver))
+
+                if valid_gpus:
+                    valid_gpus.sort(key=lambda x: x[0], reverse=True)
+                    best_ram, best_name, best_driver = valid_gpus[0]
+                    driver_suffix = f" (驱动: {best_driver})" if best_driver else ""
+                    info["gpu"] = f"{best_name}{driver_suffix}"
+                    if 0 < best_ram <= 4 * (1024 ** 3):
+                        info["vram_gb"] = round(best_ram / (1024 ** 3), 1)
+                    elif best_ram > 4 * (1024 ** 3):
+                        info["vram_gb"] = round(best_ram / (1024 ** 3), 1)
+                    gpu_detected = True
+        except Exception:
+            pass
 
     return info
+
 
 
 def check_audio_devices() -> dict:

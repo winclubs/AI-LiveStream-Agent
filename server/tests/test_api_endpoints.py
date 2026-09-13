@@ -998,6 +998,7 @@ def test_anchor_voice_binding_and_danmaku_webhook(client):
 def test_system_version_and_shutdown(client):
     """验证统一版本源(SSOT)、元数据诊断接口与服务平滑关闭接口"""
     import json
+    import re
     from pathlib import Path
     from server.config import APP_VERSION, SERVICE_NAME, BASE_DIR, DATA_DIR
 
@@ -1012,6 +1013,15 @@ def test_system_version_and_shutdown(client):
     if pkg_json_path.exists():
         pkg_data = json.loads(pkg_json_path.read_text(encoding="utf-8"))
         assert pkg_data["version"] == APP_VERSION, "Electron 桌面端版本必须与后端 SSOT 对齐"
+
+    console_js_path = BASE_DIR / "server" / "static" / "js" / "console.js"
+    if console_js_path.exists():
+        console_match = re.search(
+            r'FRONTEND_VERSION\s*=\s*"([^"]+)"',
+            console_js_path.read_text(encoding="utf-8"),
+        )
+        assert console_match, "console.js 必须声明 FRONTEND_VERSION 常量"
+        assert console_match.group(1) == APP_VERSION, "console.js FRONTEND_VERSION 必须与后端 SSOT 对齐"
 
     # 2. 验证 GET /api/v1/system/version 增强元数据
     res = client.get("/api/v1/system/version")

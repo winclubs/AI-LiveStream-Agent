@@ -23,12 +23,18 @@ if (-not $?) { Write-Host "❌ console.js 语法错误" -ForegroundColor Red; ex
 
 Write-Host "==> [5/5] Pytest 自动化测试与覆盖率校验 (隔离数据目录)..." -ForegroundColor Cyan
 $TempDataDir = Join-Path $env:TEMP ('ai-live-agent-ci-' + [guid]::NewGuid().ToString('N'))
+$PreviousDataDir = $env:LIVE_AGENT_DATA_DIR
 $env:LIVE_AGENT_DATA_DIR = $TempDataDir
 
 try {
     python -m pytest -q server/tests --cov=server --cov-report=term
     if (-not $?) { Write-Host "❌ Pytest 测试未通过或覆盖率未达标" -ForegroundColor Red; exit 1 }
 } finally {
+    if ($null -ne $PreviousDataDir) {
+        $env:LIVE_AGENT_DATA_DIR = $PreviousDataDir
+    } else {
+        Remove-Item Env:\LIVE_AGENT_DATA_DIR -ErrorAction SilentlyContinue
+    }
     if (Test-Path $TempDataDir) {
         Remove-Item -Recurse -Force $TempDataDir -ErrorAction SilentlyContinue
     }

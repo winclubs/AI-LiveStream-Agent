@@ -1256,32 +1256,34 @@ def _wmi_gpu_probe() -> dict:
     _GPU_PROBE_CACHE["wmi_checked"] = True
     _GPU_PROBE_CACHE["wmi_info"] = {"gpu_name": None, "vram_total_gb": 0.0}
     try:
-        ps_script = (
-            "Get-CimInstance Win32_VideoController | "
-            "Where-Object { $_.Name -and $_.Name -notmatch "
-            "'Oray|IddDriver|Virtual|Basic Display|Microsoft 基本显示|Remote' } | "
-            "Sort-Object AdapterRAM -Descending | "
-            "Select-Object -First 1 Name, AdapterRAM | ConvertTo-Json -Compress"
-        )
+        ps_cmd = "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion | ConvertTo-Json"
         out = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_script],
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
             capture_output=True, text=True, timeout=8
         )
         if out.returncode == 0 and out.stdout.strip():
-            data = json.loads(out.stdout)
-            if isinstance(data, list):
-                data = data[0] if data else {}
-            name = (data.get("Name") or "").strip()
-            if name:
-                info = {"gpu_name": name, "vram_total_gb": 0.0}
-                ram = data.get("AdapterRAM") or 0
-                # AdapterRAM 为 uint32，>4GB 显存会溢出误报，仅在合理范围使用
-                if 0 < ram <= 4 * 1024 ** 3:
-                    info["vram_total_gb"] = round(ram / 1024 ** 3, 2)
+            raw_data = json.loads(out.stdout)
+            items = raw_data if isinstance(raw_data, list) else [raw_data]
+            ignore_keywords = {"oray", "virtual", "basic display", "idddriver", "remote", "microsoft 基本显示"}
+            valid_gpus = []
+            for item in items:
+                name = (item.get("Name") or "").strip()
+                if not name or any(k in name.lower() for k in ignore_keywords):
+                    continue
+                ram = item.get("AdapterRAM") or 0
+                valid_gpus.append((ram, name))
+
+            if valid_gpus:
+                valid_gpus.sort(key=lambda x: x[0], reverse=True)
+                best_ram, best_name = valid_gpus[0]
+                info = {"gpu_name": best_name, "vram_total_gb": 0.0}
+                if 0 < best_ram <= 4 * (1024 ** 3):
+                    info["vram_total_gb"] = round(best_ram / (1024 ** 3), 2)
                 _GPU_PROBE_CACHE["wmi_info"] = info
     except Exception:
         pass
     return _GPU_PROBE_CACHE["wmi_info"]
+
 
 
 def _probe_gpu() -> dict:

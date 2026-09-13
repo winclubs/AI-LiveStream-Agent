@@ -173,7 +173,7 @@ async def serve_console():
             from server.static.builder import build_index_html
             build_index_html()
         except Exception:
-            pass
+            logger.exception("控制台 index.html 模板合成失败，继续返回现有静态产物")
     return FileResponse(index_file)
 
 @app.get("/static-file")
