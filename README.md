@@ -10,7 +10,8 @@
 - 测试依赖：`python -m pip install -r server/requirements-test.txt`
 - 可选媒体能力：见 `server/requirements-optional.txt`
 
-桌面安装包当前**不内置 Python**。Electron 启动时会逐项核对 Python 版本、架构、核心依赖精确版本和 `server.app` 导入结果；预检失败时不会创建正常控制台窗口。
+桌面端支持**可选内置便携版 Python (3.12.10)**（通过 `scripts/build_portable_python.py` 构建并置于 `apps/desktop-ui/resources/python/` 目录下）；未打包内置环境时，Electron 启动时会自动平滑回退并逐项核对系统 Python 版本、架构、核心依赖精确版本和 `server.app` 导入结果；预检失败时不会创建正常控制台窗口。
+
 
 ## 生产部署与文档导航
 
@@ -64,7 +65,18 @@ python scripts/restore_data.py --backup "G:\backups\before-upgrade" --data-dir "
 恢复会校验 manifest、SHA-256 与 SQLite 完整性，并保留 `data.rollback-<时间>`。Windows DPAPI 保护的主密钥只承诺原机器、原 Windows 用户恢复。升级与回滚步骤见 [docs/operations.md](docs/operations.md)。
 
 ## 质量检查
+ 
+推荐使用统一检查脚本，一键完成语法编译、代码风格、类型检查、前端解析与覆盖率验证：
+ 
+```powershell
+# Windows PowerShell 运行：
+powershell .\scripts\check.ps1
 
+# 或跨平台 Python 运行：
+python scripts/check.py
+```
+
+也可手动分步执行：
 ```powershell
 python -m compileall -q launcher.py scripts server
 python -m ruff check launcher.py scripts server
@@ -74,5 +86,6 @@ node --check server/static/js/console.js
 $env:LIVE_AGENT_DATA_DIR = Join-Path $env:TEMP ('ai-live-agent-test-' + [guid]::NewGuid().ToString('N'))
 python -m pytest -q server/tests --cov=server --cov-branch
 ```
+
 
 测试和本机验收不得调用收费 API 或真实直播平台；外部 LLM、TTS、OBS/直播工作台能力使用 mock、本地降级或单独外部验收。
