@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90" width="160" height="90">
+  <rect width="160" height="90" rx="8" fill="#0B1120" stroke="#334155" stroke-width="1.5"/>
+  <rect x="12" y="16" width="38" height="38" rx="6" fill="#1E293B" stroke="#2DD4A0" stroke-width="1.5"/>
+  <text x="31" y="32" fill="#2DD4A0" font-size="10" font-weight="700" text-anchor="middle">GPU</text>
+  <text x="31" y="44" fill="#94A3B8" font-size="7" text-anchor="middle">16GB+</text>
+  <path d="M 52 35 L 70 35" stroke="#2DD4A0" stroke-width="1.5" stroke-dasharray="2 2"/>
+  <rect x="72" y="16" width="76" height="58" rx="6" fill="#0F172A" stroke="#2DD4A0" stroke-width="1.5"/>
+  <text x="110" y="32" fill="#F8FAFC" font-size="10" font-weight="700" text-anchor="middle">全本地离线</text>
+  <text x="110" y="46" fill="#64748B" font-size="8" text-anchor="middle">Ollama + CosyVoice</text>
+  <text x="110" y="58" fill="#2DD4A0" font-size="7" font-weight="600" text-anchor="middle">0云端成本 · 100%私密</text>
+</svg>

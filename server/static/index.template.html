@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-LiveStream-Agent · 直播控制中枢</title>
+  <link rel="icon" type="image/svg+xml" href="/static/svg/favicon.svg">
+  <link rel="stylesheet" href="/static/css/console.css?v=1.9.1">
+  <style>
+    /* 强制大模型生态选择卡片横向一排 8 列 (覆盖 Qwen, DeepSeek, MiniMax, Kimi, GLM, Gemini, ChatGPT, 自定义) */
+    .llm-ecosystem-grid {
+      display: grid !important;
+      grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
+      gap: 10px !important;
+      margin-bottom: 22px !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+    }
+    @media (max-width: 1350px) {
+      .llm-ecosystem-grid {
+        grid-template-columns: repeat(8, minmax(110px, 1fr)) !important;
+        overflow-x: auto !important;
+        padding-bottom: 8px !important;
+      }
+    }
+    .llm-provider-card {
+      background: rgba(18, 24, 38, 0.75) !important;
+      border: 1.5px solid rgba(148, 163, 184, 0.18) !important;
+      border-radius: 10px !important;
+      padding: 16px 10px 14px 10px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      text-align: center !important;
+      cursor: pointer !important;
+      box-sizing: border-box !important;
+      -webkit-user-select: none !important;
+      user-select: none !important;
+    }
+    .llm-provider-card.selected {
+      border-color: #10B981 !important;
+      background: rgba(16, 185, 129, 0.09) !important;
+      box-shadow: 0 0 0 1.5px #10B981, 0 8px 24px rgba(16, 185, 129, 0.2) !important;
+    }
+    .llm-provider-logo {
+      width: 44px !important;
+      height: 44px !important;
+      margin: 0 auto 10px auto !important;
+      border-radius: 50% !important;
+      padding: 6px !important;
+      background: #090e17 !important;
+      border: 1px solid rgba(148, 163, 184, 0.25) !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+      object-fit: contain !important;
+      display: block !important;
+    }
+    .llm-provider-name {
+      font-size: 13px !important;
+      font-weight: 700 !important;
+      color: #FFFFFF !important;
+      margin-bottom: 4px !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      width: 100% !important;
+    }
+    .llm-provider-tagline {
+      font-size: 11px !important;
+      color: #94A3B8 !important;
+      line-height: 1.35 !important;
+      display: -webkit-box !important;
+      -webkit-line-clamp: 2 !important;
+      -webkit-box-orient: vertical !important;
+      overflow: hidden !important;
+      height: 30px !important;
+    }
+    /* 已配置模型横向卡片列表 */
+    .configured-llm-list {
+      display: grid !important;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)) !important;
+      gap: 14px !important;
+      margin-top: 14px !important;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============ 顶部状态栏 ============ -->
+  <!-- INCLUDE: components/header.html -->
+
+  <!-- ============ 主布局 ============ -->
+  <div class="main-layout">
+
+    <!-- 左侧导航 -->
+    <!-- INCLUDE: components/sidebar.html -->
+
+    <!-- ============ 中央舞台 ============ -->
+    <main class="center-stage">
+
+      <!-- ===== 选项卡 0: 开播向导 ===== -->
+      <!-- INCLUDE: components/tab_wizard.html -->
+
+      <!-- INCLUDE: components/tab_live.html -->
+
+      <!-- INCLUDE: components/tab_anchors.html -->
+
+      <!-- INCLUDE: components/tab_voices.html -->
+
+      <!-- INCLUDE: components/tab_roles.html -->
+
+      <!-- INCLUDE: components/tab_products.html -->
+
+      <!-- INCLUDE: components/tab_guardrails.html -->
+
+      <!-- INCLUDE: components/tab_settings.html -->
+
+      <!-- INCLUDE: components/tab_knowledge.html -->
+
+    </main>
+  </div>
+
+  <!-- ============ 开播前检查报告弹窗 ============ -->
+  <!-- INCLUDE: components/modal_preflight.html -->
+
+  <script src="/static/js/console.js?v=1.9.4"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="cosyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6A00"/>
+      <stop offset="100%" stop-color="#FF9500"/>
+    </linearGradient>
+  </defs>
+  <circle cx="24" cy="24" r="23" fill="#0c1017" stroke="rgba(255,106,0,0.35)" stroke-width="1.5"/>
+  <!-- 阿里声学 CosyVoice 声波跳动与克隆回环 -->
+  <g fill="url(#cosyGrad)">
+    <rect x="11" y="20" width="3.5" height="8" rx="1.75"/>
+    <rect x="17" y="14" width="3.5" height="20" rx="1.75"/>
+    <rect x="23" y="9" width="3.5" height="30" rx="1.75"/>
+    <rect x="29" y="15" width="3.5" height="18" rx="1.75"/>
+    <rect x="35" y="21" width="3.5" height="6" rx="1.75"/>
+  </g>
+  <circle cx="24.75" cy="24" r="15" fill="none" stroke="#FF9500" stroke-width="1.2" stroke-dasharray="2 3" opacity="0.4"/>
+</svg>

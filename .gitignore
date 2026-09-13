@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage.xml
+v/
+
+
+# Local runtime data
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+logs/
+backups/
+*.rollback-*/
+*.restore-*/
+*.part
+
+# Node / Electron / Build
+node_modules/
+**/node_modules/
+release/
+**/release/
+dist/
+**/dist/
+build/
+**/build/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Portable Python runtime build artifact
+apps/desktop-ui/resources/
+apps/desktop-ui/resources/python/

@@ -1,0 +1,31 @@
+      <div class="tab-content" id="tab-roles">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+              主播人设与 AI 约束提示词编辑
+            </span>
+          </div>
+          <p class="page-intro">
+            四大核心角色：<strong>带货主播</strong>（促单逼单）、<strong>娱乐主播</strong>（逗梗陪伴）、<strong>专业专家</strong>（咨询法理前置免责）、<strong>闲聊扯淡</strong>（唠嗑搭子）。
+            点击卡片选择要编辑的主播，修改人设与话术红线后保存。
+            <strong style="color: var(--red);">直播进行中禁止切换角色。</strong>
+          </p>
+          <label class="form-label">编辑目标角色（点击卡片选择）</label>
+          <div id="role-cards" class="grid-4" style="margin-bottom: 20px;"></div>
+          <label class="form-label" for="role-prompt-editor">角色 System Prompt（人设 + 话题约束红线）</label>
+          <textarea id="role-prompt-editor" class="form-control" rows="8" style="font-size: 12.5px;" title="角色 System Prompt（人设 + 话题约束红线）" aria-label="角色 System Prompt（人设 + 话题约束红线）"></textarea>
+          <div id="role-tips-box" style="margin-top: 14px;"></div>
+          <div style="display: flex; gap: 12px; margin-top: 18px; align-items: center;">
+            <button class="btn btn-primary" onclick="saveRolePrompt()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              保存人设修改
+            </button>
+            <button class="btn" id="btn-activate-role" onclick="activateRole()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              激活为当前直播角色
+            </button>
+            <span style="font-size: 12px; color: var(--text-muted);" id="role-save-status"></span>
+          </div>
+        </div>
+      </div>

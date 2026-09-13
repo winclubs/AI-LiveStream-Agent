@@ -1,0 +1,58 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
+      LIVE_AGENT_DATA_DIR: ${{ runner.temp }}/ai-live-agent-data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/requirements-test.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install exact test dependencies
+        run: python -m pip install -r server/requirements-test.txt
+      - name: Validate desktop lockfile
+        run: npm ci --prefix apps/desktop-ui --ignore-scripts
+      - name: Validate external Python runtime contract
+        run: python scripts/runtime_preflight.py
+      - name: Python syntax and application import
+        run: |
+          python -m compileall -q launcher.py scripts server
+          python -c "from server.app import app; assert app is not None"
+      - name: Lint with Ruff
+        run: |
+          python -m pip install ruff
+          python -m ruff check launcher.py scripts server
+      - name: Type check with mypy
+        run: |
+          python -m pip install mypy
+          python -m mypy server/core/queue/priority_queue.py server/core/cpu_worker.py
+      - name: JavaScript syntax
+        run: |
+          node --check apps/desktop-ui/main.js
+          node --check server/static/js/console.js
+      - name: Collect tests
+        run: python -m pytest --collect-only -q server/tests
+      - name: Test with branch coverage
+        run: python -m pytest -q server/tests --cov=server --cov-branch --cov-report=term-missing --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage.xml
+          if-no-files-found: ignore

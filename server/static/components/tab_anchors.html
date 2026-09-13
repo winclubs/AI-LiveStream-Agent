@@ -1,0 +1,51 @@
+      <div class="tab-content" id="tab-anchors">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              主播档案管理
+              <span id="anchor-edit-hint" style="font-size:12px;color:var(--amber);font-weight:500;"></span>
+            </span>
+          </div>
+          <div class="grid-2" style="margin-bottom: 16px;">
+            <div>
+              <label class="form-label" for="anchor-name">主播姓名 <span style="color:var(--red)">*</span></label>
+              <input type="text" id="anchor-name" class="form-control" placeholder="如：金牌带货推荐官·艾米" title="主播姓名" aria-label="主播姓名">
+            </div>
+            <div>
+              <label class="form-label" for="anchor-voice">绑定音色</label>
+              <select id="anchor-voice" class="form-control" title="绑定音色" aria-label="绑定音色"></select>
+            </div>
+          </div>
+          <label class="form-label" for="anchor-remark">备注信息</label>
+          <input type="text" id="anchor-remark" class="form-control" placeholder="如：主打美妆个护品类，风格热情高亢" title="备注信息" aria-label="备注信息">
+          <div class="grid-4" style="margin-top: 16px;">
+            <div><label class="form-label" for="anchor-photo-portrait">形象照（正面）</label><input type="file" id="anchor-photo-portrait" class="form-control" accept="image/*" title="形象照（正面）" aria-label="形象照（正面）"></div>
+            <div><label class="form-label" for="anchor-photo-full_body">全身照</label><input type="file" id="anchor-photo-full_body" class="form-control" accept="image/*" title="全身照" aria-label="全身照"></div>
+            <div><label class="form-label" for="anchor-photo-half_body">半身照</label><input type="file" id="anchor-photo-half_body" class="form-control" accept="image/*" title="半身照" aria-label="半身照"></div>
+            <div><label class="form-label" for="anchor-photo-side">侧面照</label><input type="file" id="anchor-photo-side" class="form-control" accept="image/*" title="侧面照" aria-label="侧面照"></div>
+          </div>
+          <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button class="btn btn-primary" onclick="submitAnchor()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              保存主播档案
+            </button>
+            <button class="btn" id="anchor-reset-btn" onclick="resetAnchorForm()" style="display:none;">取消编辑</button>
+            <input type="hidden" id="anchor-edit-id" value="">
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">全部主播档案</span>
+            <button class="btn btn-sm" onclick="loadAnchors()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              刷新
+            </button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>姓名</th><th>绑定音色</th><th>照片</th><th>备注</th><th>操作</th></tr></thead>
+            <tbody id="anchors-tbody"></tbody>
+          </table>
+        </div>
+      </div>

@@ -1,0 +1,12 @@
+# 可选媒体、设备和文档能力；缺失时应用按功能降级
+# 不要与 requirements-test.txt 的 opencv-python-headless 安装到同一环境。
+opencv-python==4.12.0.88
+pyvirtualcam==0.15.0
+Pillow==11.3.0
+pypdf==6.0.0
+python-docx==1.2.0
+openpyxl==3.1.5
+onnxruntime==1.27.0
+soundfile==0.13.1
+mediapipe==0.10.21
+sounddevice==0.5.2

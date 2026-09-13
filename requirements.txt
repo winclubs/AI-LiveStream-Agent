@@ -1,0 +1,2 @@
+# 根目录依赖快速入口，指向服务端核心依赖
+-r server/requirements.txt

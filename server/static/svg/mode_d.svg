@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90" width="160" height="90">
+  <rect width="160" height="90" rx="8" fill="#0B1120" stroke="#334155" stroke-width="1.5"/>
+  <rect x="12" y="16" width="38" height="38" rx="6" fill="#1E293B" stroke="#A78BFA" stroke-width="1.5"/>
+  <text x="31" y="32" fill="#A78BFA" font-size="10" font-weight="700" text-anchor="middle">OFFICE</text>
+  <text x="31" y="44" fill="#94A3B8" font-size="7" text-anchor="middle">集成显卡</text>
+  <path d="M 52 35 L 70 35" stroke="#A78BFA" stroke-width="1.5" stroke-dasharray="2 2"/>
+  <rect x="72" y="16" width="76" height="58" rx="6" fill="#0F172A" stroke="#A78BFA" stroke-width="1.5"/>
+  <text x="110" y="32" fill="#F8FAFC" font-size="10" font-weight="700" text-anchor="middle">轻量免显卡</text>
+  <text x="110" y="46" fill="#64748B" font-size="8" text-anchor="middle">EdgeTTS + 呼吸静图</text>
+  <text x="110" y="58" fill="#A78BFA" font-size="7" font-weight="600" text-anchor="middle">0门槛 · 任意老旧电脑</text>
+</svg>

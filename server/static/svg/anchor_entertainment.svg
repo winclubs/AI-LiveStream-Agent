@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <!-- 背景墨绿电光黑渐变 -->
+    <linearGradient id="micBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064E3B"/>
+      <stop offset="100%" stop-color="#022018"/>
+    </linearGradient>
+    <!-- 麦克风金属网头渐变 -->
+    <linearGradient id="micHead" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E6FFFA"/>
+      <stop offset="35%" stop-color="#2DD4A0"/>
+      <stop offset="70%" stop-color="#0D9488"/>
+      <stop offset="100%" stop-color="#042F2E"/>
+    </linearGradient>
+    <!-- 麦柄渐变 -->
+    <linearGradient id="micBody" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1F2937"/>
+      <stop offset="40%" stop-color="#374151"/>
+      <stop offset="70%" stop-color="#4B5563"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <!-- 银色金属环渐变 -->
+    <linearGradient id="metalRing" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#CBD5E1"/>
+      <stop offset="50%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#94A3B8"/>
+    </linearGradient>
+    <!-- 阴影滤镜 -->
+    <filter id="micGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#2DD4A0" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- 外圆与背景 -->
+  <circle cx="60" cy="60" r="56" fill="url(#micBg)" stroke="#2DD4A0" stroke-width="2"/>
+  <circle cx="60" cy="60" r="51" fill="none" stroke="#2DD4A0" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.4"/>
+
+  <!-- 声音扩散波纹弧线 (左右环绕) -->
+  <path d="M 36 34 A 32 32 0 0 0 36 68" fill="none" stroke="#2DD4A0" stroke-width="1.8" stroke-linecap="round" opacity="0.8"/>
+  <path d="M 28 28 A 44 44 0 0 0 28 74" fill="none" stroke="#2DD4A0" stroke-width="1.2" stroke-linecap="round" stroke-dasharray="3 2" opacity="0.5"/>
+  <path d="M 84 34 A 32 32 0 0 1 84 68" fill="none" stroke="#2DD4A0" stroke-width="1.8" stroke-linecap="round" opacity="0.8"/>
+  <path d="M 92 28 A 44 44 0 0 1 92 74" fill="none" stroke="#2DD4A0" stroke-width="1.2" stroke-linecap="round" stroke-dasharray="3 2" opacity="0.5"/>
+
+  <!-- 音符/星芒装饰 -->
+  <polygon points="78,24 80,27 83,27 81,29 82,32 79,30 76,32 77,29 75,27 78,27" fill="#FDE047" opacity="0.9"/>
+  <circle cx="38" cy="24" r="1.5" fill="#2DD4A0"/>
+
+  <!-- 麦克风主体 -->
+  <g filter="url(#micGlow)">
+    <!-- 麦柄底管 -->
+    <path d="M 54 62 L 52 86 L 68 86 L 66 62 Z" fill="url(#micBody)"/>
+    <!-- 麦柄底部接头 -->
+    <rect x="54" y="86" width="12" height="4" rx="1.5" fill="url(#metalRing)"/>
+    <line x1="57" y1="88" x2="63" y2="88" stroke="#111827" stroke-width="1"/>
+
+    <!-- 金属卡环 -->
+    <rect x="51" y="59" width="18" height="4.5" rx="2" fill="url(#metalRing)"/>
+
+    <!-- 麦克风圆网头 -->
+    <ellipse cx="60" cy="45" rx="16" ry="18" fill="url(#micHead)"/>
+    <!-- 保护外框与网格细节 -->
+    <ellipse cx="60" cy="45" rx="16" ry="18" fill="none" stroke="#134E4A" stroke-width="1.2"/>
+    <!-- 中间金属箍带 -->
+    <line x1="44.5" y1="45" x2="75.5" y2="45" stroke="#E6FFFA" stroke-width="2"/>
+    <!-- 竖向拱形金属条 -->
+    <path d="M 52 28 C 52 38, 52 52, 52 62" fill="none" stroke="#134E4A" stroke-width="1" opacity="0.7"/>
+    <path d="M 68 28 C 68 38, 68 52, 68 62" fill="none" stroke="#134E4A" stroke-width="1" opacity="0.7"/>
+    <!-- 横向网纹线 -->
+    <path d="M 48 37 Q 60 39 72 37" fill="none" stroke="#E6FFFA" stroke-width="0.8" opacity="0.5"/>
+    <path d="M 48 53 Q 60 55 72 53" fill="none" stroke="#E6FFFA" stroke-width="0.8" opacity="0.5"/>
+    <!-- 镜面高光弧 -->
+    <path d="M 50 34 C 54 30, 64 30, 68 34" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  </g>
+
+  <!-- 底部标签 -->
+  <rect x="25" y="96" width="70" height="18" rx="9" fill="#18181B" stroke="#2DD4A0" stroke-width="1.2"/>
+  <text x="60" y="108" fill="#2DD4A0" font-family="-apple-system, sans-serif" font-size="9" font-weight="700" text-anchor="middle">元气娱乐·娜娜</text>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0078D7"/>
+      <stop offset="100%" stop-color="#00C7B7"/>
+    </linearGradient>
+  </defs>
+  <circle cx="24" cy="24" r="23" fill="#0c1017" stroke="rgba(0,199,183,0.3)" stroke-width="1.5"/>
+  <!-- Microsoft Edge 官方旋转海浪弧线 -->
+  <path d="M24 10C16.27 10 10 16.27 10 24C10 31.73 16.27 38 24 38C29.6 38 34.43 34.72 36.68 30C35.08 30.64 33.34 31 31.5 31C24.6 31 19 25.4 19 18.5C19 15.35 20.17 12.47 22.1 10.25C22.72 10.09 23.35 10 24 10Z" fill="url(#edgeGrad)"/>
+  <path d="M24 18C28.42 18 32 21.58 32 26C32 30.42 28.42 34 24 34C20.69 34 17.86 31.99 16.66 29.1C18.42 29.67 20.29 30 22.25 30C27.22 30 31.25 25.97 31.25 21C31.25 19.86 31.03 18.77 30.64 17.77C28.72 17.88 26.5 18 24 18Z" fill="#22D3EE" opacity="0.9"/>
+</svg>

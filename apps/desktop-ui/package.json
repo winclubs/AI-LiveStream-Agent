@@ -1,0 +1,76 @@
+{
+  "name": "ai-livestream-agent-desktop",
+  "productName": "AI-LiveStream-Agent 专业版",
+  "version": "1.8.0",
+  "description": "AI 互动直播系统桌面控制台 (Electron 桌面壳 + 本地 Python 引擎托管)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --dir",
+    "dist:mac": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.ailive.agent",
+    "productName": "AI-LiveStream-Agent",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/python",
+        "to": "python"
+      },
+      {
+        "from": "../../server",
+        "to": "server"
+      },
+      {
+        "from": "../../scripts",
+        "to": "scripts"
+      },
+      {
+        "from": "../../launcher.py",
+        "to": "launcher.py"
+      },
+      {
+        "from": "../../version.json",
+        "to": "version.json"
+      },
+      {
+        "from": "../../README.md",
+        "to": "README.md"
+      },
+      {
+        "from": "../../.env.example",
+        "to": ".env.example"
+      },
+      {
+        "from": "../../docs",
+        "to": "docs"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

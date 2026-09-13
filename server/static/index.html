@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-LiveStream-Agent · 直播控制中枢</title>
+  <link rel="icon" type="image/svg+xml" href="/static/svg/favicon.svg">
+  <link rel="stylesheet" href="/static/css/console.css?v=1.9.1">
+  <style>
+    /* 强制大模型生态选择卡片横向一排 8 列 (覆盖 Qwen, DeepSeek, MiniMax, Kimi, GLM, Gemini, ChatGPT, 自定义) */
+    .llm-ecosystem-grid {
+      display: grid !important;
+      grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
+      gap: 10px !important;
+      margin-bottom: 22px !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+    }
+    @media (max-width: 1350px) {
+      .llm-ecosystem-grid {
+        grid-template-columns: repeat(8, minmax(110px, 1fr)) !important;
+        overflow-x: auto !important;
+        padding-bottom: 8px !important;
+      }
+    }
+    .llm-provider-card {
+      background: rgba(18, 24, 38, 0.75) !important;
+      border: 1.5px solid rgba(148, 163, 184, 0.18) !important;
+      border-radius: 10px !important;
+      padding: 16px 10px 14px 10px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      text-align: center !important;
+      cursor: pointer !important;
+      box-sizing: border-box !important;
+      -webkit-user-select: none !important;
+      user-select: none !important;
+    }
+    .llm-provider-card.selected {
+      border-color: #10B981 !important;
+      background: rgba(16, 185, 129, 0.09) !important;
+      box-shadow: 0 0 0 1.5px #10B981, 0 8px 24px rgba(16, 185, 129, 0.2) !important;
+    }
+    .llm-provider-logo {
+      width: 44px !important;
+      height: 44px !important;
+      margin: 0 auto 10px auto !important;
+      border-radius: 50% !important;
+      padding: 6px !important;
+      background: #090e17 !important;
+      border: 1px solid rgba(148, 163, 184, 0.25) !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+      object-fit: contain !important;
+      display: block !important;
+    }
+    .llm-provider-name {
+      font-size: 13px !important;
+      font-weight: 700 !important;
+      color: #FFFFFF !important;
+      margin-bottom: 4px !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      width: 100% !important;
+    }
+    .llm-provider-tagline {
+      font-size: 11px !important;
+      color: #94A3B8 !important;
+      line-height: 1.35 !important;
+      display: -webkit-box !important;
+      -webkit-line-clamp: 2 !important;
+      -webkit-box-orient: vertical !important;
+      overflow: hidden !important;
+      height: 30px !important;
+    }
+    /* 已配置模型横向卡片列表 */
+    .configured-llm-list {
+      display: grid !important;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)) !important;
+      gap: 14px !important;
+      margin-top: 14px !important;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============ 顶部状态栏 ============ -->
+    <header class="top-header">
+    <div class="brand-title">
+      <span>
+        <svg class="icon-lg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+        AI-LiveStream-Agent
+      </span>
+      <span class="brand-badge">GPT-6 ASTRA · FULL-DUPLEX</span>
+      <span id="current-mode-badge" class="brand-badge green" style="display:none;"></span>
+    </div>
+    <div class="header-status-bar">
+      <div class="status-indicator">
+        <span class="status-dot" id="ws-status-dot"></span>
+        <span id="ws-status-text">连接信令中...</span>
+      </div>
+    </div>
+  </header>
+
+
+  <!-- ============ 主布局 ============ -->
+  <div class="main-layout">
+
+    <!-- 左侧导航 -->
+        <aside class="sidebar">
+      <div class="nav-item active" data-tab="wizard">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+        <span>开播向导</span>
+      </div>
+      <div class="nav-item" data-tab="live">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="13" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+        <span>直播大屏</span>
+      </div>
+      <div class="nav-item" data-tab="anchors">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>主播管理</span>
+      </div>
+      <div class="nav-item" data-tab="voices">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <span>TTS配置</span>
+      </div>
+      <div class="nav-item" data-tab="roles">
+        <svg class="icon" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+        <span>主播设定</span>
+      </div>
+      <div class="nav-item" data-tab="products">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        <span>商品管理</span>
+      </div>
+      <div class="nav-item" data-tab="guardrails">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>违禁词汇</span>
+      </div>
+      <div class="nav-item" data-tab="knowledge">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>
+        <span>知识库</span>
+      </div>
+      <div class="nav-item" data-tab="settings">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+        <span>云端模型</span>
+      </div>
+    </aside>
+
+
+    <!-- ============ 中央舞台 ============ -->
+    <main class="center-stage">
+
+      <!-- ===== 选项卡 0: 开播向导 ===== -->
+            <div class="tab-content active" id="tab-wizard">
+
+        <!-- 硬件配置概览 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+              当前电脑硬件配置
+            </span>
+            <span id="hw-panel-tier-badge" class="brand-badge green">推荐档位检测中...</span>
+          </div>
+          <div class="grid-4">
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/></svg>
+                显卡 GPU
+              </div>
+              <div class="hw-cell-value" id="hw-panel-gpu">检测中...</div>
+              <div class="hw-cell-sub" id="hw-panel-gpu-sub"></div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>
+                处理器 CPU
+              </div>
+              <div class="hw-cell-value" id="hw-panel-cpu">检测中...</div>
+              <div class="hw-cell-sub" id="hw-panel-cpu-sub"></div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="9" rx="1.5"/><line x1="6" y1="16" x2="6" y2="19"/><line x1="10" y1="16" x2="10" y2="19"/><line x1="14" y1="16" x2="14" y2="19"/><line x1="18" y1="16" x2="18" y2="19"/><line x1="7" y1="11" x2="7" y2="13"/><line x1="11" y1="11" x2="11" y2="13"/><line x1="15" y1="11" x2="15" y2="13"/><line x1="19" y1="11" x2="19" y2="13"/></svg>
+                内存 RAM
+              </div>
+              <div class="hw-cell-value" id="hw-panel-ram">检测中...</div>
+              <div class="hw-cell-sub" id="hw-panel-ram-sub"></div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                系统推荐
+              </div>
+              <div class="hw-cell-value" id="hw-panel-tier" style="color: var(--signal);">检测中...</div>
+              <div class="hw-cell-sub" id="hw-panel-tier-sub"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 直播必备软件信息 -->
+        <div class="panel-card" id="panel-software-prerequisites">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              直播必备软件信息
+            </span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="prereq-overall-badge" class="brand-badge green">检测中...</span>
+              <button class="btn btn-ghost btn-sm" id="btn-recheck-prereqs" title="重新检测必备软件" style="padding: 3px 8px; font-size: 11.5px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 12px; height: 12px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                重新检测
+              </button>
+            </div>
+          </div>
+
+          <div id="prereq-alert-banner" class="prereq-alert-banner warning" style="display:none;">
+            <div class="prereq-alert-icon">
+              <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div id="prereq-alert-text">
+              检测中...
+            </div>
+          </div>
+
+          <div class="prereq-list" id="prereq-cards-container">
+            <!-- 动态由 JS 渲染各软件清单行 -->
+            <div class="hw-cell" style="text-align: center; color: var(--text-muted); padding: 24px;">
+              正在探测推流生态与必备组件就绪状态...
+            </div>
+          </div>
+        </div>
+
+        <!-- 第一步：选择直播模式 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+              第一步 · 选择直播运行模式
+            </span>
+          </div>
+          <p class="page-intro">
+            请根据您电脑的硬件条件选择运行模式。<strong>系统已根据您的硬件配置自动推荐最合适的模式（可手动更改）</strong>。
+            选择后「云端模型」页将只呈现该模式所需的配置项。<strong style="color: var(--red);">直播进行中不可更改模式。</strong>
+          </p>
+          <div id="hw-recommend-banner" class="reco-banner" style="display:none; margin-bottom: 16px;">
+            <div class="reco-banner-title">
+              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+              已根据您的硬件配置自动选择推荐模式
+            </div>
+            <div class="reco-banner-body" id="hw-recommend-reason"></div>
+          </div>
+          <div id="mode-cards" class="grid-4"></div>
+        </div>
+
+        <!-- 第二步：选择主播角色 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              第二步 · 选择主播角色
+            </span>
+          </div>
+          <div id="wizard-role-cards" class="grid-4"></div>
+        </div>
+
+        <!-- 第三步：建议与约束提示词 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>
+              第三步 · 模式 × 角色专属建议与 AI 约束提示词
+            </span>
+          </div>
+          <div id="wizard-suggestion-box" style="margin-bottom: 16px;">
+            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.85;">请先完成上面两步选择，这里将给出针对性的运营建议与话术红线。</div>
+          </div>
+          <label class="form-label" for="wizard-theme">今日直播主题 <span style="font-weight:400;color:var(--text-muted);">（选择主播角色后自动推荐专属主题，AI 冷场时围绕主题找话题，可自由修改）</span></label>
+          <input type="text" id="wizard-theme" class="form-control" placeholder="选择主播角色后自动填充专属主题，也可自定义输入" title="今日直播主题" aria-label="今日直播主题">
+          <label class="form-label" for="wizard-constraint" style="margin-top: 16px;">AI 约束提示词 <span style="font-weight:400;color:var(--text-muted);">（可直接编辑，将写入主播人设生效）</span></label>
+          <textarea id="wizard-constraint" class="form-control" rows="4" placeholder="例如：禁止和用户讨论除'法律'之外的话题，要委婉拒绝用户。" title="AI 约束提示词" aria-label="AI 约束提示词"></textarea>
+          <div style="display: flex; gap: 12px; margin-top: 18px; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="completeWizard()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              完成配置并保存
+            </button>
+            <button class="btn" onclick="runPreflight({ auto: false })">
+              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              先做开播前检查
+            </button>
+            <span id="wizard-save-status" style="font-size: 12px; color: var(--text-muted);"></span>
+          </div>
+        </div>
+
+        <!-- 开播前检查报告（内嵌） -->
+        <div class="panel-card" style="display: none;" id="preflight-report-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><polyline points="9 14 11 16 15 12"/></svg>
+              开播前检查报告
+            </span>
+            <button class="btn btn-sm" onclick="runPreflight({ auto: false })">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              重新检查
+            </button>
+          </div>
+          <div id="preflight-report-body"></div>
+        </div>
+      </div>
+
+
+            <div class="tab-content" id="tab-live">
+
+        <!-- 运营参数看板 -->
+        <div id="live-stats-grid" class="grid-4">
+          <div class="stat-cell">
+            <div class="stat-cell-label">直播类型（模式）</div>
+            <div class="stat-cell-value" id="stat-mode">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-cell-label">直播是谁（主播）</div>
+            <div class="stat-cell-value" id="stat-anchor">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-cell-label">直播时长</div>
+            <div class="stat-cell-value" style="font-family: var(--font-mono);" id="stat-duration">00:00:00</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-cell-label">网络状态</div>
+            <div class="stat-cell-value" id="stat-network">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-cell-label">当前场观（最高）</div>
+            <div class="stat-cell-value num" style="color: var(--signal);" id="stat-viewers">0</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-cell-label">打赏收益</div>
+            <div class="stat-cell-value num" style="color: var(--amber);" id="stat-gift">¥0.00</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-cell-label">成交额 GMV</div>
+            <div class="stat-cell-value num" style="color: var(--sky);" id="stat-gmv">¥0.00</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-cell-label">弹幕量 / 违规拦截</div>
+            <div class="stat-cell-value num" id="stat-volume">0 / <span style="color: var(--red);">0</span></div>
+          </div>
+        </div>
+
+        <!-- 成交登记 -->
+        <div class="panel-card" style="display:flex; align-items:center; gap: 14px; flex-wrap: wrap;">
+          <span style="font-size: 13px; font-weight: 700; display:inline-flex; align-items:center; gap:8px;">
+            <svg class="icon" style="color: var(--amber);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="18"/></svg>
+            成交登记
+          </span>
+          <input type="number" id="order-amount" class="form-control" style="width: 150px;" placeholder="金额（元）" min="0.01" step="0.01" title="成交金额（元）" aria-label="成交金额（元）">
+          <input type="text" id="order-sku" class="form-control" style="width: 190px;" placeholder="商品 SKU（必填）" required title="商品 SKU" aria-label="商品 SKU">
+          <button class="btn btn-sm btn-primary" onclick="registerOrder()">登记成交 · 计入 GMV</button>
+          <span style="font-size: 12px; color: var(--text-muted);">观众在小黄车下单后，在此登记以累计成交额</span>
+        </div>
+
+        <!-- 数字人监视器 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title" style="gap: 12px;">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
+              数字人实时流式视窗
+              <span id="live-state-badge" class="badge-optional" style="font-weight: 600;">○ 待机未开播</span>
+            </span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <select id="live-platform-select" class="form-control" style="width: 128px; padding: 7px 8px; font-size: 12px;" title="选择直播平台" aria-label="选择直播平台">
+                <option value="bilibili">B站直播</option>
+                <option value="douyin">抖音直播</option>
+                <option value="relay">其他平台(中继)</option>
+              </select>
+              <input type="text" id="live-room-input" class="form-control" style="width: 160px; padding: 7px 11px; font-size: 12px;" placeholder="房间号/链接（留空仿真）" title="房间号或直播链接" aria-label="房间号或直播链接">
+              <button class="btn btn-sm" onclick="runPreflight({ auto: false })" title="开播前逐项检查模式/角色/AI/OBS/商品等开播条件">
+                <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                开播前检查
+              </button>
+              <button id="btn-toggle-live" class="btn btn-sm btn-primary" onclick="toggleLiveState()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                启动本地直播源
+              </button>
+            </div>
+          </div>
+
+          <div class="monitor-screen" style="position: relative; overflow: hidden; background: #000; min-height: 420px; display: flex; align-items: center; justify-content: center;">
+            <!-- 实时数字人视频流 / 待机图 -->
+            <img id="digital-human-video-feed" src="/static/svg/standby_monitor.svg" alt="数字人监视画面" style="width: 100%; height: 100%; max-height: 480px; object-fit: contain; transition: opacity 0.3s ease;">
+
+            <!-- 商品业务场景画层：仅表示控制台真实渲染，不冒充平台推流切镜 -->
+            <div id="coupon-overlay" class="coupon-overlay" style="display:none;">
+              <div id="coupon-overlay-title" class="coupon-overlay-title">限时优惠</div>
+              <div id="coupon-overlay-countdown" class="coupon-overlay-countdown">03:00</div>
+              <button type="button" class="scene-overlay-close" onclick="closeCouponOverlay()" aria-label="关闭优惠券画层">×</button>
+            </div>
+            <div id="product-scene-overlay" class="product-scene-overlay" style="display:none;">
+              <button type="button" class="scene-overlay-close" onclick="closeSceneOverlay()" aria-label="关闭商品画层">×</button>
+              <div id="scene-overlay-content" class="scene-overlay-content"></div>
+            </div>
+            
+            <!-- 顶部半透明浮动遥测栏 -->
+            <div style="position: absolute; top: 12px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: center; pointer-events: none;">
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="cam-status-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #fff;">摄像头状态检测中</span>
+                <span id="stream-fps-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #fff; font-family: var(--font-mono);">25.0 FPS</span>
+              </div>
+              <span id="stream-mode-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: var(--signal); font-family: var(--font-mono);">数字人渲染</span>
+            </div>
+
+            <div class="barge-in-badge" id="barge-in-badge">[抢占打断] P0 礼物感谢</div>
+            <div class="speaking-wave-box">
+              <span id="speaking-wave-text">语音驱动</span>
+              <div class="wave-bars">
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 弹幕瀑布流 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+              P0~P3 优先级弹幕互动瀑布流
+            </span>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-sm" onclick="sendMockDanmaku('danmaku')">模拟促单提问（P1）</button>
+              <button class="btn btn-sm btn-primary" onclick="sendMockDanmaku('gift')">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                模拟大额打赏（P0 打断）
+              </button>
+            </div>
+          </div>
+          <div class="danmaku-stream-box" id="danmaku-stream"></div>
+        </div>
+
+        <!-- 运营人工插播 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" style="color: var(--amber);" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              运营人工紧急插播（Barge-in 打断）
+            </span>
+          </div>
+          <p class="page-intro" style="margin-bottom: 14px;">
+            发生直播突发情况或需要紧急改口时，输入内容可<strong>瞬时打断当前正在发音的数字人</strong>，优先播报该话术。
+          </p>
+          <div style="display: flex; gap: 14px; align-items: flex-start;">
+            <textarea id="manual-speech-input" class="form-control" rows="3" style="flex: 1;" placeholder="输入插播话术，例如：宝子们不要着急，刚才网络有点卡顿，我们马上上专属大额优惠券！" title="紧急插播话术" aria-label="紧急插播话术"></textarea>
+            <button class="btn btn-primary" style="min-width: 170px; height: fit-content;" onclick="sendManualSpeech()">立即抢占打断并播报</button>
+          </div>
+        </div>
+      </div>
+
+
+            <div class="tab-content" id="tab-anchors">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              主播档案管理
+              <span id="anchor-edit-hint" style="font-size:12px;color:var(--amber);font-weight:500;"></span>
+            </span>
+          </div>
+          <div class="grid-2" style="margin-bottom: 16px;">
+            <div>
+              <label class="form-label" for="anchor-name">主播姓名 <span style="color:var(--red)">*</span></label>
+              <input type="text" id="anchor-name" class="form-control" placeholder="如：金牌带货推荐官·艾米" title="主播姓名" aria-label="主播姓名">
+            </div>
+            <div>
+              <label class="form-label" for="anchor-voice">绑定音色</label>
+              <select id="anchor-voice" class="form-control" title="绑定音色" aria-label="绑定音色"></select>
+            </div>
+          </div>
+          <label class="form-label" for="anchor-remark">备注信息</label>
+          <input type="text" id="anchor-remark" class="form-control" placeholder="如：主打美妆个护品类，风格热情高亢" title="备注信息" aria-label="备注信息">
+          <div class="grid-4" style="margin-top: 16px;">
+            <div><label class="form-label" for="anchor-photo-portrait">形象照（正面）</label><input type="file" id="anchor-photo-portrait" class="form-control" accept="image/*" title="形象照（正面）" aria-label="形象照（正面）"></div>
+            <div><label class="form-label" for="anchor-photo-full_body">全身照</label><input type="file" id="anchor-photo-full_body" class="form-control" accept="image/*" title="全身照" aria-label="全身照"></div>
+            <div><label class="form-label" for="anchor-photo-half_body">半身照</label><input type="file" id="anchor-photo-half_body" class="form-control" accept="image/*" title="半身照" aria-label="半身照"></div>
+            <div><label class="form-label" for="anchor-photo-side">侧面照</label><input type="file" id="anchor-photo-side" class="form-control" accept="image/*" title="侧面照" aria-label="侧面照"></div>
+          </div>
+          <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button class="btn btn-primary" onclick="submitAnchor()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              保存主播档案
+            </button>
+            <button class="btn" id="anchor-reset-btn" onclick="resetAnchorForm()" style="display:none;">取消编辑</button>
+            <input type="hidden" id="anchor-edit-id" value="">
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">全部主播档案</span>
+            <button class="btn btn-sm" onclick="loadAnchors()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              刷新
+            </button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>姓名</th><th>绑定音色</th><th>照片</th><th>备注</th><th>操作</th></tr></thead>
+            <tbody id="anchors-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+
+            <div class="tab-content" id="tab-voices">
+        <!-- 音频物理输出与虚拟声卡配置卡片 (规划 §7.1/§7.2) -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+              直播音频物理输出与虚拟声卡 (OBS 直连 · 防串音 AEC)
+            </span>
+            <span id="audio-device-badge" class="brand-badge green">正在检测设备...</span>
+          </div>
+          <div class="grid-2" style="align-items: flex-end; margin-bottom: 12px;">
+            <div>
+              <label class="form-label" for="audio-device-select">音频输出设备 / 虚拟声卡通道：</label>
+              <select id="audio-device-select" class="form-control" title="音频输出设备选择" aria-label="音频输出设备选择">
+                <option value="">系统默认音频播放设备</option>
+              </select>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-primary" onclick="saveAudioDeviceSelection()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                切换并应用该设备
+              </button>
+              <button class="btn btn-sm" onclick="loadAudioDevices()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                刷新设备
+              </button>
+            </div>
+          </div>
+          <div style="font-size: 12px; color: var(--text-dim); line-height: 1.6;">
+            💡 <strong>推流防串音提示</strong>：若使用 OBS Studio 推流，推荐选择虚拟声卡 <code>CABLE Input (VB-Audio Virtual Cable)</code>，并在 OBS 中添加“音频输入采集”抓取 <code>CABLE Output</code>，彻底消除麦克风啸叫与回声循环。
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              音色克隆工厂 · 上传声音 → 一键克隆 → 在线试听
+            </span>
+            <span id="voice-edit-hint" style="font-size:12px;color:var(--amber);font-weight:500;"></span>
+          </div>
+          <div class="grid-3" style="margin-bottom: 16px;">
+            <div>
+              <label class="form-label" for="voice-name">音色名称 <span style="color:var(--red)">*</span></label>
+              <input type="text" id="voice-name" class="form-control" placeholder="如：我的专属温柔女声" title="音色名称" aria-label="音色名称">
+            </div>
+            <div>
+              <label class="form-label" for="voice-file">声音样本（10 秒清晰人声）<span style="color:var(--red)">*</span></label>
+              <input type="file" id="voice-file" class="form-control" accept="audio/*" title="声音样本文件" aria-label="声音样本文件">
+            </div>
+            <div>
+              <label class="form-label" for="voice-speed">语速：<span id="voice-speed-val" style="font-family:var(--font-mono);">1.0x</span></label>
+              <input type="range" id="voice-speed" min="0.8" max="1.3" step="0.05" value="1.0" style="width: 100%; margin-top: 14px;" oninput="document.getElementById('voice-speed-val').innerText = this.value + 'x'" title="语速调节" aria-label="语速调节">
+            </div>
+          </div>
+          <div style="display: flex; gap: 12px;">
+            <button class="btn btn-primary" onclick="submitVoice()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              上传声音样本（自动克隆）
+            </button>
+            <button class="btn" id="voice-reset-btn" onclick="resetVoiceForm()" style="display:none;">取消编辑</button>
+            <input type="hidden" id="voice-edit-id" value="">
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">音色资产库</span>
+            <button class="btn btn-sm" onclick="loadVoiceTable()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              刷新
+            </button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>音色名称</th><th>语速</th><th>克隆状态</th><th>操作</th></tr></thead>
+            <tbody id="voices-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+
+            <div class="tab-content" id="tab-roles">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+              主播人设与 AI 约束提示词编辑
+            </span>
+          </div>
+          <p class="page-intro">
+            四大核心角色：<strong>带货主播</strong>（促单逼单）、<strong>娱乐主播</strong>（逗梗陪伴）、<strong>专业专家</strong>（咨询法理前置免责）、<strong>闲聊扯淡</strong>（唠嗑搭子）。
+            点击卡片选择要编辑的主播，修改人设与话术红线后保存。
+            <strong style="color: var(--red);">直播进行中禁止切换角色。</strong>
+          </p>
+          <label class="form-label">编辑目标角色（点击卡片选择）</label>
+          <div id="role-cards" class="grid-4" style="margin-bottom: 20px;"></div>
+          <label class="form-label" for="role-prompt-editor">角色 System Prompt（人设 + 话题约束红线）</label>
+          <textarea id="role-prompt-editor" class="form-control" rows="8" style="font-size: 12.5px;" title="角色 System Prompt（人设 + 话题约束红线）" aria-label="角色 System Prompt（人设 + 话题约束红线）"></textarea>
+          <div id="role-tips-box" style="margin-top: 14px;"></div>
+          <div style="display: flex; gap: 12px; margin-top: 18px; align-items: center;">
+            <button class="btn btn-primary" onclick="saveRolePrompt()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              保存人设修改
+            </button>
+            <button class="btn" id="btn-activate-role" onclick="activateRole()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              激活为当前直播角色
+            </button>
+            <span style="font-size: 12px; color: var(--text-muted);" id="role-save-status"></span>
+          </div>
+        </div>
+      </div>
+
+
+            <div class="tab-content" id="tab-products">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+              商品档案管理
+              <span id="product-edit-hint" style="font-size:12px;color:var(--amber);font-weight:500;"></span>
+            </span>
+          </div>
+          <div class="grid-3" style="margin-bottom: 16px;">
+            <div><label class="form-label" for="product-title">商品标题 <span style="color:var(--red)">*</span></label><input type="text" id="product-title" class="form-control" placeholder="如：2026秋冬加厚羊羔绒外套" title="商品标题" aria-label="商品标题"></div>
+            <div><label class="form-label" for="product-sku">SKU 编码 <span style="color:var(--red)">*</span></label><input type="text" id="product-sku" class="form-control" placeholder="如 SKU_001" title="SKU 编码" aria-label="SKU 编码"></div>
+            <div><label class="form-label" for="product-category">类目</label><input type="text" id="product-category" class="form-control" value="通用" title="类目" aria-label="类目"></div>
+            <div><label class="form-label" for="product-original-price">原价（元）</label><input type="number" id="product-original-price" class="form-control" value="0" min="0" step="0.01" title="原价（元）" aria-label="原价（元）"></div>
+            <div><label class="form-label" for="product-live-price">直播专享价（元）</label><input type="number" id="product-live-price" class="form-control" value="0" min="0" step="0.01" title="直播专享价（元）" aria-label="直播专享价（元）"></div>
+            <div><label class="form-label" for="product-stock">库存（件）</label><input type="number" id="product-stock" class="form-control" value="100" min="0" step="1" title="库存（件）" aria-label="库存（件）"></div>
+          </div>
+          <label class="form-label" for="product-description">商品描述</label>
+          <textarea id="product-description" class="form-control" rows="2" placeholder="材质、适用场景、售后等详细信息" title="商品描述" aria-label="商品描述"></textarea>
+          <div class="grid-2" style="margin-top: 14px;">
+            <div>
+              <label class="form-label" for="product-selling-points">核心卖点（每行一条）</label>
+              <textarea id="product-selling-points" class="form-control" rows="4" placeholder="90%羊毛\n轻盈保暖" title="核心卖点" aria-label="核心卖点"></textarea>
+            </div>
+            <div>
+              <label class="form-label" for="product-coupon-script">优惠话术</label>
+              <textarea id="product-coupon-script" class="form-control" rows="4" placeholder="领券后再减30元" title="优惠话术" aria-label="优惠话术"></textarea>
+            </div>
+            <div>
+              <label class="form-label" for="product-faq-data">常见问答（JSON 数组）</label>
+              <textarea id="product-faq-data" class="form-control" rows="5" placeholder='[{"question":"会不会扎？","answer":"内层亲肤"}]' title="常见问答" aria-label="常见问答"></textarea>
+            </div>
+            <div>
+              <label class="form-label" for="product-size-chart">尺码表（JSON 对象）</label>
+              <textarea id="product-size-chart" class="form-control" rows="5" placeholder='{"columns":["尺码","胸围"],"rows":[["M","104"]],"unit":"cm"}' title="尺码表" aria-label="尺码表"></textarea>
+            </div>
+          </div>
+          <label class="form-label" for="product-images" style="margin-top: 14px;">商品图片（可多选上传）</label>
+          <input type="file" id="product-images" class="form-control" accept="image/*" multiple title="商品图片" aria-label="商品图片">
+          <div id="product-image-previews" style="display:flex; gap:10px; margin-top:12px; flex-wrap: wrap;"></div>
+          <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button class="btn btn-primary" onclick="submitProduct()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              保存商品
+            </button>
+            <button class="btn" id="product-reset-btn" onclick="resetProductForm()" style="display:none;">取消编辑</button>
+            <input type="hidden" id="product-edit-id" value="">
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">全部商品</span>
+            <button class="btn btn-sm" onclick="loadProducts()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              刷新
+            </button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>SKU</th><th>标题</th><th>专享价</th><th>库存</th><th>图</th><th>描述</th><th>操作</th></tr></thead>
+            <tbody id="products-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+
+            <div class="tab-content" id="tab-guardrails">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              违禁词批量添加 <span style="font-weight:400;color:var(--text-muted);font-size:12px;">（全直播间 · 所有 AI 角色通用）</span>
+            </span>
+          </div>
+          <p class="page-intro">
+            目的：让主播在直播期间<strong>禁止说出</strong>列表中的词汇，避免平台违规。
+            多个违禁词请用<strong>英文逗号 ( , )</strong>隔开，可一次无限量添加。
+          </p>
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 18px; margin-bottom: 16px;">
+            <div>
+              <label class="form-label" for="batch-words">违禁词（英文逗号分隔）<span style="color:var(--red)">*</span></label>
+              <textarea id="batch-words" class="form-control" rows="3" placeholder="最好, 第一, 顶级, 国家级, 治愈, 根治" title="违禁词" aria-label="违禁词"></textarea>
+            </div>
+            <div>
+              <label class="form-label" for="batch-replacement">合规替换词</label>
+              <input type="text" id="batch-replacement" class="form-control" placeholder="如：深受大家喜爱" title="合规替换词" aria-label="合规替换词">
+              <div class="field-tip">留空替换词 = 整句阻断（AI 不说出该句）</div>
+              <label class="form-label" for="batch-category" style="margin-top: 12px;">分类</label>
+              <select id="batch-category" class="form-control" title="违禁词分类" aria-label="违禁词分类">
+                <option value="extreme">广告法极限词</option>
+                <option value="medical">医疗功效</option>
+                <option value="traffic">导流违规</option>
+                <option value="competitor">竞品贬低</option>
+                <option value="sensitive">敏感信息</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="submitBatchWords()">
+            <svg class="icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            添加违禁词
+          </button>
+          <span id="batch-words-status" style="font-size: 12px; color: var(--text-muted); margin-left: 12px;"></span>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">当前违禁词库 <span style="font-weight:400;color:var(--text-muted);font-size:12px;">（<span id="guardrail-count">0</span> 条 · 全角色通用）</span></span>
+            <button class="btn btn-sm" onclick="loadGuardrailWords()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              刷新
+            </button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>违禁词</th><th>分类</th><th>动作</th><th>合规替换词</th><th>操作</th></tr></thead>
+            <tbody id="guardrail-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">在线合规测试</span>
+          </div>
+          <div style="display: flex; gap: 12px; margin-bottom: 14px;">
+            <input type="text" id="sanitize-input" class="form-control" placeholder="输入测试文本，如：我们的大衣是全网第一好看，价格最好！" title="合规测试输入文本" aria-label="合规测试输入文本">
+            <button class="btn btn-primary" onclick="testSanitize()">测试拦截效果</button>
+          </div>
+          <div id="sanitize-result"></div>
+        </div>
+      </div>
+
+
+            <div class="tab-content" id="tab-settings">
+        <div class="panel-card" style="border: 1px solid rgba(45,212,160,0.35);">
+          <div style="display:flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <div>
+              <div style="display:inline-flex; align-items:center; gap:9px; font-weight: 700; font-size: 14px; color: var(--signal);">
+                <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                当前直播模式：<span id="settings-mode-name">未设置</span>
+              </div>
+              <div id="settings-mode-desc" class="field-tip" style="margin-top: 8px; font-size: 12.5px;">请先在【开播向导】中选择直播模式，此处将只呈现该模式所需的配置项。</div>
+            </div>
+            <button class="btn btn-sm" id="btn-goto-wizard" onclick="goWizard()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+              去完成开播向导
+            </button>
+          </div>
+        </div>
+
+        <!-- 云端大语言模型 (AI 思考大脑) 多生态选型与配置中心 -->
+        <div class="panel-card" style="border: 1.5px solid rgba(245, 158, 11, 0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+          <div class="panel-header" style="border-bottom: 1px solid rgba(245, 158, 11, 0.2); padding-bottom: 12px; margin-bottom: 16px;">
+            <span class="panel-title" style="color: #F59E0B; display: flex; align-items: center; gap: 8px;">
+              <svg class="icon" viewBox="0 0 24 24" style="stroke: #F59E0B;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+              云端大语言模型 (AI 主播思考大脑)
+            </span>
+            <span class="brand-badge gold">核心决策大脑</span>
+          </div>
+
+          <p class="page-intro" style="margin-bottom: 18px;">
+            AI 思考大脑负责<strong>深度理解直播间弹幕、智能检索知识库、高情商话术组织与逼单促单</strong>。
+            所有 API 密钥均由 <strong>AES-256-GCM 硬件级加密</strong>。支持配置多个模型，随时一键设为默认大脑。
+          </p>
+
+          <!-- 区域 1: 内置主流大模型品牌网格 (Logo + 名称) -->
+          <div style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <span>选择大模型品牌 (点击下方品牌即可配置)</span>
+            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">已内置 6 大主流模型生态</span>
+          </div>
+          <div id="llm-ecosystem-grid" class="llm-ecosystem-grid"></div>
+
+          <!-- 区域 2: 当前大模型配置编辑面板 (含获取模型 & 连通性测试) -->
+          <div id="llm-editor-box" class="llm-editor-box">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.12); padding-bottom: 12px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <img id="llm-editor-logo" src="/static/svg/model_deepseek.svg" alt="logo" style="width: 36px; height: 36px; border-radius: 50%;">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="llm-editor-title" style="font-size: 15px; font-weight: 700; color: var(--text-primary);">配置 DeepSeek 深度求索</span>
+                    <span id="llm-editor-badge" class="brand-badge green">高情商带货首选</span>
+                  </div>
+                  <div id="llm-editor-desc" style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">国产性价比标杆，逼单促单与弹幕互动极力推荐。</div>
+                </div>
+              </div>
+              <input type="hidden" id="llm-editor-provider" value="deepseek">
+              <input type="hidden" id="llm-editor-config-id" value="">
+              <!-- 存储当前选中的具体模型代号，未获取时为空，禁止虚假默认值 -->
+              <input type="hidden" id="llm-input-model" value="">
+            </div>
+
+            <!-- 第一行：服务商 API 接口地址 (Base URL):（输入框） -->
+            <div style="margin-bottom: 14px;">
+              <label class="form-label" for="llm-input-url">服务商 API 接口地址 (Base URL):</label>
+              <input type="text" id="llm-input-url" class="form-control" placeholder="https://api.deepseek.com/v1" title="服务商 API 接口地址 (Base URL)" aria-label="服务商 API 接口地址 (Base URL)">
+              <div id="llm-editor-url-pills" class="quick-pills-box" style="margin-top: 6px;"></div>
+            </div>
+
+            <!-- 第二行：API 访问密钥 (API Key - 硬件级 AES-256 加密):（输入框） -->
+            <div style="margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <label class="form-label" for="llm-input-key" style="margin-bottom: 0;">API 访问密钥 (API Key - 硬件级 AES-256 加密):</label>
+                <span id="llm-key-status-hint" style="font-size: 11px; color: var(--accent-emerald);">本地硬件级加密存储</span>
+              </div>
+              <div class="api-key-input-wrapper" style="margin-top: 6px;">
+                <input type="password" id="llm-input-key" class="form-control" style="padding-right: 42px;" placeholder="输入 sk-xxxx 密钥（若已配置过不修改请留空）" autocomplete="off" title="API 访问密钥 (API Key)" aria-label="API 访问密钥 (API Key)">
+                <button type="button" id="btn-toggle-key-eye" class="btn-toggle-eye" title="点击显示真实密钥明文" onclick="toggleLLMKeyVisibility()">
+                  <svg id="icon-eye-show" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- 第三行：获取模型、测试连通性 （两个按钮） -->
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+              <button type="button" class="btn btn-sm btn-primary" id="btn-fetch-models" onclick="handleFetchRemoteModels()" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                获取模型
+              </button>
+              <button type="button" class="btn btn-sm" id="btn-test-llm" onclick="handleTestLLMConnectivity()" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                测试连通性
+              </button>
+            </div>
+
+            <!-- 第四行：获取到X个模型 / 握手成功或者失败，延时 -->
+            <div id="llm-status-bar" class="llm-status-bar">
+              <div id="llm-models-count-status" style="color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                <span>获取状态: 尚未获取模型（请点击上方「获取模型」）</span>
+              </div>
+              <div id="llm-ping-latency-status" style="color: var(--text-muted); font-family: var(--font-mono); font-size: 12px;">
+                握手测试: 未测试
+              </div>
+            </div>
+            <div id="llm-test-result" style="display: none; margin-bottom: 12px;"></div>
+
+            <!-- 第五行：获取到的具体 模型 (未获取时绝对不塞入任何虚假数据) -->
+            <div style="margin-bottom: 6px;">
+              <div style="margin-bottom: 8px;">
+                <label class="form-label" style="margin-bottom: 0; font-weight: 600;">
+                  获取到的具体模型 (点击选择当前要使用的模型):
+                </label>
+              </div>
+              <div id="llm-fetched-models-container" class="fetched-models-box">
+                <div style="color: var(--text-muted); font-size: 12px;">
+                  暂未获取模型。请在第二行输入 API Key 后，点击第三行「获取模型」实时加载。
+                </div>
+              </div>
+
+              <!-- 位于第五行“获取到的具体模型”下方靠右：保存此模型配置操作栏 -->
+              <div style="display: flex; justify-content: flex-end; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(148, 163, 184, 0.15);">
+                <button class="btn btn-sm btn-primary" onclick="handleSaveCurrentLLM()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  保存此模型配置
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 区域 3: 已配置的大语言模型清单 (支持设为默认、编辑、删除) -->
+          <div style="margin-top: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <strong style="font-size: 14px; color: var(--text-primary);">已配置的大语言模型清单</strong>
+                <span id="configured-llm-count" class="brand-badge gold">0 个已配置</span>
+              </div>
+              <span style="font-size: 12px; color: var(--text-muted);">系统每次直播将采用【当前默认大脑】进行思考</span>
+            </div>
+            <div id="configured-llm-list" class="configured-llm-list"></div>
+          </div>
+        </div>
+
+        <!-- 语音合成与远程算力配置 (TTS 语音 / 远程 GPU) 核心板块 -->
+        <div class="panel-card" style="border: 1.5px solid rgba(16, 185, 129, 0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.3); margin-top: 24px;">
+          <div class="panel-header" style="border-bottom: 1px solid rgba(16, 185, 129, 0.2); padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="panel-title" style="color: #10B981; display: flex; align-items: center; gap: 8px;">
+                <svg class="icon" viewBox="0 0 24 24" style="stroke: #10B981; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                </svg>
+                语音合成与远程算力配置 (TTS 声音枢纽)
+              </span>
+              <span class="brand-badge green">真实发音与声纹克隆</span>
+            </div>
+            <button class="btn btn-sm" onclick="toggleAddCustomTTSForm()" style="display: inline-flex; align-items: center; gap: 6px;">
+              <svg class="icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              扩展自定义 / 远程 GPU
+            </button>
+          </div>
+
+          <p class="page-intro" style="margin-bottom: 18px;">
+            AI 发音枢纽负责<strong>将主播思考话术实时转化为极高拟真度的超自然人声与情感语气</strong>。
+            已内置 <strong>Edge-TTS、CosyVoice、ChatTTS、GPT-SoVITS、ElevenLabs 及本地自建</strong>。
+            支持多音色管理与试听，可在下方清单中随时一键设为【当前默认发音】。
+          </p>
+
+          <!-- 区域 1: 内置主流语音合成品牌生态网格 (Logo + 名称 + 简短定位) -->
+          <div style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <span>选择语音合成引擎 (点击下方卡片即可进行配置)</span>
+            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">支持 6 大主流语音与声音克隆引擎</span>
+          </div>
+          <div id="tts-ecosystem-grid" class="tts-ecosystem-grid"></div>
+
+          <!-- 区域 2: 当前语音引擎配置编辑面板 (含音色获取 & 试听 & 保存) -->
+          <div id="tts-editor-box" class="tts-editor-box" style="margin-top: 14px; padding: 20px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.12); padding-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <img id="tts-editor-logo" src="/static/svg/tts_edgetts.svg" alt="logo" style="width: 36px; height: 36px; border-radius: 8px;">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="tts-editor-title" style="font-size: 15px; font-weight: 700; color: var(--text-primary);">配置 Edge-TTS 微软超自然云语音</span>
+                    <span id="tts-editor-badge" class="brand-badge green">免 Key · 极速高保真</span>
+                  </div>
+                  <div id="tts-editor-desc" style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">微软官方云端超自然神经网络声音，免 API Key，开箱即用首选。</div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <a id="tts-editor-official-link" href="https://github.com/rany2/edge-tts" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 11px; border: 1px solid rgba(16, 185, 129, 0.35); color: #34d399; background: rgba(16, 185, 129, 0.08); border-radius: 6px; text-decoration: none;" title="查阅官方说明与文档 (在新标签页打开)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                  </svg>
+                  <span>官方说明 ↗</span>
+                </a>
+              </div>
+              <input type="hidden" id="tts-editor-provider" value="edge_tts">
+              <input type="hidden" id="tts-editor-config-id" value="">
+              <!-- 存储当前选中的具体音色代号，未配置或未获取时严格为空，禁止虚假填充 -->
+              <input type="hidden" id="tts-input-voice" value="">
+            </div>
+
+            <!-- 第一行：服务端接口地址 (Base URL):（输入框） -->
+            <div style="margin-bottom: 14px;">
+              <label class="form-label" id="tts-url-label" for="tts-input-url">服务端接口地址 (Base URL):</label>
+              <input type="text" id="tts-input-url" class="form-control" placeholder="云端直接调用，无需填写 Base URL" title="服务端接口地址 (Base URL)" aria-label="服务端接口地址 (Base URL)">
+              <div id="tts-editor-url-pills" class="quick-pills-box" style="margin-top: 6px;"></div>
+            </div>
+
+            <!-- 第二行：API 访问密钥 (API Key - 硬件级 AES-256 加密):（输入框） -->
+            <div style="margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                <label class="form-label" for="tts-input-key" style="margin-bottom: 0;">API 访问密钥 (API Key - 硬件级 AES-256 加密):</label>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <a id="tts-get-key-link" href="#" target="_blank" rel="noopener noreferrer" style="font-size: 11.5px; color: #38bdf8; text-decoration: underline; font-weight: 500; display: none;" title="前往官方控制台开通并获取 API Key (在新标签页打开)">
+                    开通账号/获取API Key ↗
+                  </a>
+                  <span id="tts-key-status-hint" style="font-size: 11px; color: var(--accent-emerald);">此引擎免密钥</span>
+                </div>
+              </div>
+              <div class="api-key-input-wrapper" style="margin-top: 6px;">
+                <input type="password" id="tts-input-key" class="form-control" style="padding-right: 42px;" placeholder="当前引擎免 API 密钥" autocomplete="off" title="API 访问密钥 (API Key)" aria-label="API 访问密钥 (API Key)">
+                <button type="button" id="btn-toggle-tts-key-eye" class="btn-toggle-eye" title="点击显示真实密钥明文" onclick="toggleTTSKeyVisibility()">
+                  <svg id="icon-tts-eye-show" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- 第三行：获取音色、测试连通性与试听 （两个按钮） -->
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+              <button type="button" class="btn btn-sm btn-primary" id="btn-fetch-tts-voices" onclick="handleFetchTTSVoices()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                获取音色
+              </button>
+              <button type="button" class="btn btn-sm" id="btn-test-tts" onclick="handleTestTTSConnectivity()" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                测试连通性与试听
+              </button>
+              <audio id="tts-preview-audio" style="display: none;"></audio>
+            </div>
+
+            <!-- 第四行：获取到X个音色 / 连通成功或者失败，延时 -->
+            <div id="tts-status-bar" class="llm-status-bar" style="border-left: 3px solid #10B981;">
+              <div id="tts-voices-count-status" style="color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                <span>获取状态: 尚未加载音色（请点击上方「获取音色」）</span>
+              </div>
+              <div id="tts-ping-latency-status" style="color: var(--text-muted); font-family: var(--font-mono); font-size: 12px;">
+                握手测试: 未测试
+              </div>
+            </div>
+            <div id="tts-test-result" style="display: none; margin-bottom: 12px;"></div>
+
+            <!-- 第五行：获取到的具体 音色 (点击选择当前要使用的音色) -->
+            <div style="margin-bottom: 6px;">
+              <div style="margin-bottom: 8px;">
+                <label class="form-label" style="margin-bottom: 0; font-weight: 600;">
+                  获取到的具体音色 (点击选择当前要使用的发音音色):
+                </label>
+              </div>
+              <div id="tts-fetched-voices-container" class="fetched-models-box">
+                <div style="color: var(--text-muted); font-size: 12px;">
+                  暂未获取音色。请点击上方「获取音色」实时加载该引擎支持的声线。
+                </div>
+              </div>
+
+              <!-- 位于第五行“获取到的具体音色”下方靠右：保存此语音配置操作栏 -->
+              <div style="display: flex; justify-content: flex-end; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(148, 163, 184, 0.15);">
+                <button class="btn btn-sm btn-primary" id="btn-save-tts" onclick="handleSaveCurrentTTS()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  保存此语音配置
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 区域 3: 已配置的语音合成引擎清单 (支持设为默认发音、编辑、删除) -->
+          <div style="margin-top: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <strong style="font-size: 14px; color: var(--text-primary);">已配置的语音引擎清单</strong>
+                <span id="configured-tts-count" class="brand-badge green">0 个已配置</span>
+              </div>
+              <span style="font-size: 12px; color: var(--text-muted);">系统每次直播将采用【当前默认发音】进行合成</span>
+            </div>
+            <div id="configured-tts-list" class="configured-llm-list"></div>
+          </div>
+
+          <!-- 扩展自定义 / 远程 GPU 高级展开框 -->
+          <div id="custom-tts-advanced-box" style="display: none; margin-top: 20px; padding: 18px; background: rgba(7, 10, 15, 0.6); border-radius: var(--radius-md); border: 1px dashed rgba(16, 185, 129, 0.3);">
+            <div style="font-weight: 600; margin-bottom: 12px; font-size: 13px; color: #10B981; display: flex; align-items: center; justify-content: space-between;">
+              <span>高级服务商扩展（端云分离远程 GPU 渲染节点等）</span>
+              <button class="btn btn-xs" onclick="toggleAddCustomTTSForm()">收起</button>
+            </div>
+            <div class="grid-2" style="margin-bottom: 14px;">
+              <div>
+                <label class="form-label" for="new-cfg-group">服务分类</label>
+                <select id="new-cfg-group" class="form-control" title="服务分类选择" aria-label="服务分类选择">
+                  <option value="remote_gpu">端云分离远程 GPU 节点</option>
+                  <option value="tts">其他自定义语音（TTS）</option>
+                  <option value="llm">其他大语言模型（LLM）</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label" for="new-provider-name">服务商标识（英文唯一）</label>
+                <input type="text" id="new-provider-name" class="form-control" placeholder="如 my_remote_gpu" title="服务商标识（英文唯一）" aria-label="服务商标识（英文唯一）">
+              </div>
+              <div>
+                <label class="form-label" for="new-base-url">接口 Base URL 地址</label>
+                <input type="text" id="new-base-url" class="form-control" placeholder="如 http://192.168.1.100:8000" title="接口 Base URL 地址" aria-label="接口 Base URL 地址">
+              </div>
+              <div>
+                <label class="form-label" for="new-model-name">模型 / 节点标识</label>
+                <input type="text" id="new-model-name" class="form-control" placeholder="如 rtx4090-node-1" title="模型 / 节点标识" aria-label="模型 / 节点标识">
+              </div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <label class="form-label" for="new-api-key">节点通信密钥（Token / Key）</label>
+              <input type="password" id="new-api-key" class="form-control" placeholder="输入访问凭据（硬件级 AES-256 加密保存）" title="节点通信密钥（Token / Key）" aria-label="节点通信密钥（Token / Key）">
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-sm btn-primary" onclick="submitNewCustomProvider()">确认添加并保存</button>
+              <button class="btn btn-sm" onclick="toggleAddCustomTTSForm()">取消</button>
+            </div>
+          </div>
+
+          <!-- 兼容其它分类的配置容器，保留兼容性 -->
+          <div id="settings-configs-container" style="display: none;"></div>
+        </div>
+
+        <!-- 视觉感知通道配置 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              实时多模态视觉感知（眼见即所言）
+            </span>
+            <span id="vision-status" class="brand-badge">读取中...</span>
+          </div>
+          <p class="page-intro" style="margin-bottom: 16px;">
+            开启后，AI 会按设定频次截取<strong>桌面/OBS 推流画面</strong>或<strong>USB 摄像头</strong>，
+            作为图像切片注入多模态大模型，做到"看到商品实物/白板即可讲解"。需使用支持视觉的模型。
+          </p>
+          <div class="grid-3" style="margin-bottom: 14px; align-items: end;">
+            <div>
+              <label class="form-label" for="vision-enabled">启用视觉感知</label>
+              <label for="vision-enabled" style="display:flex; align-items:center; gap:8px; font-size:13px; margin-top:10px; cursor:pointer;">
+                <input type="checkbox" id="vision-enabled" style="width:16px;height:16px;" title="开启画面理解" aria-label="开启画面理解"> 开启画面理解
+              </label>
+            </div>
+            <div>
+              <label class="form-label" for="vision-source">画面来源</label>
+              <select id="vision-source" class="form-control" title="画面来源选择" aria-label="画面来源选择">
+                <option value="desktop_screen">桌面 / OBS 推流画面截屏</option>
+                <option value="usb_camera">USB 高清摄像头</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="vision-interval">采样间隔（秒）</label>
+              <input type="number" id="vision-interval" class="form-control" value="2.5" min="0.5" max="30" step="0.5" title="采样间隔（秒）" aria-label="采样间隔（秒）">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="saveVisionConfig()">
+            <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            保存视觉配置
+          </button>
+        </div>
+      </div>
+
+
+            <div class="tab-content" id="tab-knowledge">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>
+              本地知识库与 RAG 检索中心
+            </span>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-sm btn-primary" onclick="toggleUploadDocModal()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                上传知识文献
+              </button>
+              <button class="btn btn-sm" onclick="loadKnowledgeList()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                刷新列表
+              </button>
+            </div>
+          </div>
+
+          <p class="page-intro" style="margin-bottom: 16px;">
+            导入产品手册、行业问答、售后规则或专家文献。直播中观众提问将自动触发<strong>混合检索 (BM25 + 向量相似度)</strong>，精准向大模型注入事实上下文，防止价格与参数幻觉。
+          </p>
+
+          <!-- 知识库状态指示卡片 -->
+          <div class="grid-3" style="margin-bottom: 20px;">
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                已入库文档总数
+              </div>
+              <div class="hw-cell-value" id="kb-doc-count">0 篇</div>
+              <div class="hw-cell-sub">支持 TXT / MD / CSV / PDF / DOCX</div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                知识切片总量 (Chunks)
+              </div>
+              <div class="hw-cell-value" id="kb-chunk-count">0 条</div>
+              <div class="hw-cell-sub">滑动窗口 300 字 · 50 字平滑重叠</div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                当前 RAG 索引模式
+              </div>
+              <div class="hw-cell-value" style="color: var(--signal);" id="kb-engine-mode">检测中...</div>
+              <div class="hw-cell-sub" id="kb-engine-status">读取 RAG 引擎状态中...</div>
+            </div>
+          </div>
+
+          <!-- 上传新文档折叠框 -->
+          <div id="upload-doc-box" style="display: none; padding: 20px; background: rgba(7,9,13,0.5); border-radius: var(--radius-md); border: 1px dashed var(--border-active); margin-bottom: 20px;">
+            <div style="font-weight: 600; margin-bottom: 14px; font-size: 13px; color: var(--signal);">上传并建立知识索引</div>
+            <div class="grid-2" style="margin-bottom: 14px;">
+              <div>
+                <label class="form-label" for="kb-upload-title">文献标题（留空则使用文件名）</label>
+                <input type="text" id="kb-upload-title" class="form-control" placeholder="如：2026春季新品详细参数手册" title="文献标题" aria-label="文献标题">
+              </div>
+              <div>
+                <label class="form-label" for="kb-upload-file">选择本地文档文件</label>
+                <input type="file" id="kb-upload-file" class="form-control" accept=".txt,.md,.markdown,.csv,.pdf,.docx" style="padding: 6px;" title="选择本地文档文件" aria-label="选择本地文档文件">
+              </div>
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <button class="btn btn-sm btn-primary" id="btn-submit-upload-doc" onclick="submitUploadDoc()">确认解析并入库</button>
+              <button class="btn btn-sm" onclick="toggleUploadDocModal()">取消</button>
+              <span id="kb-upload-loading" style="display:none; font-size: 12px; color: var(--text-secondary);">正在分块提取与建立倒排索引，请稍候...</span>
+            </div>
+          </div>
+
+          <!-- 已入库文档表格 -->
+          <div style="font-weight: 600; font-size: 13px; margin-bottom: 10px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+            <svg class="icon-sm" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            知识库文档列表
+          </div>
+          <div style="overflow-x: auto; margin-bottom: 28px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 25%;">文档名称</th>
+                  <th style="width: 15%;">文档 ID</th>
+                  <th style="width: 10%;">切片数</th>
+                  <th style="width: 32%;">内容前瞻</th>
+                  <th style="width: 18%;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="kb-docs-tbody">
+                <tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 30px;">暂无入库知识文档，请点击上方按钮上传</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- RAG 检索仿真调试器 -->
+          <div style="border-top: 1px solid var(--border-subtle); padding-top: 20px;">
+            <div style="font-weight: 600; font-size: 14px; margin-bottom: 6px; color: var(--signal); display: flex; align-items: center; gap: 8px;">
+              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              RAG 语义检索实时调试器
+            </div>
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 14px;">
+              输入模拟观众在直播间的提问，检验系统检索到的知识切片与相关度得分。
+            </p>
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+              <input type="text" id="kb-test-query" class="form-control" style="flex: 1;" placeholder="输入模拟提问，例如：这款连衣裙能机洗吗？面料是什么？" title="模拟观众提问测试文本" aria-label="模拟观众提问测试文本">
+              <select id="kb-test-topk" class="form-control" style="width: 120px;" title="检索切片数量 Top-K" aria-label="检索切片数量 Top-K">
+                <option value="1">Top-1 切片</option>
+                <option value="2">Top-2 切片</option>
+                <option value="3" selected>Top-3 切片</option>
+                <option value="5">Top-5 切片</option>
+              </select>
+              <button class="btn btn-sm btn-primary" onclick="testKnowledgeQuery()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                测试检索
+              </button>
+            </div>
+            <div id="kb-test-results-container" style="display: none; padding: 16px; background: rgba(0,0,0,0.3); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+              <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px;">检索命中结果：</div>
+              <div id="kb-test-results-list"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+
+    </main>
+  </div>
+
+  <!-- ============ 开播前检查报告弹窗 ============ -->
+    <div id="preflight-modal" style="display: none;">
+    <div id="preflight-modal-box">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(245, 158, 11, 0.25); padding-bottom: 15px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <svg class="icon-lg" style="color: #F59E0B;" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><polyline points="9 14 11 16 15 12"/></svg>
+          <span style="font-size: 17px; font-weight: 800; color: #FFFFFF; letter-spacing: 0.02em;">开播前检查报告</span>
+          <span id="preflight-modal-summary" style="font-size: 12px; color: var(--text-secondary); margin-left: 8px; background: rgba(255,255,255,0.06); padding: 2px 10px; border-radius: 99px;"></span>
+        </div>
+        <button class="btn btn-sm" onclick="closePreflightModal()" style="border-radius: 99px; padding: 4px 14px;">
+          <svg class="icon-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          关闭
+        </button>
+      </div>
+      <div id="preflight-modal-checks"></div>
+      <div id="preflight-modal-actions" style="display: flex; gap: 14px; margin-top: 22px; justify-content: space-between; align-items: center; flex-wrap: wrap; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 16px;"></div>
+    </div>
+  </div>
+
+
+  <script src="/static/js/console.js?v=1.9.4"></script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+      <div class="tab-content active" id="tab-wizard">
+
+        <!-- 硬件配置概览 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+              当前电脑硬件配置
+            </span>
+            <span id="hw-panel-tier-badge" class="brand-badge green">推荐档位检测中...</span>
+          </div>
+          <div class="grid-4">
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/></svg>
+                显卡 GPU
+              </div>
+              <div class="hw-cell-value" id="hw-panel-gpu">检测中...</div>
+              <div class="hw-cell-sub" id="hw-panel-gpu-sub"></div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>
+                处理器 CPU
+              </div>
+              <div class="hw-cell-value" id="hw-panel-cpu">检测中...</div>
+              <div class="hw-cell-sub" id="hw-panel-cpu-sub"></div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="9" rx="1.5"/><line x1="6" y1="16" x2="6" y2="19"/><line x1="10" y1="16" x2="10" y2="19"/><line x1="14" y1="16" x2="14" y2="19"/><line x1="18" y1="16" x2="18" y2="19"/><line x1="7" y1="11" x2="7" y2="13"/><line x1="11" y1="11" x2="11" y2="13"/><line x1="15" y1="11" x2="15" y2="13"/><line x1="19" y1="11" x2="19" y2="13"/></svg>
+                内存 RAM
+              </div>
+              <div class="hw-cell-value" id="hw-panel-ram">检测中...</div>
+              <div class="hw-cell-sub" id="hw-panel-ram-sub"></div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                系统推荐
+              </div>
+              <div class="hw-cell-value" id="hw-panel-tier" style="color: var(--signal);">检测中...</div>
+              <div class="hw-cell-sub" id="hw-panel-tier-sub"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 直播必备软件信息 -->
+        <div class="panel-card" id="panel-software-prerequisites">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              直播必备软件信息
+            </span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="prereq-overall-badge" class="brand-badge green">检测中...</span>
+              <button class="btn btn-ghost btn-sm" id="btn-recheck-prereqs" title="重新检测必备软件" style="padding: 3px 8px; font-size: 11.5px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 12px; height: 12px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                重新检测
+              </button>
+            </div>
+          </div>
+
+          <div id="prereq-alert-banner" class="prereq-alert-banner warning" style="display:none;">
+            <div class="prereq-alert-icon">
+              <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div id="prereq-alert-text">
+              检测中...
+            </div>
+          </div>
+
+          <div class="prereq-list" id="prereq-cards-container">
+            <!-- 动态由 JS 渲染各软件清单行 -->
+            <div class="hw-cell" style="text-align: center; color: var(--text-muted); padding: 24px;">
+              正在探测推流生态与必备组件就绪状态...
+            </div>
+          </div>
+        </div>
+
+        <!-- 第一步：选择直播模式 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+              第一步 · 选择直播运行模式
+            </span>
+          </div>
+          <p class="page-intro">
+            请根据您电脑的硬件条件选择运行模式。<strong>系统已根据您的硬件配置自动推荐最合适的模式（可手动更改）</strong>。
+            选择后「云端模型」页将只呈现该模式所需的配置项。<strong style="color: var(--red);">直播进行中不可更改模式。</strong>
+          </p>
+          <div id="hw-recommend-banner" class="reco-banner" style="display:none; margin-bottom: 16px;">
+            <div class="reco-banner-title">
+              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+              已根据您的硬件配置自动选择推荐模式
+            </div>
+            <div class="reco-banner-body" id="hw-recommend-reason"></div>
+          </div>
+          <div id="mode-cards" class="grid-4"></div>
+        </div>
+
+        <!-- 第二步：选择主播角色 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              第二步 · 选择主播角色
+            </span>
+          </div>
+          <div id="wizard-role-cards" class="grid-4"></div>
+        </div>
+
+        <!-- 第三步：建议与约束提示词 -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>
+              第三步 · 模式 × 角色专属建议与 AI 约束提示词
+            </span>
+          </div>
+          <div id="wizard-suggestion-box" style="margin-bottom: 16px;">
+            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.85;">请先完成上面两步选择，这里将给出针对性的运营建议与话术红线。</div>
+          </div>
+          <label class="form-label" for="wizard-theme">今日直播主题 <span style="font-weight:400;color:var(--text-muted);">（选择主播角色后自动推荐专属主题，AI 冷场时围绕主题找话题，可自由修改）</span></label>
+          <input type="text" id="wizard-theme" class="form-control" placeholder="选择主播角色后自动填充专属主题，也可自定义输入" title="今日直播主题" aria-label="今日直播主题">
+          <label class="form-label" for="wizard-constraint" style="margin-top: 16px;">AI 约束提示词 <span style="font-weight:400;color:var(--text-muted);">（可直接编辑，将写入主播人设生效）</span></label>
+          <textarea id="wizard-constraint" class="form-control" rows="4" placeholder="例如：禁止和用户讨论除'法律'之外的话题，要委婉拒绝用户。" title="AI 约束提示词" aria-label="AI 约束提示词"></textarea>
+          <div style="display: flex; gap: 12px; margin-top: 18px; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="completeWizard()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              完成配置并保存
+            </button>
+            <button class="btn" onclick="runPreflight({ auto: false })">
+              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              先做开播前检查
+            </button>
+            <span id="wizard-save-status" style="font-size: 12px; color: var(--text-muted);"></span>
+          </div>
+        </div>
+
+        <!-- 开播前检查报告（内嵌） -->
+        <div class="panel-card" style="display: none;" id="preflight-report-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><polyline points="9 14 11 16 15 12"/></svg>
+              开播前检查报告
+            </span>
+            <button class="btn btn-sm" onclick="runPreflight({ auto: false })">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              重新检查
+            </button>
+          </div>
+          <div id="preflight-report-body"></div>
+        </div>
+      </div>

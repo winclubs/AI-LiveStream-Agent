@@ -1,0 +1,123 @@
+      <div class="tab-content" id="tab-knowledge">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>
+              本地知识库与 RAG 检索中心
+            </span>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-sm btn-primary" onclick="toggleUploadDocModal()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                上传知识文献
+              </button>
+              <button class="btn btn-sm" onclick="loadKnowledgeList()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                刷新列表
+              </button>
+            </div>
+          </div>
+
+          <p class="page-intro" style="margin-bottom: 16px;">
+            导入产品手册、行业问答、售后规则或专家文献。直播中观众提问将自动触发<strong>混合检索 (BM25 + 向量相似度)</strong>，精准向大模型注入事实上下文，防止价格与参数幻觉。
+          </p>
+
+          <!-- 知识库状态指示卡片 -->
+          <div class="grid-3" style="margin-bottom: 20px;">
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                已入库文档总数
+              </div>
+              <div class="hw-cell-value" id="kb-doc-count">0 篇</div>
+              <div class="hw-cell-sub">支持 TXT / MD / CSV / PDF / DOCX</div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                知识切片总量 (Chunks)
+              </div>
+              <div class="hw-cell-value" id="kb-chunk-count">0 条</div>
+              <div class="hw-cell-sub">滑动窗口 300 字 · 50 字平滑重叠</div>
+            </div>
+            <div class="hw-cell">
+              <div class="hw-cell-label">
+                <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                当前 RAG 索引模式
+              </div>
+              <div class="hw-cell-value" style="color: var(--signal);" id="kb-engine-mode">检测中...</div>
+              <div class="hw-cell-sub" id="kb-engine-status">读取 RAG 引擎状态中...</div>
+            </div>
+          </div>
+
+          <!-- 上传新文档折叠框 -->
+          <div id="upload-doc-box" style="display: none; padding: 20px; background: rgba(7,9,13,0.5); border-radius: var(--radius-md); border: 1px dashed var(--border-active); margin-bottom: 20px;">
+            <div style="font-weight: 600; margin-bottom: 14px; font-size: 13px; color: var(--signal);">上传并建立知识索引</div>
+            <div class="grid-2" style="margin-bottom: 14px;">
+              <div>
+                <label class="form-label" for="kb-upload-title">文献标题（留空则使用文件名）</label>
+                <input type="text" id="kb-upload-title" class="form-control" placeholder="如：2026春季新品详细参数手册" title="文献标题" aria-label="文献标题">
+              </div>
+              <div>
+                <label class="form-label" for="kb-upload-file">选择本地文档文件</label>
+                <input type="file" id="kb-upload-file" class="form-control" accept=".txt,.md,.markdown,.csv,.pdf,.docx" style="padding: 6px;" title="选择本地文档文件" aria-label="选择本地文档文件">
+              </div>
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <button class="btn btn-sm btn-primary" id="btn-submit-upload-doc" onclick="submitUploadDoc()">确认解析并入库</button>
+              <button class="btn btn-sm" onclick="toggleUploadDocModal()">取消</button>
+              <span id="kb-upload-loading" style="display:none; font-size: 12px; color: var(--text-secondary);">正在分块提取与建立倒排索引，请稍候...</span>
+            </div>
+          </div>
+
+          <!-- 已入库文档表格 -->
+          <div style="font-weight: 600; font-size: 13px; margin-bottom: 10px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+            <svg class="icon-sm" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            知识库文档列表
+          </div>
+          <div style="overflow-x: auto; margin-bottom: 28px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 25%;">文档名称</th>
+                  <th style="width: 15%;">文档 ID</th>
+                  <th style="width: 10%;">切片数</th>
+                  <th style="width: 32%;">内容前瞻</th>
+                  <th style="width: 18%;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="kb-docs-tbody">
+                <tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 30px;">暂无入库知识文档，请点击上方按钮上传</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- RAG 检索仿真调试器 -->
+          <div style="border-top: 1px solid var(--border-subtle); padding-top: 20px;">
+            <div style="font-weight: 600; font-size: 14px; margin-bottom: 6px; color: var(--signal); display: flex; align-items: center; gap: 8px;">
+              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              RAG 语义检索实时调试器
+            </div>
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 14px;">
+              输入模拟观众在直播间的提问，检验系统检索到的知识切片与相关度得分。
+            </p>
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+              <input type="text" id="kb-test-query" class="form-control" style="flex: 1;" placeholder="输入模拟提问，例如：这款连衣裙能机洗吗？面料是什么？" title="模拟观众提问测试文本" aria-label="模拟观众提问测试文本">
+              <select id="kb-test-topk" class="form-control" style="width: 120px;" title="检索切片数量 Top-K" aria-label="检索切片数量 Top-K">
+                <option value="1">Top-1 切片</option>
+                <option value="2">Top-2 切片</option>
+                <option value="3" selected>Top-3 切片</option>
+                <option value="5">Top-5 切片</option>
+              </select>
+              <button class="btn btn-sm btn-primary" onclick="testKnowledgeQuery()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                测试检索
+              </button>
+            </div>
+            <div id="kb-test-results-container" style="display: none; padding: 16px; background: rgba(0,0,0,0.3); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+              <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px;">检索命中结果：</div>
+              <div id="kb-test-results-list"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>

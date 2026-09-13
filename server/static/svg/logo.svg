@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 48" width="240" height="48">
+  <defs>
+    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2DD4A0"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+  <!-- 徽标图标 -->
+  <rect x="4" y="6" width="36" height="36" rx="8" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <circle cx="22" cy="24" r="12" fill="none" stroke="url(#brandGradient)" stroke-width="1.8" stroke-dasharray="2 2" opacity="0.6"/>
+  <polygon points="27,19 24,28 17,29 20,20" fill="none" stroke="#2DD4A0" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="22" cy="24" r="2.2" fill="#2DD4A0"/>
+  <!-- 品牌文字 -->
+  <text x="50" y="24" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="800" letter-spacing="0.5">AI-LiveStream-Agent</text>
+  <text x="50" y="37" fill="#64748B" font-family="'JetBrains Mono', Consolas, monospace" font-size="9" font-weight="600" letter-spacing="1.2">BROADCAST STUDIO v1.2</text>
+</svg>
