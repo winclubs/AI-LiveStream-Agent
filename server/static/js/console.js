@@ -801,7 +801,7 @@ async function loadSoftwarePrerequisites(isManual = false) {
     }
 
     try {
-        const res = await fetch(`${API_BASE}/system/prerequisites`);
+        const res = await fetch(`${API_BASE}/system/prerequisites?t=${Date.now()}`);
         if (!res.ok) {
             throw new Error(`探测接口响应 ${res.status} (旧进程尚未热加载新路由)`);
         }
@@ -866,7 +866,8 @@ async function loadSoftwarePrerequisites(isManual = false) {
                 let statusClass = `status-${it.status}`;
 
                 if (it.key === "audio_devices") {
-                    if (it.status === "installed" && it.has_cable) {
+                    const isCableReady = Boolean(it.has_cable || (it.badge && it.badge.includes("VB-Cable")) || (it.tip && it.tip.includes("包含推荐虚拟声卡 VB-Cable")));
+                    if (it.status === "installed" && isCableReady) {
                         stateText = "检测通过";
                         pillClass = "pill-pass";
                         statusClass = "status-running";

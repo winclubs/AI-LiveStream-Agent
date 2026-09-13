@@ -426,6 +426,13 @@ def _detect_prerequisites() -> Dict[str, Any]:
     audio_count = 0
     try:
         import sounddevice as sd
+        # 强制重置底层 PortAudio 驱动缓存，确保在运行时安装的虚拟声卡能立即被识别
+        if hasattr(sd, "_terminate") and hasattr(sd, "_initialize"):
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception:
+                pass
         sd_installed = True
         devs = sd.query_devices()
         out_devs = [d for d in devs if d.get("max_output_channels", 0) > 0]
@@ -433,6 +440,16 @@ def _detect_prerequisites() -> Dict[str, Any]:
         has_cable = any("cable" in str(d.get("name", "")).lower() or "virtual" in str(d.get("name", "")).lower() for d in out_devs)
     except Exception:
         pass
+
+    # Windows 平台双重保险：若 sounddevice 未捕获，进一步检查注册表已安装软件
+    if not has_cable and sys.platform == "win32":
+        try:
+            for app_k in registry_apps.keys():
+                if "vbcable" in app_k or "vb-audio" in app_k or "virtual audio cable" in app_k:
+                    has_cable = True
+                    break
+        except Exception:
+            pass
 
     if sd_installed and has_cable:
         audio_status = "installed"
