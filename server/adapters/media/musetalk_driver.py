@@ -66,10 +66,12 @@ class MuseTalkMediaDriver(BaseMediaDriver):
         self.current_frame_id = 0
         self.render_thread: Optional[threading.Thread] = None
 
-        # 音频能量队列 (驱动唇形开合度: 0.0 闭合 ~ 1.0 完全张开)；渲染在独立线程，用线程安全队列
+        # 音频能量与形态队列 (驱动 Viseme 唇形开合与形态: mouth_open, mouth_form)；渲染在独立线程
         self.mouth_open_queue = queue.Queue()
         self.current_mouth_open = 0.0
         self.target_mouth_open = 0.0
+        self.current_mouth_form = 0.0
+        self.target_mouth_form = 0.0
         self._generation_lock = threading.Lock()
         self._accepted_audio_generation = 0
         self._accepted_session_generation = 0
@@ -226,22 +228,43 @@ class MuseTalkMediaDriver(BaseMediaDriver):
             if samples is None or decoded_sample_rate <= 0:
                 raise ValueError("无法解码音频")
             samples_per_frame = max(1, int(decoded_sample_rate / self.fps))
+            duration_sec = len(samples) / float(decoded_sample_rate)
+
+            # 优先采用文本 G2P 音素序列与时长对齐 + 0.65/0.35 协同发音平滑
+            viseme_timeline = []
+            if text_snippet and text_snippet.strip():
+                try:
+                    from server.core.media.g2p_viseme import G2PVisemeTimeline
+                    g2p = G2PVisemeTimeline(fps=float(self.fps), smooth_alpha=0.35)
+                    viseme_timeline = g2p.generate_timeline(text_snippet, duration_sec)
+                except Exception as g2p_err:
+                    logger.debug("G2P 时间线生成异常，降级声学估计: %s", g2p_err)
+
+            from server.core.media.procedural_renderer import audio_samples_to_viseme
+            frame_idx = 0
             for start in range(0, len(samples), samples_per_frame):
                 if not self._generation_is_current(audio_generation, session_generation):
                     return
                 frame_samples = samples[start:start + samples_per_frame]
                 if len(frame_samples) == 0:
                     continue
-                rms = float(np.sqrt(np.mean(frame_samples.astype(np.float32) ** 2)))
+
+                if viseme_timeline and frame_idx < len(viseme_timeline):
+                    m_open, m_form = viseme_timeline[frame_idx]
+                else:
+                    m_open, m_form = audio_samples_to_viseme(frame_samples)
+
                 self.mouth_open_queue.put((
                     audio_generation,
                     session_generation,
-                    min(1.0, max(0.15, rms * 11.7)),
+                    m_open,
+                    m_form,
                 ))
+                frame_idx += 1
         except Exception as exc:
             if self._generation_is_current(audio_generation, session_generation):
                 logger.warning("口型音频解码失败，使用单帧保守口型: %s", exc)
-                self.mouth_open_queue.put((audio_generation, session_generation, 0.3))
+                self.mouth_open_queue.put((audio_generation, session_generation, 0.3, 0.0))
 
     async def interrupt(self, reason: str = "Barge-in", next_generation: Optional[int] = None):
         """推进口型代际并清空排队帧，旧 producer 恢复后也无法重新入队。"""
@@ -252,12 +275,13 @@ class MuseTalkMediaDriver(BaseMediaDriver):
                 )
         self.is_speaking = False
         self.target_mouth_open = 0.0
+        self.target_mouth_form = 0.0
         while True:
             try:
                 self.mouth_open_queue.get_nowait()
             except queue.Empty:
                 break
-        logger.info(f"MuseTalk 驱动收到打断信号 [{reason}]，口型立即平滑归位")
+        logger.info(f"数字人驱动收到打断信号 [{reason}]，口型立即平滑归位")
 
     def _render_thread_loop(self):
         """核心视频驱动主循环 (独立线程)：精确维持 25 FPS (40ms)，绝不阻塞事件循环"""
@@ -268,25 +292,35 @@ class MuseTalkMediaDriver(BaseMediaDriver):
             loop_start = time.time()
             t += frame_interval
 
-            # 1. 消费唇形开合目标
+            # 1. 消费 Viseme 唇形开合与形态目标
             try:
-                queued_generation, queued_session, mouth_open = self.mouth_open_queue.get_nowait()
+                queued_data = self.mouth_open_queue.get_nowait()
+                if len(queued_data) == 4:
+                    queued_generation, queued_session, mouth_open, mouth_form = queued_data
+                else:
+                    queued_generation, queued_session, mouth_open = queued_data
+                    mouth_form = 0.0
+
                 if self._generation_is_current(queued_generation, queued_session):
                     self.target_mouth_open = mouth_open
+                    self.target_mouth_form = mouth_form
                     self.is_speaking = True
                 else:
                     self.target_mouth_open = 0.0
+                    self.target_mouth_form = 0.0
             except queue.Empty:
                 self.target_mouth_open = 0.0
+                self.target_mouth_form = 0.0
                 if self.current_mouth_open < 0.05:
                     self.is_speaking = False
 
-            # 平滑过渡插值
+            # 平滑过渡插值 (开度与形态双平滑)
             self.current_mouth_open += (self.target_mouth_open - self.current_mouth_open) * 0.45
+            self.current_mouth_form += (self.target_mouth_form - self.current_mouth_form) * 0.40
 
-            # 2. 生成当前合成视频帧 (呼吸扰动 + 泊松眨眼 + 口型形变 + 防封杀运镜光影)
+            # 2. 生成当前合成视频帧 (呼吸扰动 + 泊松眨眼 + Viseme 口型 + 防封杀运镜光影)
             render_started = time.time()
-            frame_rgb = self._synthesize_frame(t, self.current_mouth_open)
+            frame_rgb = self._synthesize_frame(t, self.current_mouth_open, self.current_mouth_form)
             # 记录单帧基础渲染耗时用于音画同步补偿 (规划 §15.1)
             global_av_sync.record_render_latency((time.time() - render_started) * 1000.0)
 
@@ -313,8 +347,8 @@ class MuseTalkMediaDriver(BaseMediaDriver):
         if ok:
             self.latest_jpeg_frame = buf.tobytes()
 
-    def _synthesize_frame(self, t: float, mouth_open: float) -> "np.ndarray":
-        """合成单帧 (委托共享渲染器：呼吸/泊松眨眼/口型/运镜/光影/真人动作切片)"""
+    def _synthesize_frame(self, t: float, mouth_open: float, mouth_form: float = 0.0) -> "np.ndarray":
+        """合成单帧 (委托共享渲染器：呼吸/泊松眨眼/Viseme 口型/运镜/光影/真人动作切片)"""
         if self.base_portrait is None:
             return np.zeros((self.height, self.width, 3), dtype=np.uint8)
         from server.core.media.procedural_renderer import synth_frame
@@ -322,11 +356,26 @@ class MuseTalkMediaDriver(BaseMediaDriver):
             self.base_portrait, self.width, self.height, t, mouth_open,
             face_box=self.face_box, action_clip=self.action_clip,
             is_blinking=self.micro_expr.is_blinking(t),
+            mouth_form=mouth_form,
         )
 
     def get_latest_jpeg(self) -> bytes:
         """获取最新的 JPEG 视频帧供前端推流"""
         return self.latest_jpeg_frame
+
+    def get_capabilities(self) -> dict:
+        """机器可读能力清单上报 (ADR-16 / 规划 §4.2)"""
+        return {
+            "driver": "procedural_avatar",
+            "capabilities": {
+                "neural_lipsync": False,
+                "viseme_lipsync": True,
+                "g2p_aligned": True,
+                "expressions": True,
+                "head_motion": True,
+                "remote_rendering": False,
+            }
+        }
 
     def get_preview_status(self) -> dict:
         uptime = max(0.1, time.time() - self.start_ts) if self.is_running else 0.0
@@ -341,8 +390,86 @@ class MuseTalkMediaDriver(BaseMediaDriver):
             "resolution": f"{self.width}x{self.height}",
             "cv_available": self.cv_available,
             "render_backend": self.render_backend,
-            "virtual_cam": global_virtual_cam.get_status()
+            "virtual_cam": global_virtual_cam.get_status(),
+            "capabilities": self.get_capabilities()["capabilities"],
         }
 
 # 全局数字人媒体单例
 global_musetalk_driver = MuseTalkMediaDriver()
+
+# 别名定义：明确项目当前轻量实用驱动定位，同时完全兼容旧类名引用
+ProceduralAvatarDriver = MuseTalkMediaDriver
+Viseme2DMediaDriver = MuseTalkMediaDriver
+
+
+class Live2DDriver(BaseMediaDriver):
+    """Live2D 驱动标准接口（预留后续里程碑接入 Cubism SDK，目前未实现）"""
+    def __init__(self, model_path: str = ""):
+        super().__init__()
+        self.model_path = model_path
+        self.is_running = False
+
+    def get_capabilities(self) -> dict:
+        return {
+            "driver": "live2d_avatar",
+            "available": False,
+            "experimental": True,
+            "status": "unimplemented",
+            "capabilities": {
+                "neural_lipsync": False,
+                "viseme_lipsync": False,
+                "g2p_aligned": False,
+                "expressions": False,
+                "head_motion": False,
+                "remote_rendering": False,
+                "cubism_sdk": False,
+            }
+        }
+
+    async def feed_audio_chunk(self, audio_bytes: bytes, text_snippet: str = "", **kwargs):
+        raise NotImplementedError("Live2D 驱动尚未接入 Cubism SDK，请使用程序化数字人驱动")
+
+    async def interrupt(self, reason: str = "Barge-in"):
+        pass
+
+    async def start(self):
+        raise NotImplementedError("Live2D 驱动尚未接入运行时，无法启动")
+
+    async def stop(self):
+        self.is_running = False
+
+
+class NeuralLipSyncDriver(BaseMediaDriver):
+    """NeuralLipSync 神经口型驱动标准接口（预留独立 GPU 节点 UNet 权重推理，目前未实现）"""
+    def __init__(self, node_url: str = ""):
+        super().__init__()
+        self.node_url = node_url
+        self.is_running = False
+
+    def get_capabilities(self) -> dict:
+        return {
+            "driver": "neural_lipsync_avatar",
+            "available": False,
+            "experimental": True,
+            "status": "unimplemented",
+            "capabilities": {
+                "neural_lipsync": False,
+                "viseme_lipsync": False,
+                "g2p_aligned": False,
+                "expressions": False,
+                "head_motion": False,
+                "remote_rendering": False,
+            }
+        }
+
+    async def feed_audio_chunk(self, audio_bytes: bytes, text_snippet: str = "", **kwargs):
+        raise NotImplementedError("NeuralLipSync 独立神经口型节点尚未接入，请使用程序化数字人驱动")
+
+    async def interrupt(self, reason: str = "Barge-in"):
+        pass
+
+    async def start(self):
+        raise NotImplementedError("NeuralLipSync 节点尚未就绪，无法启动")
+
+    async def stop(self):
+        self.is_running = False

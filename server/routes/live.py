@@ -30,6 +30,7 @@ from server.adapters.media.edgetts_driver import EdgeTTSMediaDriver
 from server.core.vision.capture import global_vision
 from server.core.media.av_sync import global_av_sync
 from server.core.media.virtual_audio import global_virtual_audio
+from server.adapters.obs.obs_client import global_obs_client
 
 logger = logging.getLogger("LiveAgent.LiveController")
 router = APIRouter(prefix="/live", tags=["直播控场与调度"])
@@ -73,6 +74,9 @@ class LiveSessionController:
         self._lifecycle_lock: Optional[asyncio.Lock] = None
         self.tts_driver = EdgeTTSMediaDriver()
         self.vram_watchdog = VRAMWatchdog(on_alert=self._on_vram_alert)
+        self.obs_stream_started_by_agent: bool = False
+        self.current_tts_task: Optional[asyncio.Task] = None
+        self.cleanup_errors: list = []
         # 直播大屏运营统计 (需求 8)
         self.stats = {
             "start_ts": None,
@@ -207,6 +211,9 @@ class LiveSessionController:
             )
         except Exception:
             logger.exception("媒体驱动打断失败")
+        # 物理取消当前正在进行的底层网络/生成协程
+        if self.current_tts_task and not self.current_tts_task.done():
+            self.current_tts_task.cancel()
         try:
             await self.tts_driver.interrupt(reason)
         except Exception:
@@ -420,6 +427,7 @@ class LiveSessionController:
                     on_state_change_callback=self._on_danmaku_circuit_state_change,
                     failure_threshold=5,
                     recovery_timeout_sec=30.0,
+                    enable_mock_fallback=False,  # 正式直播严禁自动注入假弹幕
                 )
             else:
                 self.fetcher = MockDanmakuFetcher(room_id=room_id, on_event_callback=self._on_danmaku_event)
@@ -484,80 +492,171 @@ class LiveSessionController:
                 logger.debug(f"视觉采集巡检异常: {e}")
                 await asyncio.sleep(2.0)
 
-    async def stop(self):
-        """幂等停止并等待所有会话任务退出，最后清除会话身份。"""
+    async def _safe_close(
+        self,
+        name: str,
+        closer,
+        timeout: float = 3.0,
+    ) -> None:
+        """Fail-Safe 清理闭包：接收清理函数，严格超时控制与异常隔离，记录清理错误"""
+        try:
+            result = closer()
+            if inspect.isawaitable(result):
+                await asyncio.wait_for(result, timeout=timeout)
+        except asyncio.TimeoutError:
+            err_msg = f"清理资源超时: {name}"
+            logger.error(err_msg)
+            self.cleanup_errors.append(err_msg)
+        except BaseException as e:
+            err_msg = f"清理资源失败: {name} ({e})"
+            logger.exception(err_msg)
+            self.cleanup_errors.append(err_msg)
+
+    async def stop(self) -> list:
+        """Fail-Safe 幂等停止并隔离等待所有会话资源退出，严格按 8 步安全顺序清理，并返回清理错误列表。"""
         self.is_live = False
         self._session_generation += 1
         self._audio_generation += 1
-        if self.fetcher:
-            await self.fetcher.stop()
-            self.fetcher = None
+        self.cleanup_errors = []
 
-        session_tasks = [
-            task for task in (self.worker_task, self.viewer_task, self.vision_task)
-            if task and not task.done()
-        ]
-        for task in session_tasks:
-            task.cancel()
-        if session_tasks:
-            await asyncio.gather(*session_tasks, return_exceptions=True)
-        self.worker_task = self.viewer_task = self.vision_task = None
+        try:
+            # 1. 立即停止接收新弹幕
+            if self.fetcher:
+                await self._safe_close("danmaku_fetcher", self.fetcher.stop, timeout=3.0)
+                self.fetcher = None
 
-        # 日志/广播等受控后台任务必须在 session_id 清除前完成或取消。
-        pending = [task for task in self._background_tasks if not task.done()]
-        if pending:
-            try:
-                await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=2.0)
-            except asyncio.TimeoutError:
-                for task in pending:
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
-        self._background_tasks.clear()
+            # 2. 取消主消费、场观、视觉任务
+            session_tasks = [
+                task for task in (self.worker_task, self.viewer_task, self.vision_task)
+                if task and not task.done()
+            ]
+            for task in session_tasks:
+                task.cancel()
+            if session_tasks:
+                await asyncio.gather(*session_tasks, return_exceptions=True)
+            self.worker_task = self.viewer_task = self.vision_task = None
 
-        global_vision.close()
-        self.live_context.pop("vision_image_b64", None)
-        _call_sync_compat(
-            global_virtual_audio.stop,
-            next_generation=self._audio_generation,
-        )
-        await self.vram_watchdog.stop()
-        await self.tts_driver.stop()
-        self.event_queue.clear()
-        global_media_router.detach_remote()
-        await global_media_router.stop()
-        self.session_id = None
-        self.live_context = {"products": []}
-        logger.info("直播会话已安全停止")
+            # 3. 收敛后台广播/数据库任务
+            pending = [task for task in self._background_tasks if not task.done()]
+            if pending:
+                try:
+                    await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=2.0)
+                except asyncio.TimeoutError:
+                    for task in pending:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
+            self._background_tasks.clear()
 
-    def _on_danmaku_event(self, event_type: str, user_name: str, payload: dict, priority: int = 2):
-        # 运营统计累加 (需求 8：打赏金额/弹幕量)
-        if event_type == "gift":
-            total_coin = payload.get("total_coin", 0) or 0
-            self.stats["gift_income_yuan"] = round(self.stats["gift_income_yuan"] + total_coin / 1000.0, 2)
-            self.stats["gift_count"] += 1
-        elif event_type == "danmaku":
-            self.stats["danmaku_count"] += 1
-
-        self._track_task(
-            self.event_queue.put(
-                event_id=f"evt_{uuid.uuid4().hex[:8]}",
-                event_type=event_type,
-                user_name=user_name,
-                payload=payload,
-                priority=priority
+            # 4. 停止音频和 TTS
+            if self.current_tts_task and not self.current_tts_task.done():
+                self.current_tts_task.cancel()
+                self.current_tts_task = None
+            if hasattr(self, "tts_driver") and self.tts_driver:
+                await self._safe_close("tts_driver", self.tts_driver.stop, timeout=3.0)
+            await self._safe_close(
+                "virtual_audio",
+                lambda: _call_sync_compat(global_virtual_audio.stop, next_generation=self._audio_generation),
+                timeout=2.0,
             )
-        )
-        # 实时广播弹幕/送礼事件给前端大屏瀑布流展示
+
+            # 5. 停止远程 GPU 和本地媒体
+            await self._safe_close("detach_remote", global_media_router.detach_remote, timeout=2.0)
+            await self._safe_close("media_router", global_media_router.stop, timeout=3.0)
+
+            # 6. 停止摄像头、声卡和视觉感知设备
+            await self._safe_close("vision", global_vision.close, timeout=2.0)
+            self.live_context.pop("vision_image_b64", None)
+            if hasattr(self, "vram_watchdog") and self.vram_watchdog:
+                await self._safe_close("vram_watchdog", self.vram_watchdog.stop, timeout=2.0)
+
+            # 7. 清空事件队列
+            await self._safe_close("event_queue", self.event_queue.clear, timeout=1.0)
+
+        finally:
+            # 8. 最终复位所有身份和引用
+            self.is_live = False
+            self.session_id = None
+            self.live_context = {"products": []}
+            self.fetcher = None
+            self.worker_task = self.viewer_task = self.vision_task = None
+            logger.info("直播会话已安全释放所有硬件与内存资源 (清理错误数: %d)", len(self.cleanup_errors))
+
+        return list(self.cleanup_errors)
+
+    async def ingest_event(
+        self,
+        event_type: str,
+        user_name: str,
+        payload: dict,
+        priority: int = 2,
+        source: str = "real",
+        is_mock: bool = False,
+    ) -> dict:
+        """
+        统一事件入口：Webhook、WebSocket、真实平台与仿真测试均由此收敛。
+        参数标准化、正式指标统计隔离（杜绝 Mock 污染）、实时大屏广播、队列背压与审计。
+        """
+        if not self.is_live:
+            return {"accepted": False, "reason": "not_live"}
+
+        is_mock_event = bool(is_mock or payload.get("_is_mock") or payload.get("_is_fallback") or source == "mock")
+        payload["_source"] = source
+        payload["_is_mock"] = is_mock_event
+
+        # 仅真实事件计入正式运营大屏指标，严禁仿真事件污染
+        if not is_mock_event:
+            if event_type == "gift":
+                total_coin = payload.get("total_coin", 0) or 0
+                self.stats["gift_income_yuan"] = round(self.stats["gift_income_yuan"] + total_coin / 1000.0, 2)
+                self.stats["gift_count"] += 1
+            elif event_type in ("danmaku", "chat"):
+                self.stats["danmaku_count"] += 1
+
+        # 实时广播大屏瀑布流
         from server.routes.ws_live import ws_manager
-        text_content = payload.get("text") or (f"送出【{payload.get('gift_name')}】x{payload.get('count', 1)}" if event_type == "gift" else "进入直播间")
+        text_content = payload.get("text") or (
+            f"送出【{payload.get('gift_name')}】x{payload.get('count', 1)}"
+            if event_type == "gift"
+            else "进入直播间"
+        )
         self._track_task(
             ws_manager.broadcast("danmaku", {
                 "user": user_name,
                 "text": text_content,
                 "event_type": event_type,
-                "priority": priority
+                "priority": priority,
+                "is_mock": is_mock_event,
             })
+        )
+
+        event_id = payload.get("event_id") or f"evt_{uuid.uuid4().hex[:8]}"
+        res = await self.event_queue.put(
+            event_id=event_id,
+            event_type=event_type,
+            user_name=user_name,
+            payload=payload,
+            priority=priority,
+            as_result=True,
+        )
+        return {
+            "accepted": bool(res),
+            "event_id": event_id,
+            "dropped_event_id": getattr(res, "dropped_event_id", None),
+            "reason": getattr(res, "reason", None),
+        }
+
+    def _on_danmaku_event(self, event_type: str, user_name: str, payload: dict, priority: int = 2):
+        is_mock = bool(payload.get("_is_mock") or payload.get("_is_fallback"))
+        self._track_task(
+            self.ingest_event(
+                event_type=event_type,
+                user_name=user_name,
+                payload=payload,
+                priority=priority,
+                source="danmaku_fetcher",
+                is_mock=is_mock,
+            )
         )
 
     async def _refresh_product_context(self):
@@ -635,60 +734,60 @@ class LiveSessionController:
                         # 聚合答复时提示角色：这是多位观众的相同提问，需一次向全场集中答复
                         event.user_name = f"{agg['users'][0]}等{agg['count']}位观众"
 
-                # 广播当前播报状态
+                # 广播当前播报状态并在退出时严格 finally 复位
                 await ws_manager.broadcast("speaking_state", {"is_speaking": True, "user": event.user_name})
-
-                # 获取主播大模型流式思考切片 (携带多轮对话历史)
                 text_buffer = ""
                 full_reply = ""
-                stream = active_role.process_event(
-                    event.event_type,
-                    event.user_name,
-                    event.payload,
-                    self.live_context
-                )
+                try:
+                    # 获取主播大模型流式思考切片 (携带多轮对话历史)
+                    stream = active_role.process_event(
+                        event.event_type,
+                        event.user_name,
+                        event.payload,
+                        self.live_context
+                    )
 
-                async for raw_chunk in stream:
-                    # 检查是否中途被更高优先级的 P0 打断
-                    if self.event_queue.is_cancelled():
-                        logger.info("当前播报已被更高优先级抢占打断")
-                        break
+                    async for raw_chunk in stream:
+                        # 检查是否中途被更高优先级的 P0 打断
+                        if self.event_queue.is_cancelled():
+                            logger.info("当前播报已被更高优先级抢占打断")
+                            break
 
-                    text_buffer += raw_chunk
-                    parts = sentence_delimiters.split(text_buffer)
+                        text_buffer += raw_chunk
+                        parts = sentence_delimiters.split(text_buffer)
 
-                    # 如果凑齐了完整短句
-                    if len(parts) >= 3:
-                        # 组合出第一句
-                        complete_sentence = parts[0] + parts[1]
-                        text_buffer = "".join(parts[2:])
+                        # 如果凑齐了完整短句
+                        if len(parts) >= 3:
+                            # 组合出第一句
+                            complete_sentence = parts[0] + parts[1]
+                            text_buffer = "".join(parts[2:])
 
-                        speak_text, is_dropped, hits = await self._sanitize_and_humanize(
-                            complete_sentence, active_role
-                        )
+                            speak_text, is_dropped, hits = await self._sanitize_and_humanize(
+                                complete_sentence, active_role
+                            )
+                            if hits:
+                                self._track_task(self._log_guardrail_hits(
+                                    complete_sentence, speak_text, hits, is_dropped, self.session_id
+                                ))
+                            if is_dropped or not speak_text.strip():
+                                continue
+
+                            full_reply += speak_text
+                            await self._speak_sentence(speak_text, active_role)
+
+                    # 处理缓冲区剩余的尾句
+                    if text_buffer.strip() and not self.event_queue.is_cancelled():
+                        speak_text, is_dropped, hits = await self._sanitize_and_humanize(text_buffer, active_role)
                         if hits:
                             self._track_task(self._log_guardrail_hits(
-                                complete_sentence, speak_text, hits, is_dropped, self.session_id
+                                text_buffer, speak_text, hits, is_dropped, self.session_id
                             ))
-                        if is_dropped or not speak_text.strip():
-                            continue
-
-                        full_reply += speak_text
-                        await self._speak_sentence(speak_text, active_role)
-
-                # 处理缓冲区剩余的尾句
-                if text_buffer.strip() and not self.event_queue.is_cancelled():
-                    speak_text, is_dropped, hits = await self._sanitize_and_humanize(text_buffer, active_role)
-                    if hits:
-                        self._track_task(self._log_guardrail_hits(
-                            text_buffer, speak_text, hits, is_dropped, self.session_id
-                        ))
-                    if not is_dropped and speak_text.strip():
-                        full_reply += speak_text
-                        await self._speak_sentence(speak_text, active_role)
-
-                # 事件处理完毕，广播播报呼吸平息态
-                await ws_manager.broadcast("speaking_state", {"is_speaking": False})
+                        if not is_dropped and speak_text.strip():
+                            full_reply += speak_text
+                            await self._speak_sentence(speak_text, active_role)
+                finally:
+                    # 无论正常结束、打断 break 还是异常，强制广播复位平息态
+                    await ws_manager.broadcast("speaking_state", {"is_speaking": False})
 
                 # 维护多轮对话历史供 LLM 上下文引用
                 if full_reply.strip():
@@ -707,7 +806,10 @@ class LiveSessionController:
                 self.event_queue.reset_interrupt()
 
             except asyncio.CancelledError:
-                break
+                if not self.is_live:
+                    break
+                logger.warning("直播消费循环收到打断或取消信号，但会话仍在进行中，自动保持消费主循环存活")
+                await asyncio.sleep(0.05)
             except Exception as e:
                 logger.error(f"直播主循环异常: {e}", exc_info=True)
                 await asyncio.sleep(0.5)
@@ -772,7 +874,7 @@ class LiveSessionController:
         return fallback
 
     async def _speak_sentence(self, speak_text: str, active_role):
-        """完整合成后一次性提交音频，并在每个关键 await 后复核双代际。"""
+        """完整合成后一次性提交音频，并在每个关键 await 后复核双代际。TTS 生成创建独立子任务，绝不污染长期 Worker。"""
         from server.routes.ws_live import ws_manager
 
         synth_started = time.time()
@@ -788,37 +890,51 @@ class LiveSessionController:
 
         driver = self.tts_driver
         video_request_id = None
+        # 创建独立的短生命周期 Task，绝不拿主循环自身 Worker 充当 current_tts_task
+        synth_task = asyncio.create_task(self._collect_tts_sentence(driver, speak_text))
+        self.current_tts_task = synth_task
+        fallback_task = None
         try:
-            full_audio = await self._collect_tts_sentence(driver, speak_text)
+            full_audio = await synth_task
             # 紧邻生成器耗尽读取事务 ID，中间不 await，避免其他请求覆盖兼容游标。
             video_request_id = getattr(driver, "last_completed_request_id", None)
             if not is_current():
                 return
-            if not full_audio and not isinstance(driver, EdgeTTSMediaDriver):
-                raise RuntimeError("TTS 返回空音频")
+            if not full_audio or len(full_audio) == 0:
+                raise RuntimeError("TTS 返回空音频数据 (0 bytes)")
         except asyncio.CancelledError:
-            raise
+            logger.info("单句 TTS 生成任务已被 P0 抢占打断取消")
+            return
         except Exception as tts_err:
             if not is_current():
                 return
             if isinstance(driver, EdgeTTSMediaDriver):
-                logger.exception("Edge-TTS 语音合成失败")
+                logger.warning("Edge-TTS 语音合成失败或返回零字节音频，丢弃该句以防爆音: %s", tts_err)
                 return
             logger.warning("TTS 运行期合成失败，丢弃半句并切换 Edge-TTS: %s", tts_err)
             try:
                 driver = await self._switch_to_edge_tts()
                 if not is_current():
                     return
-                full_audio = await self._collect_tts_sentence(driver, speak_text)
+                fallback_task = asyncio.create_task(self._collect_tts_sentence(driver, speak_text))
+                self.current_tts_task = fallback_task
+                try:
+                    full_audio = await fallback_task
+                except asyncio.CancelledError:
+                    logger.info("降级 Edge-TTS 单句生成被抢占打断取消")
+                    return
                 video_request_id = getattr(driver, "last_completed_request_id", None)
-                if not is_current():
+                if not is_current() or not full_audio or len(full_audio) == 0:
                     return
             except Exception:
                 logger.exception("Edge-TTS 运行期降级失败")
                 return
+        finally:
+            if self.current_tts_task in (synth_task, fallback_task):
+                self.current_tts_task = None
 
         global_av_sync.measure(synth_started)
-        if not full_audio or not is_current():
+        if not full_audio or len(full_audio) == 0 or not is_current():
             return
 
         codec = getattr(driver, "audio_codec", "mp3")
@@ -937,6 +1053,7 @@ class LiveStartRequest(BaseModel):
     anchor_id: Optional[str] = None
     voice_id: Optional[str] = None
     platform: Optional[str] = "bilibili"
+    obs_auto_link: Optional[bool] = False  # 是否联动 OBS 同步开启推流
 
 class LiveInterruptRequest(BaseModel):
     text: str
@@ -950,9 +1067,28 @@ class DanmakuWebhookPayload(BaseModel):
     gift_count: Optional[int] = 1
     total_coin: Optional[int] = 0
 
+def _build_external_publish_status() -> dict:
+    """
+    统一构建外部推流状态对象 (三层解耦)：
+    local_source: 本地直播源/虚拟设备
+    obs: OBS-WebSocket 状态与推流指标
+    platform: 平台公开开播状态 (未接入平台 API 前诚实保持 null，绝不过度宣称)
+    """
+    obs_summary = global_obs_client.get_summary()
+    is_connected = obs_summary.get("is_connected", False)
+    is_streaming = obs_summary.get("is_streaming", False)
+    return {
+        "mode": "obs_websocket",
+        "status": "streaming" if is_streaming else ("obs_ready" if is_connected else "not_managed"),
+        "transport_status": "active" if is_streaming else ("connected" if is_connected else "disconnected"),
+        "platform_live": None,
+        "validation": "obs_output_only" if is_streaming else ("obs_standby" if is_connected else "pending_external_acceptance"),
+        "obs": obs_summary,
+    }
+
 @router.get("/status")
 async def get_live_status():
-    """获取本地直播源状态；不推断任何外部平台发布状态。"""
+    """获取本地直播源与外部推流状态"""
     running = global_live_controller.is_live
     return {
         "code": 0,
@@ -963,11 +1099,7 @@ async def get_live_status():
             "status": "running" if running else "stopped",
             "session_id": global_live_controller.session_id,
         },
-        "external_publish": {
-            "status": "not_managed",
-            "platform_live": None,
-            "validation": "pending_external_acceptance",
-        },
+        "external_publish": _build_external_publish_status(),
     }
 
 async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
@@ -1031,6 +1163,30 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         )
         session_record.status = "live"
         await db.commit()
+
+        # 若配置了 OBS 联动自动开播，且 OBS 已连接，触发 OBS 推流并记录所有权
+        obs_linked = False
+        obs_degraded = False
+        obs_error_msg = None
+        if getattr(req, "obs_auto_link", False):
+            if not global_obs_client.is_connected:
+                obs_degraded = True
+                obs_error_msg = "OBS 未连接，无法自动联动推流"
+                logger.warning(obs_error_msg)
+            else:
+                try:
+                    res = await global_obs_client.start_stream()
+                    if res.get("result"):
+                        obs_linked = True
+                        global_live_controller.obs_stream_started_by_agent = True
+                    else:
+                        obs_degraded = True
+                        obs_error_msg = res.get("comment") or res.get("error") or "OBS 拒绝推流"
+                        logger.warning("联动 OBS 开始推流失败: %s", obs_error_msg)
+                except Exception as e:
+                    obs_degraded = True
+                    obs_error_msg = str(e)
+                    logger.warning("联动 OBS 开始推流异常: %s", e)
     except Exception as exc:
         await db.rollback()
         record = await db.get(LiveSessionRecord, session_id)
@@ -1048,12 +1204,11 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         "voice_id": target_voice_id,
         "role_id": active_role.role_id,
         "mode": live_mode,
+        "obs_linked": obs_linked,
+        "degraded": obs_degraded,
+        "obs_error": obs_error_msg,
         "local_source": {"status": "running", "preview": "/api/v1/live/stream/preview"},
-        "external_publish": {
-            "status": "not_managed",
-            "platform_live": None,
-            "validation": "pending_external_acceptance",
-        },
+        "external_publish": _build_external_publish_status(),
         "message": f"本地直播源已成功启动 ({platform}, 模式 {live_mode})；外部平台发布需人工验收"
     }
 
@@ -1073,27 +1228,60 @@ async def _stop_live_unlocked(db: AsyncSession):
     if not sid and not global_live_controller.is_live:
         return {"code": 0, "is_live": False, "message": "直播已停止"}
     stats = global_live_controller.stats.copy()
-    await global_live_controller.stop()
 
-    if sid:
-        record = await db.get(LiveSessionRecord, sid)
-        if record:
-            record.end_time = utc_now()
-            record.status = "stopped"
-            record.danmaku_count = stats.get("danmaku_count", 0)
-            record.peak_viewers = stats.get("peak_viewer_count", 0)
-            record.gift_income = stats.get("gift_income_yuan", 0.0)
-            # 订单汇总以数据库为权威源，取消/退款订单不会计入成交。
-            aggregate = await db.execute(
-                select(func.coalesce(func.sum(Order.amount), 0.0), func.count(Order.id))
-                .where(Order.session_id == sid, Order.status == "completed")
-            )
-            total_gmv, orders_count = aggregate.one()
-            record.total_gmv = float(total_gmv or 0.0)
-            record.orders_count = int(orders_count or 0)
-            await db.commit()
+    cleanup_errors = []
+    try:
+        cleanup_errors = await global_live_controller.stop()
+    except Exception as exc:
+        logger.error("控制器 stop() 抛出未捕获异常: %s", exc, exc_info=True)
+        cleanup_errors.append(str(exc))
+    finally:
+        # 联动 OBS：仅当本场直播由 Agent 启动推流时才停止 OBS，防止误关用户手动推流
+        try:
+            if (
+                getattr(global_live_controller, "obs_stream_started_by_agent", False)
+                and global_obs_client.is_connected
+                and global_obs_client.is_streaming
+            ):
+                try:
+                    await global_obs_client.stop_stream()
+                except Exception as e:
+                    logger.warning("联动 OBS 停止推流异常: %s", e)
+                    cleanup_errors.append(f"obs_stop_failed: {e}")
+        finally:
+            # 无论 OBS 处于何种连接/推流状态，场次结束时必须无条件复位所有权，防止跨场残留
+            global_live_controller.obs_stream_started_by_agent = False
 
-    return {"code": 0, "is_live": False, "message": "直播已停止"}
+        if sid:
+            try:
+                record = await db.get(LiveSessionRecord, sid)
+                if record:
+                    record.end_time = utc_now()
+                    record.status = "stopped" if not cleanup_errors else "stopped_with_errors"
+                    record.danmaku_count = stats.get("danmaku_count", 0)
+                    record.peak_viewers = stats.get("peak_viewer_count", 0)
+                    record.gift_income = stats.get("gift_income_yuan", 0.0)
+                    # 订单汇总以数据库为权威源，取消/退款订单不会计入成交。
+                    aggregate = await db.execute(
+                        select(func.coalesce(func.sum(Order.amount), 0.0), func.count(Order.id))
+                        .where(Order.session_id == sid, Order.status == "completed")
+                    )
+                    total_gmv, orders_count = aggregate.one()
+                    record.total_gmv = float(total_gmv or 0.0)
+                    record.orders_count = int(orders_count or 0)
+                    await db.commit()
+            except Exception as db_err:
+                logger.error("停播持久化场次指标失败: %s", db_err, exc_info=True)
+                await db.rollback()
+
+    status_str = "stopped" if not cleanup_errors else "stopped_with_errors"
+    return {
+        "code": 0,
+        "is_live": False,
+        "status": status_str,
+        "cleanup_errors": cleanup_errors,
+        "message": "直播已停止" if not cleanup_errors else f"直播已停止，存在资源清理警告: {', '.join(cleanup_errors)}"
+    }
 
 
 @router.post("/stop")
@@ -1101,6 +1289,66 @@ async def stop_live(db: AsyncSession = Depends(get_db)):
     """用同一把生命周期锁包裹完整停播状态转换。"""
     async with global_live_controller.lifecycle_lock:
         return await _stop_live_unlocked(db)
+
+
+# ------------------------------------------------------------------
+# OBS Studio WebSocket v5 联动控制端点
+# ------------------------------------------------------------------
+@router.get("/obs/status")
+async def get_obs_status():
+    """获取当前 OBS-WebSocket 连接与推流状态"""
+    if global_obs_client.is_connected:
+        await global_obs_client.refresh_stream_status()
+    return {
+        "code": 0,
+        "data": global_obs_client.get_summary()
+    }
+
+
+class ObsConnectRequest(BaseModel):
+    host: Optional[str] = "127.0.0.1"
+    port: Optional[int] = 4455
+    password: Optional[str] = ""
+
+
+@router.post("/obs/connect")
+async def connect_obs(req: ObsConnectRequest):
+    """连接到本地或局域网 OBS Studio (WebSocket v5)"""
+    global_obs_client.host = req.host or "127.0.0.1"
+    global_obs_client.port = int(req.port or 4455)
+    global_obs_client.password = req.password or ""
+    success = await global_obs_client.connect()
+    return {
+        "code": 0 if success else 1,
+        "connected": success,
+        "message": "OBS 连接成功" if success else "连接 OBS 失败，请检查 OBS 是否开启 WebSocket 且端口密码正确",
+        "data": global_obs_client.get_summary()
+    }
+
+
+@router.post("/obs/disconnect")
+async def disconnect_obs():
+    """断开 OBS 连接"""
+    await global_obs_client.disconnect()
+    return {"code": 0, "message": "OBS 连接已断开"}
+
+
+@router.post("/obs/stream/start")
+async def start_obs_stream():
+    """控制 OBS 开始推流"""
+    if not global_obs_client.is_connected:
+        raise HTTPException(status_code=400, detail="OBS 未连接，请先连接 OBS")
+    res = await global_obs_client.start_stream()
+    return {"code": 0 if res.get("result") else 1, "data": res}
+
+
+@router.post("/obs/stream/stop")
+async def stop_obs_stream():
+    """控制 OBS 停止推流"""
+    if not global_obs_client.is_connected:
+        raise HTTPException(status_code=400, detail="OBS 未连接，请先连接 OBS")
+    res = await global_obs_client.stop_stream()
+    return {"code": 0 if res.get("result") else 1, "data": res}
 
 
 @router.get("/stream/preview")
@@ -1155,8 +1403,15 @@ async def receive_danmaku_webhook(payload: DanmakuWebhookPayload):
         "total_coin": payload.total_coin or 0
     }
     priority = 0 if event_type == "gift" and (payload.total_coin or 0) >= 50000 else (1 if event_type == "gift" else 2)
-    global_live_controller._on_danmaku_event(event_type, payload.user_name, danmaku_payload, priority=priority)
-    return {"code": 0, "message": "弹幕已接收并进入调度队列"}
+    res = await global_live_controller.ingest_event(
+        event_type=event_type,
+        user_name=payload.user_name,
+        payload=danmaku_payload,
+        priority=priority,
+        source="webhook",
+        is_mock=False,
+    )
+    return {"code": 0 if res.get("accepted") else 1, "message": "弹幕已接收并进入调度队列", "data": res}
 
 @router.post("/interrupt")
 @router.post("/manual-speech")
@@ -1164,14 +1419,15 @@ async def interrupt_live(req: LiveInterruptRequest):
     """运营人员紧急人工插话（双路由对齐，触发毫秒级打断并播报新内容）"""
     if not global_live_controller.is_live:
         raise HTTPException(status_code=400, detail="直播尚未开播，禁止插播")
-    await global_live_controller.event_queue.put(
-        event_id=f"evt_manual_{uuid.uuid4().hex[:6]}",
+    res = await global_live_controller.ingest_event(
         event_type="chat",
         user_name="运营管理员",
         payload={"text": req.text},
-        priority=0  # P0 触发抢占打断
+        priority=0,  # P0 触发抢占打断
+        source="manual_interrupt",
+        is_mock=False,
     )
-    return {"code": 0, "message": "人工插话已成功抢占插播"}
+    return {"code": 0 if res.get("accepted") else 1, "message": "人工插话已成功抢占插播", "data": res}
 
 
 class MockEventRequest(BaseModel):
@@ -1180,28 +1436,30 @@ class MockEventRequest(BaseModel):
 
 @router.post("/mock-event")
 async def inject_mock_event(req: MockEventRequest):
-    """向直播队列注入仿真观众事件 (演示/联调按钮的真实数据通路)"""
+    """向直播队列注入仿真观众事件 (演示/联调按钮的真实数据通路，强制标记 is_mock 排除真实指标统计)"""
     if not global_live_controller.is_live:
         raise HTTPException(status_code=400, detail="直播间尚未开播，请先在直播大屏一键开播")
 
     if req.type == "gift":
-        await global_live_controller.event_queue.put(
-            event_id=f"evt_mock_{uuid.uuid4().hex[:6]}",
+        res = await global_live_controller.ingest_event(
             event_type="gift",
             user_name="仿真大哥888",
             payload={"gift_name": "超级大火箭", "count": 1, "total_coin": 100000},
-            priority=0
+            priority=0,
+            source="mock",
+            is_mock=True,
         )
-        return {"code": 0, "message": "已注入仿真大额打赏 (P0 强打断)，AI 主播将立刻感谢"}
+        return {"code": 0, "message": "已注入仿真大额打赏 (P0 强打断)，AI 主播将立刻感谢", "data": res}
     else:
-        await global_live_controller.event_queue.put(
-            event_id=f"evt_mock_{uuid.uuid4().hex[:6]}",
+        res = await global_live_controller.ingest_event(
             event_type="chat",
             user_name="仿真买家小美",
             payload={"text": "主播，这款多少钱？现在还有优惠吗？"},
-            priority=1
+            priority=1,
+            source="mock",
+            is_mock=True,
         )
-        return {"code": 0, "message": "已注入仿真促单提问 (P1)，AI 主播将优先解答"}
+        return {"code": 0, "message": "已注入仿真促单提问 (P1)，AI 主播将优先解答", "data": res}
 
 # ---------------------------------------------------------------------------
 # 硬件探测与运行档位推荐 (规划 §8.1)
@@ -1809,23 +2067,16 @@ async def _pf_tts_check(cfg: Optional[dict]) -> dict:
 
 
 def _pf_obs_check() -> dict:
-    """OBS 推流软件检测：进程运行 > 已安装未运行 > 未安装"""
-    try:
-        import psutil
-        for proc in psutil.process_iter(["name"]):
-            try:
-                name = (proc.info.get("name") or "").lower()
-                if name in ("obs64.exe", "obs32.exe", "obs"):
-                    return _pf("pass", "obs", "OBS 本机组件", "检测到 OBS 进程正在运行；是否已捕获本地音视频源仍需人工确认")
-            except Exception:
-                continue
-    except Exception:
-        pass
-    for path in OBS_INSTALL_PATHS:
-        if Path(path).exists():
-            return _pf("warn", "obs", "OBS 推流软件",
-                       "检测到 OBS 已安装但尚未运行（仿真试播不受影响，正式对外推流前请启动 OBS）",
-                       "请启动 OBS Studio 并将视频源设为『OBS 虚拟摄像头』", None)
+    """OBS 推流软件检测 (SSOT 统一探测)：进程运行 > 已安装未运行 > 未安装"""
+    from server.routes.system import find_obs_studio
+    obs_info = find_obs_studio()
+    if obs_info["is_running"]:
+        return _pf("pass", "obs", "OBS 本机组件", "检测到 OBS 进程正在运行；是否已捕获本地音视频源仍需人工确认")
+    if obs_info["is_installed"]:
+        ver_str = f" (v{obs_info['version']})" if obs_info.get("version") else ""
+        return _pf("warn", "obs", "OBS 推流软件",
+                   f"检测到 OBS 已安装{ver_str}但尚未运行（本机仿真试播不受影响，正式对外推流前请启动 OBS）",
+                   "请启动 OBS Studio 并将视频源设为『OBS 虚拟摄像头』", None)
     return _pf("warn", "obs", "OBS 推流软件",
                "未检测到 OBS（本机仿真试播不受影响，正式对外推流需要 OBS 抓取画面）",
                "免费下载安装 OBS Studio: obsproject.com", None)

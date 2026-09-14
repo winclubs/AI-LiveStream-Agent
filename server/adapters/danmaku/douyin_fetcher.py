@@ -167,6 +167,7 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                 )
                 async with websockets.connect(ws_url, additional_headers=headers, ping_interval=None) as ws:
                     backoff = 1.0  # 握手成功，重置退避计时
+                    self.on_connection_opened()
                     logger.info("抖音直播间弹幕长连接握手成功！")
 
                     # 启动心跳
@@ -176,6 +177,7 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
 
                     while self.is_running:
                         msg = await ws.recv()
+                        self.on_heartbeat()
                         if isinstance(msg, bytes):
                             self._parse_push_frame(msg)
 
@@ -183,6 +185,7 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                 break
             except Exception as e:
                 logger.warning(f"抖音弹幕长连接中断 ({e})，{backoff:.1f} 秒后执行指数退避自愈重连...")
+                self.notify_error(e, "抖音弹幕长连接中断")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2.0, max_backoff)
 
@@ -193,6 +196,7 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                 await asyncio.sleep(10.0)
                 # 抖音心跳包 (空 payload 或结构化 ping)
                 await ws.send(b":")
+                self.on_heartbeat()
             except asyncio.CancelledError:
                 break
             except Exception:

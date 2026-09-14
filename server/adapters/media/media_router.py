@@ -89,12 +89,17 @@ class MediaDriverRouter(BaseMediaDriver):
 
     @staticmethod
     def _with_capability_boundary(status: dict) -> dict:
-        status["capabilities"] = {
+        caps = {
             "procedural_avatar": status.get("render_backend") == "procedural",
             "neural_lipsync": False,
+            "viseme_lipsync": status.get("viseme_lipsync", True),
+            "g2p_aligned": status.get("g2p_aligned", True),
             "local_preview": bool(status.get("is_running")),
             "virtual_camera": bool((status.get("virtual_cam") or {}).get("is_active")),
         }
+        if "capabilities" in status and isinstance(status["capabilities"], dict):
+            caps.update(status["capabilities"])
+        status["capabilities"] = caps
         status["external_publish"] = {
             "status": "not_managed",
             "platform_live": None,

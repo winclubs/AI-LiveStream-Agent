@@ -201,7 +201,7 @@ class BilibiliDanmakuFetcher(BaseDanmakuFetcher):
                             self._heartbeat_task = asyncio.create_task(self._heartbeat(ws))
                             retry_delay = 1.0
                             connected = True
-                            logger.info(f"Bilibili 房间 {self.room_id} 弹幕长连接建立成功")
+                            logger.info(f"Bilibili 房间 {self.room_id} 弹幕长连接握手完成，等待认证")
 
                             try:
                                 async for raw in ws:
@@ -226,6 +226,7 @@ class BilibiliDanmakuFetcher(BaseDanmakuFetcher):
                 if not self.is_running:
                     break
                 logger.error(f"Bilibili 弹幕长连接断开: {e}，将在 {retry_delay} 秒后自动自愈重连...")
+                self.notify_error(e, "Bilibili 弹幕长连接断开")
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, max_delay)
 
@@ -251,8 +252,10 @@ class BilibiliDanmakuFetcher(BaseDanmakuFetcher):
 
         for protover, operation, body in packets:
             if operation == self.OP_AUTH_REPLY:
+                self.on_connection_opened()
                 logger.info(f"Bilibili 房间 {self.room_id} 认证通过 (AUTH_REPLY)")
             elif operation == self.OP_HEARTBEAT_REPLY:
+                self.on_heartbeat()
                 if len(body) >= 4:
                     popularity = struct.unpack(">I", body[:4])[0]
                     self.watched_count = popularity

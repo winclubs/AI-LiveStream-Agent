@@ -103,7 +103,10 @@ def _scan_windows_registry_apps() -> Dict[str, Dict[str, str]]:
                                     found[disp_name.lower()] = {
                                         "name": disp_name,
                                         "version": str(values.get("DisplayVersion", "")),
-                                        "location": str(values.get("InstallLocation", ""))
+                                        "location": str(values.get("InstallLocation", "")),
+                                        "icon": str(values.get("DisplayIcon", "")),
+                                        "uninstall": str(values.get("UninstallString", "")),
+                                        "publisher": str(values.get("Publisher", "")),
                                     }
                         except Exception:
                             continue
@@ -112,6 +115,295 @@ def _scan_windows_registry_apps() -> Dict[str, Dict[str, str]]:
     except Exception as e:
         logger.debug(f"注册表扫描跳过: {e}")
     return found
+
+
+def find_obs_studio() -> Dict[str, Any]:
+    """
+    全局统一的 OBS Studio 探测函数 (单一事实来源 SSOT)
+    跨盘符、多版本、注册表与进程探测，供开播向导与开播前检查共同调用。
+    返回:
+        {
+            "is_running": bool,
+            "is_installed": bool,
+            "version": str,
+            "path": str,
+            "status": "running" | "installed" | "missing",
+            "badge": str,
+            "tip": str,
+        }
+    """
+    procs = _scan_running_processes()
+    obs_running = any(p in procs for p in ["obs64.exe", "obs32.exe", "obs.exe"])
+    obs_path = shutil.which("obs64") or shutil.which("obs")
+    obs_version = ""
+
+    # 1. 注册表扫描辅助探测 (优先提取精确安装路径与版本)
+    registry_apps = _scan_windows_registry_apps()
+    for app_key, app_info in registry_apps.items():
+        if "obs studio" in app_key or "obs-studio" in app_key or app_key.startswith("obs studio"):
+            if not obs_version and app_info.get("version"):
+                obs_version = app_info["version"]
+
+            # 优先从 DisplayIcon 提取可执行文件路径
+            raw_icon = app_info.get("icon", "").strip()
+            if raw_icon:
+                clean_icon = raw_icon.strip('"').split(",")[0].strip()
+                if os.path.exists(clean_icon) and os.path.isfile(clean_icon):
+                    if not obs_path:
+                        obs_path = clean_icon
+
+            # 其次从 InstallLocation 提取
+            loc = app_info.get("location", "").strip().strip('"')
+            if loc and not obs_path:
+                for candidate in [
+                    os.path.join(loc, "bin", "64bit", "obs64.exe"),
+                    os.path.join(loc, "bin", "32bit", "obs32.exe"),
+                    os.path.join(loc, "obs64.exe"),
+                ]:
+                    if os.path.exists(candidate):
+                        obs_path = candidate
+                        break
+
+            # 从 UninstallString 推导安装目录
+            uninst = app_info.get("uninstall", "").strip().strip('"')
+            if uninst and not obs_path:
+                u_dir = os.path.dirname(uninst.split('"')[0].strip())
+                for candidate in [
+                    os.path.join(u_dir, "bin", "64bit", "obs64.exe"),
+                    os.path.join(u_dir, "bin", "32bit", "obs32.exe"),
+                    os.path.join(u_dir, "obs64.exe"),
+                ]:
+                    if os.path.exists(candidate):
+                        obs_path = candidate
+                        break
+            if obs_version or obs_path:
+                break
+
+    # 2. 常见全盘驱动器遍历扫描 (覆盖 C/D/E/F 盘的标准与自定义路径)
+    if not obs_path:
+        candidate_roots = ["C:", "D:", "E:", "F:"]
+        candidate_relatives = [
+            r"Program Files\obs-studio\bin\64bit\obs64.exe",
+            r"Program Files\obs-studio\bin\32bit\obs32.exe",
+            r"Program Files (x86)\obs-studio\bin\64bit\obs64.exe",
+            r"Program Files (x86)\obs-studio\bin\32bit\obs32.exe",
+            r"OBS\obs-studio\bin\64bit\obs64.exe",
+            r"OBS\obs-studio\bin\32bit\obs32.exe",
+            r"obs-studio\bin\64bit\obs64.exe",
+            r"obs-studio\bin\32bit\obs32.exe",
+        ]
+        for drive in candidate_roots:
+            for rel in candidate_relatives:
+                p = os.path.join(drive + "\\", rel)
+                if os.path.exists(p):
+                    obs_path = p
+                    break
+            if obs_path:
+                break
+
+    is_installed = bool(obs_running or obs_path or obs_version)
+
+    if obs_running:
+        status = "running"
+        badge = "运行中"
+        tip = "OBS Studio 进程正在运行；场景、采集源和平台发布状态尚未验证"
+    elif is_installed:
+        status = "installed"
+        badge = "已安装 (未启动)"
+        ver_str = f" (v{obs_version})" if obs_version else ""
+        tip = f"检测到 OBS Studio 已安装{ver_str}，开播前请启动推流工作台"
+    else:
+        status = "missing"
+        badge = "未安装"
+        tip = "未检测到 OBS Studio。推流、图层混音与公域直播强烈推荐安装"
+
+    return {
+        "is_running": obs_running,
+        "is_installed": is_installed,
+        "version": obs_version,
+        "path": obs_path or "",
+        "status": status,
+        "badge": badge,
+        "tip": tip,
+    }
+
+
+def find_live_partner() -> Dict[str, Any]:
+    """
+    全局统一的第三方直播伴侣探测函数 (SSOT 单一事实来源)
+    覆盖：抖音直播伴侣 (ByteDance / webcast_mate 中英文版及自定义路径)、快手直播伴侣、微信视频号直播工具、B站直播姬、淘宝主播工作台等。
+    返回:
+        {
+            "is_running": bool,
+            "is_installed": bool,
+            "running_names": List[str],
+            "installed_names": List[str],
+            "path": str,
+            "version": str,
+            "status": "running" | "installed" | "missing",
+            "badge": str,
+            "tip": str,
+        }
+    """
+    procs = _scan_running_processes()
+    registry_apps = _scan_windows_registry_apps()
+
+    running_names: List[str] = []
+    installed_names: List[str] = []
+    best_path: str = ""
+    best_version: str = ""
+
+    # 1. 进程扫描 (覆盖中英文及变体进程名，严禁匹配普通微信小程序 wechatappex.exe)
+    partner_proc_map = {
+        # 抖音直播伴侣
+        "直播伴侣.exe": "抖音直播伴侣",
+        "直播伴侣 launcher.exe": "抖音直播伴侣",
+        "直播伴侣launcher.exe": "抖音直播伴侣",
+        "livepartner.exe": "抖音直播伴侣",
+        "douyinlivepartner.exe": "抖音直播伴侣",
+        "douyin_live_partner.exe": "抖音直播伴侣",
+        "webcast_mate.exe": "抖音直播伴侣",
+        "webcastmate.exe": "抖音直播伴侣",
+        # 快手直播伴侣
+        "快手直播伴侣.exe": "快手直播伴侣",
+        "kuaishou.exe": "快手直播伴侣",
+        "kwai.exe": "快手直播伴侣",
+        "kslivepartner.exe": "快手直播伴侣",
+        # 微信视频号直播工具 (官方独立推流客户端)
+        "wechatlive.exe": "微信视频号直播工具",
+        "channelslive.exe": "微信视频号直播工具",
+        "wxlive.exe": "微信视频号直播工具",
+        # B站直播姬
+        "bililive.exe": "Bilibili 直播姬",
+        "livehime.exe": "Bilibili 直播姬",
+        # 淘宝主播工作台
+        "taobaolive.exe": "淘宝主播工作台",
+        "tblive.exe": "淘宝主播工作台",
+    }
+    for proc_name, label in partner_proc_map.items():
+        if proc_name in procs and label not in running_names:
+            running_names.append(label)
+
+    # 2. 注册表深度识别 (识别 ByteDance 直播伴侣、快手、视频号等)
+    for app_key, app_info in registry_apps.items():
+        name = app_info.get("name", "")
+        pub = app_info.get("publisher", "").lower()
+        loc = app_info.get("location", "").lower()
+        icon = app_info.get("icon", "").lower()
+        uninst = app_info.get("uninstall", "").lower()
+        ver = app_info.get("version", "")
+
+        # 判定 A: 抖音直播伴侣 (官方发布者 ByteDance / 路径 webcast_mate / 名称包含 直播伴侣+ByteDance)
+        is_douyin = (
+            ("bytedance" in pub or "字节跳动" in pub or "webcast" in loc or "webcast" in icon or "webcast" in uninst)
+            and ("直播伴侣" in name or "webcast" in loc or "livepartner" in loc)
+        ) or "抖音直播伴侣" in name
+        if is_douyin:
+            disp_title = f"抖音直播伴侣{f' (v{ver})' if ver else ''}"
+            if disp_title not in installed_names:
+                installed_names.append(disp_title)
+            if not best_version and ver:
+                best_version = ver
+            if not best_path:
+                raw_icon = app_info.get("icon", "").strip().strip('"').split(",")[0].strip()
+                if raw_icon and os.path.exists(raw_icon):
+                    best_path = raw_icon
+                elif app_info.get("location") and os.path.exists(app_info["location"]):
+                    best_path = app_info["location"]
+            continue
+
+        # 判定 B: 快手直播伴侣
+        is_kuaishou = "快手直播伴侣" in name or ("kuaishou" in pub and "直播" in name)
+        if is_kuaishou:
+            disp_title = f"快手直播伴侣{f' (v{ver})' if ver else ''}"
+            if disp_title not in installed_names:
+                installed_names.append(disp_title)
+            continue
+
+        # 判定 C: B站直播姬
+        if "直播姬" in name or ("bilibili" in pub and "直播" in name):
+            disp_title = f"Bilibili 直播姬{f' (v{ver})' if ver else ''}"
+            if disp_title not in installed_names:
+                installed_names.append(disp_title)
+            continue
+
+        # 判定 D: 淘宝主播工作台
+        if "淘宝主播" in name:
+            disp_title = f"淘宝主播工作台{f' (v{ver})' if ver else ''}"
+            if disp_title not in installed_names:
+                installed_names.append(disp_title)
+            continue
+
+        # 判定 E: 微信视频号直播
+        if "视频号直播" in name or ("tencent" in pub and "视频号直播" in name):
+            disp_title = f"微信视频号直播工具{f' (v{ver})' if ver else ''}"
+            if disp_title not in installed_names:
+                installed_names.append(disp_title)
+            continue
+
+        # 判定 F: 通用 "直播伴侣" 兜底
+        if "直播伴侣" in name:
+            disp_title = f"{name}"
+            if disp_title not in installed_names:
+                installed_names.append(disp_title)
+
+    # 3. 常见全盘驱动器与默认目录扫描 (覆盖用户自定义目录如 D:\DouyinZhibo\webcast_mate)
+    candidate_dirs = [
+        # 用户已知自定义及常见目录
+        r"D:\DouyinZhibo\webcast_mate",
+        r"C:\DouyinZhibo\webcast_mate",
+        r"E:\DouyinZhibo\webcast_mate",
+        r"C:\webcast_mate",
+        r"D:\webcast_mate",
+        r"E:\webcast_mate",
+        r"C:\Program Files\webcast_mate",
+        r"D:\Program Files\webcast_mate",
+        r"C:\Program Files (x86)\webcast_mate",
+        r"D:\Program Files (x86)\webcast_mate",
+    ]
+    appdata = os.environ.get("LOCALAPPDATA", "")
+    if appdata:
+        candidate_dirs.extend([
+            os.path.join(appdata, "DouyinLivePartner"),
+            os.path.join(appdata, "webcast_mate"),
+            os.path.join(appdata, "Programs", "webcast_mate"),
+        ])
+    for c_dir in candidate_dirs:
+        if os.path.exists(c_dir):
+            has_douyin = any("抖音直播伴侣" in x for x in installed_names)
+            if not has_douyin:
+                installed_names.append("抖音直播伴侣")
+            if not best_path:
+                best_path = c_dir
+
+    is_running = len(running_names) > 0
+    is_installed = is_running or (len(installed_names) > 0)
+
+    if is_running:
+        status = "running"
+        badge = "运行中"
+        tip = f"检测到正在运行: {', '.join(running_names)}。在伴侣中添加【摄像头】并选择【OBS Virtual Camera】即可拉取数字人画面！"
+    elif is_installed:
+        status = "installed"
+        badge = "已安装"
+        display_names = installed_names[:2]
+        tip = f"检测到已安装: {', '.join(display_names)}。商业开播时启动伴侣并接入虚拟摄像头即可推流"
+    else:
+        status = "missing"
+        badge = "未检测到"
+        tip = "未检测到常用直播伴侣（抖音/快手/视频号/B站）。正式商业推流需启动对应平台客户端并接入数字人画面"
+
+    return {
+        "is_running": is_running,
+        "is_installed": is_installed,
+        "running_names": running_names,
+        "installed_names": installed_names,
+        "path": best_path,
+        "version": best_version,
+        "status": status,
+        "badge": badge,
+        "tip": tip,
+    }
 
 
 def _detect_prerequisites() -> Dict[str, Any]:
@@ -124,47 +416,13 @@ def _detect_prerequisites() -> Dict[str, Any]:
 
     items: List[Dict[str, Any]] = []
 
-    # 1. OBS Studio 检测
-    obs_running = any(p in procs for p in ["obs64.exe", "obs32.exe", "obs.exe"])
-    obs_path = shutil.which("obs64") or shutil.which("obs")
-    obs_version = ""
-
-    # 常用安装磁盘目录
-    common_obs_paths = [
-        r"C:\Program Files\obs-studio\bin\64bit\obs64.exe",
-        r"D:\Program Files\obs-studio\bin\64bit\obs64.exe",
-        r"E:\Program Files\obs-studio\bin\64bit\obs64.exe",
-        r"C:\Program Files (x86)\obs-studio\bin\32bit\obs32.exe",
-        r"D:\Program Files (x86)\obs-studio\bin\32bit\obs32.exe",
-    ]
-    if not obs_path:
-        for p in common_obs_paths:
-            if os.path.exists(p):
-                obs_path = p
-                break
-
-    # 注册表扫描辅助
-    for app_key, app_info in registry_apps.items():
-        if "obs studio" in app_key or "obs-studio" in app_key:
-            obs_version = app_info.get("version", "")
-            if not obs_path and app_info.get("location"):
-                candidate = os.path.join(app_info["location"], "bin", "64bit", "obs64.exe")
-                if os.path.exists(candidate):
-                    obs_path = candidate
-            break
-
-    if obs_running:
-        obs_status = "running"
-        obs_badge = "运行中"
-        obs_tip = "OBS Studio 进程正在运行；场景、采集源和平台发布状态尚未验证"
-    elif obs_path or obs_version:
-        obs_status = "installed"
-        obs_badge = "已安装 (未启动)"
-        obs_tip = f"检测到 OBS Studio 已安装{f' (v{obs_version})' if obs_version else ''}，开播前请启动推流工作台"
-    else:
-        obs_status = "missing"
-        obs_badge = "未安装"
-        obs_tip = "未检测到 OBS Studio。推流、图层混音与公域直播强烈推荐安装"
+    # 1. OBS Studio 检测 (调用全局统一 SSOT 探测函数)
+    obs_info = find_obs_studio()
+    obs_status = obs_info["status"]
+    obs_badge = obs_info["badge"]
+    obs_tip = obs_info["tip"]
+    obs_version = obs_info["version"]
+    obs_path = obs_info["path"]
 
     items.append({
         "key": "obs",
@@ -177,9 +435,9 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "path": obs_path or "",
         "desc": "专业级流媒体音视频混合编排工作台，商业直播必选底座",
         "tip": obs_tip,
-        "url": "https://obsproject.com/",
-        "action_text": "前往 OBS 官网下载",
-        "action_type": "url"
+        "url": "https://obsproject.com/" if obs_status not in ("installed", "running") else "",
+        "action_text": "前往 OBS 官网下载" if obs_status not in ("installed", "running") else "",
+        "action_type": "url" if obs_status not in ("installed", "running") else ""
     })
 
     # 2. OBS Virtual Camera / DirectShow 虚拟摄像头驱动检测
@@ -192,6 +450,12 @@ def _detect_prerequisites() -> Dict[str, Any]:
         r"C:\Windows\System32\obs-virtualcam-module64.dll",
         r"C:\Windows\SysWOW64\obs-virtualcam-module32.dll",
     ]
+    if obs_path:
+        # 动态将实际安装目录下的驱动安装批处理加入检查
+        obs_base_dir = os.path.abspath(os.path.join(os.path.dirname(obs_path), "..", ".."))
+        dyn_bat = os.path.join(obs_base_dir, "data", "obs-plugins", "win-dshow", "virtualcam-install.bat")
+        if dyn_bat not in common_vcam_dlls:
+            common_vcam_dlls.insert(0, dyn_bat)
     for dll in common_vcam_dlls:
         if os.path.exists(dll):
             vcam_registered = True
@@ -238,9 +502,9 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "path": "",
         "desc": "将 AI 数字人生成的 25fps 视频帧直接呈现为系统免驱摄像头，供直播伴侣抓取",
         "tip": vcam_tip,
-        "url": "https://obsproject.com/wiki/OBS-Virtual-Camera",
-        "action_text": "查看驱动激活指引",
-        "action_type": "tip"
+        "url": "https://obsproject.com/wiki/OBS-Virtual-Camera" if vcam_status not in ("installed", "running") else "",
+        "action_text": "查看驱动激活指引" if vcam_status not in ("installed", "running") else "",
+        "action_type": "tip" if vcam_status not in ("installed", "running") else ""
     })
 
     # 3. Python 虚拟摄像头管道 pyvirtualcam
@@ -273,58 +537,18 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "path": "",
         "desc": "数字人引擎与虚拟摄像头硬件设备的极速帧缓冲通讯中继",
         "tip": pyvcam_tip,
-        "command": "pip install pyvirtualcam",
-        "action_text": "复制安装命令",
-        "action_type": "copy"
+        "command": "pip install pyvirtualcam" if pyvcam_status not in ("installed", "running") else "",
+        "action_text": "复制安装命令" if pyvcam_status not in ("installed", "running") else "",
+        "action_type": "copy" if pyvcam_status not in ("installed", "running") else ""
     })
 
-    # 4. 主流第三方直播伴侣客户端
-    partner_found = []
-    partner_running = []
-    # 进程扫描
-    partner_proc_map = {
-        "livepartner.exe": "抖音直播伴侣",
-        "kuaishou.exe": "快手直播伴侣",
-        "kwai.exe": "快手直播伴侣",
-        "bililive.exe": "Bilibili 直播姬",
-        "livehime.exe": "Bilibili 直播姬",
-        "wechatappex.exe": "微信视频号助手/小程序",
-        "taobaolive.exe": "淘宝主播工作台",
-    }
-    for proc_name, label in partner_proc_map.items():
-        if proc_name in procs and label not in partner_running:
-            partner_running.append(label)
-
-    # 注册表与常见路径扫描
-    partner_keywords = ["抖音直播伴侣", "直播伴侣", "快手直播", "bilibili", "视频号", "live partner"]
-    for app_key, app_info in registry_apps.items():
-        for kw in partner_keywords:
-            if kw in app_key:
-                pname = app_info.get("name", "直播伴侣")
-                if pname not in partner_found:
-                    partner_found.append(pname)
-                break
-
-    # 默认路径检查
-    appdata = os.environ.get("LOCALAPPDATA", "")
-    if appdata:
-        douyin_path = os.path.join(appdata, "DouyinLivePartner")
-        if os.path.exists(douyin_path) and "抖音直播伴侣" not in partner_found:
-            partner_found.append("抖音直播伴侣")
-
-    if partner_running:
-        partner_status = "running"
-        partner_badge = "运行中"
-        partner_tip = f"检测到正在运行: {', '.join(partner_running)}。在伴侣中添加【摄像头】并选择【OBS Virtual Camera】即可拉取数字人画面！"
-    elif partner_found:
-        partner_status = "installed"
-        partner_badge = "已安装"
-        partner_tip = f"已安装: {', '.join(partner_found[:2])}。商业开播时启动伴侣并接入虚拟摄像头即可推流"
-    else:
-        partner_status = "missing"
-        partner_badge = "未检测到"
-        partner_tip = "未检测到常用直播伴侣（抖音/快手/视频号/B站）。正式商业推流需启动对应平台客户端并接入数字人画面"
-
+    # 4. 主流第三方直播伴侣客户端 (调用全局统一 SSOT 探测函数)
+    partner_info = find_live_partner()
+    partner_status = partner_info["status"]
+    partner_badge = partner_info["badge"]
+    partner_tip = partner_info["tip"]
+    partner_path = partner_info["path"]
+    partner_version = partner_info["version"]
 
     items.append({
         "key": "live_partner",
@@ -333,13 +557,13 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "required": False,
         "status": partner_status,
         "badge": partner_badge,
-        "version": "",
-        "path": "",
-        "desc": "抖音直播伴侣 / 快手直播伴侣 / 微信视频号助手，负责公域平台推流与观众弹幕互动",
+        "version": partner_version,
+        "path": partner_path,
+        "desc": "抖音直播伴侣 / 快手直播伴侣 / 微信视频号直播工具，负责公域平台推流与观众弹幕互动",
         "tip": partner_tip,
-        "url": "https://stream.douyin.com/",
-        "action_text": "前往抖音直播伴侣下载",
-        "action_type": "url"
+        "url": "https://streamingtool.douyin.com/" if partner_status not in ("installed", "running") else "",
+        "action_text": "抖音直播伴侣下载" if partner_status not in ("installed", "running") else "",
+        "action_type": "url" if partner_status not in ("installed", "running") else ""
     })
 
     # 5. 本地多媒体编解码与模型底座 (FFmpeg, OpenCV, ONNXRuntime)
@@ -387,9 +611,9 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "path": shutil.which("ffmpeg") or "",
         "desc": "负责音视频实时转码、数字人 25fps 视频帧缓冲合成与向量检索底层运算",
         "tip": media_tip,
-        "command": "pip install opencv-python onnxruntime",
-        "action_text": "复制依赖安装命令",
-        "action_type": "copy"
+        "command": "pip install opencv-python onnxruntime" if media_status not in ("installed", "running") else "",
+        "action_text": "复制依赖安装命令" if media_status not in ("installed", "running") else "",
+        "action_type": "copy" if media_status not in ("installed", "running") else ""
     })
 
     # 6. Python 运行时与核心基础
@@ -415,9 +639,9 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "path": sys.executable,
         "desc": "支撑 AI LiveStream Agent 调度大脑、音画渲染与业务状态流转的宿主执行环境",
         "tip": py_tip,
-        "url": "https://www.python.org/downloads/",
-        "action_text": "前往 Python 官网下载",
-        "action_type": "url"
+        "url": "https://www.python.org/downloads/" if py_status not in ("installed", "running") else "",
+        "action_text": "前往 Python 官网下载" if py_status not in ("installed", "running") else "",
+        "action_type": "url" if py_status not in ("installed", "running") else ""
     })
 
     # 7. 声卡播放与虚拟音频 (VB-Cable)
@@ -476,9 +700,9 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "path": "",
         "desc": "将 TTS 合成的语音实时路由至系统扬声器或虚拟声卡，供直播伴侣抓取纯净音源",
         "tip": audio_tip,
-        "url": "https://vb-audio.com/Cable/",
-        "action_text": "下载 VB-Cable 虚拟声卡",
-        "action_type": "url"
+        "url": "https://vb-audio.com/Cable/" if not has_cable else "",
+        "action_text": "下载 VB-Cable 虚拟声卡" if not has_cable else "",
+        "action_type": "url" if not has_cable else ""
     })
 
 

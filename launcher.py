@@ -330,20 +330,24 @@ def run_commercial_preflight(auto_install: bool = False) -> bool:
     else:
         print(" [?] 虚拟摄像头驱动: 未检测到系统级驱动 (打开 OBS 点击一次'启动虚拟摄像机'即可自动激活)")
 
-    # 6. OBS Studio 探测
-    obs_installed = False
-    for p in [
-        r"C:\Program Files\obs-studio\bin\64bit\obs64.exe",
-        r"D:\Program Files\obs-studio\bin\64bit\obs64.exe",
-        r"C:\Program Files (x86)\obs-studio\bin\32bit\obs32.exe",
-    ]:
-        if os.path.exists(p):
-            obs_installed = True
-            break
-    if obs_installed:
-        print(" [*] 直播推流工作台: OBS Studio 已安装就绪")
-    else:
-        print(" [*] 直播推流工作台: 未在默认路径检测到 OBS Studio (正式公域直播推荐安装)")
+    # 6. OBS Studio 与第三方直播伴侣生态探测
+    try:
+        from server.routes.system import find_obs_studio, find_live_partner
+        obs_res = find_obs_studio()
+        if obs_res["is_installed"]:
+            ver_str = f" (v{obs_res['version']})" if obs_res.get("version") else ""
+            print(f" [*] 直播推流工作台: OBS Studio 已安装就绪{ver_str} [OK]")
+        else:
+            print(" [*] 直播推流工作台: 未在系统中检测到 OBS Studio (正式公域直播推荐安装)")
+
+        partner_res = find_live_partner()
+        if partner_res["is_installed"]:
+            pnames = ", ".join(partner_res.get("installed_names", [])) or "主流直播伴侣"
+            print(f" [*] 平台直播伴侣: {pnames} 已就绪 [OK]")
+        else:
+            print(" [*] 平台直播伴侣: 未在系统中检测到常用直播伴侣 (可选，商业直播推荐)")
+    except Exception:
+        pass
 
     print("=" * 76)
     print(" [体检总结] 主机环境已完成全景体检，满足商用直播中控系统启动标准！\n")
@@ -454,7 +458,35 @@ def wait_for_port_release(host: str, port: int, max_wait: float = 4.0) -> bool:
     return not is_tcp_port_open(host, port)
 
 
-def ensure_port_clean(host: str, port: int, force: bool = False) -> bool:
+def cleanup_stale_launcher_instances(current_pid: int):
+    """
+    扫描并安全清理属于本项目的历史旧 launcher/python 僵尸进程
+    仅清理 cmdline 中明确包含 'launcher.py' 的历史实例，绝不误伤系统其他无关 Python 任务
+    """
+    try:
+        import psutil
+        stale_pids = []
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if proc.pid == current_pid:
+                    continue
+                pname = (proc.info.get('name') or '').lower()
+                if 'python' in pname:
+                    cmd_str = ' '.join(proc.info.get('cmdline') or []).lower()
+                    if 'launcher.py' in cmd_str:
+                        stale_pids.append(proc.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        if stale_pids:
+            print(f"[*] 发现历史启动器残留进程 (PID: {stale_pids})，正在安全回收...")
+            for pid in stale_pids:
+                terminate_process_tree(pid)
+            time.sleep(0.3)
+    except Exception:
+        pass
+
+
+def ensure_port_clean(host: str, port: int, force: bool = False, restart: bool = False) -> bool:
     """
     检查端口占用，执行版本比对与旧进程闭环回收
     """
@@ -473,7 +505,7 @@ def ensure_port_clean(host: str, port: int, force: bool = False) -> bool:
     remote_version = meta.get("version")
 
     if is_our_service:
-        if remote_version == APP_VERSION and not force:
+        if remote_version == APP_VERSION and not force and not restart:
             if not query_readiness(host, port):
                 print("⚠️ [初始化中] 目标服务版本匹配，但就绪探测尚未通过，请稍后重试。")
                 return False
@@ -482,8 +514,11 @@ def ensure_port_clean(host: str, port: int, force: bool = False) -> bool:
             webbrowser.open(f"http://{host}:{port}/console")
             return False
         else:
-            print(f"⚠️ [版本更新] 发现旧版本服务正在运行 (现有: v{remote_version}, 待启动: v{APP_VERSION})！")
-            print("[*] 正在自动执行全进程树安全回收与端口释放...")
+            if restart:
+                print(f"[*] [重启系统] 收到重启指令，正在安全回收历史服务进程 (PID: {pids or remote_pid})...")
+            else:
+                print(f"⚠️ [版本更新] 发现旧版本服务正在运行 (现有: v{remote_version}, 待启动: v{APP_VERSION})！")
+                print("[*] 正在自动执行全进程树安全回收与端口释放...")
             try:
                 req = urllib.request.Request(f"http://{host}:{port}/api/v1/system/shutdown", data=b"{}", headers={"Content-Type": "application/json"})
                 urllib.request.urlopen(req, timeout=1.0)
@@ -495,20 +530,20 @@ def ensure_port_clean(host: str, port: int, force: bool = False) -> bool:
                 terminate_process_tree(pid)
 
             if wait_for_port_release(host, port):
-                print(f"✅ 历史旧版本进程 (PID: {pids}) 已彻底清理，端口 {port} 已就绪。")
+                print(f"✅ 历史旧服务进程 (PID: {pids}) 已彻底清理，端口 {port} 已就绪。")
                 return True
             else:
                 print(f"❌ 端口 {port} 清理超时，请手动检查占用。")
                 return False
     else:
         print(f"⚠️ 警告: 端口 {port} 被外部未知进程占用 (PIDs: {pids})！")
-        if force:
-            print("[*] 已启用 --force 强杀参数，正在强制清理...")
+        if force or restart:
+            print("[*] 已启用强制清理参数，正在强制清理...")
             for pid in pids:
                 terminate_process_tree(pid)
             return wait_for_port_release(host, port)
         else:
-            print("❌ 启动中止: 端口冲突！如需强制覆盖启动，请附加 --force 参数。")
+            print("❌ 启动中止: 端口冲突！如需强制覆盖启动，请附加 --restart 或 --force 参数。")
             return False
 
 
@@ -540,6 +575,7 @@ def main():
     parser = argparse.ArgumentParser(description="AI-LiveStream-Agent 商用级跨平台启动器")
     parser.add_argument("--check-only", "--precheck-only", action="store_true", help="仅执行环境与端口版本全景体检，不启动服务")
     parser.add_argument("--auto-install", action="store_true", help="当检测到依赖缺失时，自动静默通过国内镜像安装")
+    parser.add_argument("--restart", action="store_true", help="强制终止并重启旧实例")
     parser.add_argument("--force", action="store_true", help="强制清理占用目标端口的历史进程")
     parser.add_argument("--no-browser", action="store_true", help="启动后不自动呼起浏览器")
     parser.add_argument("--host", default=SERVER_HOST, help="指定监听主机地址")
@@ -548,12 +584,16 @@ def main():
 
     print_banner()
 
-    # 1. 执行商用现场全景体检
+    # 1. 若为重启或强制模式，优先清理残留的 launcher 历史进程
+    if args.restart or args.force:
+        cleanup_stale_launcher_instances(os.getpid())
+
+    # 2. 执行商用现场全景体检
     if not run_commercial_preflight(auto_install=args.auto_install):
         sys.exit(1)
 
-    # 2. 深度端口归属校验与版本回收
-    can_start = ensure_port_clean(args.host, args.port, force=args.force)
+    # 3. 深度端口归属校验与版本回收
+    can_start = ensure_port_clean(args.host, args.port, force=args.force, restart=args.restart)
 
     if args.check_only:
         print("[*] 商用环境自检已完成 (--check-only)，退出。")
@@ -562,7 +602,7 @@ def main():
     if not can_start:
         sys.exit(0)
 
-    # 3. 启动后台就绪轮询与浏览器自动唤起
+    # 4. 启动后台就绪轮询与浏览器自动唤起
     threading.Thread(
         target=wait_and_open_browser,
         args=(args.host, args.port, not args.no_browser),

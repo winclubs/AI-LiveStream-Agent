@@ -654,16 +654,20 @@ async function startLiveDirect() {
             }
         } catch (e) {}
 
+        const obsCheck = document.getElementById("obs-auto-link-check");
+        const obsAutoLink = obsCheck ? obsCheck.checked : false;
+
         const res = await fetch(`${API_BASE}/live/start`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ room_id: roomId, platform: platform, anchor_id: anchorId })
+            body: JSON.stringify({ room_id: roomId, platform: platform, anchor_id: anchorId, obs_auto_link: obsAutoLink })
         });
         const json = await res.json();
         if (json.code === 0) {
             updateLiveStateUI(true);
-            logDanmaku("系统通知", `本地直播源已启动！${roomId ? `正在监听【${platform}】房间事件: ${roomId}` : '已启动仿真弹幕互动'}；外部平台发布需在 OBS/直播伴侣中人工确认`, false);
-            showToast("本地直播源已启动；外部发布待人工验收", "success", 5000);
+            updateObsStatusUI();
+            logDanmaku("系统通知", `本地直播源已启动！${roomId ? `正在监听【${platform}】房间事件: ${roomId}` : '已启动仿真弹幕互动'}；外部平台发布已接入 OBS 联动`, false);
+            showToast("本地直播源已成功启动", "success", 5000);
         } else {
             alert("开播失败: " + (json.message || json.detail || "未知错误"));
         }
@@ -687,6 +691,58 @@ async function stopLiveDirect() {
         alert("操作异常: " + e);
     }
 }
+
+async function updateObsStatusUI() {
+    const badge = document.getElementById("obs-status-badge");
+    if (!badge) return;
+    try {
+        const res = await fetch(`${API_BASE}/live/obs/status`);
+        const json = await res.json();
+        if (json.code === 0 && json.data) {
+            const data = json.data;
+            if (data.is_connected) {
+                if (data.is_streaming) {
+                    const stats = data.stats || {};
+                    badge.style.color = "#10B981";
+                    badge.innerText = `OBS: 推流中 (${stats.kbits_per_sec || 0}kbps)`;
+                } else {
+                    badge.style.color = "#38BDF8";
+                    badge.innerText = "OBS: 已连接就绪";
+                }
+            } else {
+                badge.style.color = "#94A3B8";
+                badge.innerText = "OBS: 未连接";
+            }
+        }
+    } catch (e) {
+        badge.style.color = "#94A3B8";
+        badge.innerText = "OBS: 未连接";
+    }
+}
+
+async function promptObsConnect() {
+    const port = prompt("请输入本地 OBS-WebSocket 端口 (OBS -> 工具 -> WebSocket服务器设置):", "4455");
+    if (!port) return;
+    const pwd = prompt("请输入 OBS-WebSocket 密码 (若无密码请直接留空点确定):", "");
+    try {
+        showToast("正在建立与 OBS Studio 的通信...", "info");
+        const res = await fetch(`${API_BASE}/live/obs/connect`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ host: "127.0.0.1", port: parseInt(port), password: pwd || "" })
+        });
+        const json = await res.json();
+        if (json.code === 0 && json.connected) {
+            showToast("成功连接到 OBS Studio！", "success");
+            await updateObsStatusUI();
+        } else {
+            showToast("连接 OBS 失败: " + (json.message || "请检查 OBS 是否已开启 WebSocket"), "error");
+        }
+    } catch (e) {
+        showToast("连接 OBS 发生异常: " + e.message, "error");
+    }
+}
+
 
 function triggerBargeInVisual(reason) {
     const badge = document.getElementById("barge-in-badge");
@@ -901,8 +957,10 @@ async function loadSoftwarePrerequisites(isManual = false) {
                 const iconName = iconMap[it.key] || "monitor";
 
                 let actionBtnHtml = "";
-                if (it.action_type === "url" && it.url) {
-                    actionBtnHtml = `<a href="${it.url}" target="_blank" class="prereq-btn ${pillClass !== 'pill-pass' ? 'btn-action-primary' : ''}">${svg("external", "icon-sm")} ${it.action_text}</a>`;
+                if (pillClass === "pill-pass") {
+                    actionBtnHtml = `<span class="prereq-ok-label">${svg("check", "icon-sm")} 正常</span>`;
+                } else if (it.action_type === "url" && it.url) {
+                    actionBtnHtml = `<a href="${it.url}" target="_blank" class="prereq-btn btn-action-primary">${svg("external", "icon-sm")} ${it.action_text}</a>`;
                 } else if (it.action_type === "copy" && it.command) {
                     actionBtnHtml = `<button class="prereq-btn" onclick="copyPrereqCommand('${it.command}', this)">${svg("copy", "icon-sm")} ${it.action_text}</button>`;
                 } else if (it.action_type === "tip" && it.url) {
@@ -1275,9 +1333,11 @@ async function loadProducts() {
                     <td>${(p.images || []).length} 张</td>
                     <td style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(p.description || '-')}</td>
                     <td style="white-space: nowrap;">
-                        <button class="btn btn-sm btn-primary" onclick="flashSaleProduct('${escapeHtml(p.id)}', '${safeTitle}')">${svg("zap", "icon-sm")} 促单逼单</button>
-                        <button class="btn btn-sm" onclick="editProduct('${escapeHtml(p.id)}')">编辑</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteProduct('${escapeHtml(p.id)}', '${safeTitle}')">删除</button>
+                        <div class="table-actions">
+                            <button class="btn btn-sm btn-primary" onclick="flashSaleProduct('${escapeHtml(p.id)}', '${safeTitle}')">${svg("zap", "icon-sm")} 促单逼单</button>
+                            <button class="btn btn-sm" onclick="editProduct('${escapeHtml(p.id)}')">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteProduct('${escapeHtml(p.id)}', '${safeTitle}')">删除</button>
+                        </div>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -1464,10 +1524,12 @@ async function loadVoiceTable() {
                     <td>${(v.speech_speed || 1.0).toFixed(2)}x</td>
                     <td>${statusBadge}</td>
                     <td style="white-space: nowrap;">
-                        <button class="btn btn-sm" onclick="previewVoice('${v.id}')">${svg("play", "icon-sm")} 试听原始样本</button>
-                        <button class="btn btn-sm btn-primary" onclick="cloneVoice('${v.id}', '${v.name}')">登记参考音色</button>
-                        <button class="btn btn-sm" onclick="editVoice('${v.id}')">改名</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteVoice('${v.id}', '${v.name}')">删除</button>
+                        <div class="table-actions">
+                            <button class="btn btn-sm" onclick="previewVoice('${v.id}')">${svg("play", "icon-sm")} 试听原始样本</button>
+                            <button class="btn btn-sm btn-primary" onclick="cloneVoice('${v.id}', '${v.name}')">登记参考音色</button>
+                            <button class="btn btn-sm" onclick="editVoice('${v.id}')">改名</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteVoice('${v.id}', '${v.name}')">删除</button>
+                        </div>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -4467,9 +4529,11 @@ async function loadAnchors() {
                 <td>${photoCount}/4 张</td>
                 <td style="max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(a.remark || '')}">${escapeHtml(a.remark || '-')}</td>
                 <td style="white-space: nowrap;">
-                    <button class="btn btn-sm ${isCurrent ? "btn-primary" : ""}" onclick="setCurrentAnchor('${a.id}')" ${isCurrent ? "disabled" : ""}>${isCurrent ? "已选中" : "设为开播"}</button>
-                    <button class="btn btn-sm" onclick="editAnchor('${a.id}')">编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteAnchor('${a.id}', '${escapeHtml(a.name)}')">删除</button>
+                    <div class="table-actions">
+                        <button class="btn btn-sm ${isCurrent ? "btn-primary" : ""}" onclick="setCurrentAnchor('${a.id}')" ${isCurrent ? "disabled" : ""}>${isCurrent ? "已选中" : "设为开播"}</button>
+                        <button class="btn btn-sm" onclick="editAnchor('${a.id}')">编辑</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteAnchor('${a.id}', '${escapeHtml(a.name)}')">删除</button>
+                    </div>
                 </td>
             `;
             tbody.appendChild(tr);

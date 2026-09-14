@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI-LiveStream-Agent · 直播控制中枢</title>
   <link rel="icon" type="image/svg+xml" href="/static/svg/favicon.svg">
-  <link rel="stylesheet" href="/static/css/console.css?v=1.9.1">
+  <link rel="stylesheet" href="/static/css/console.css?v=1.9.6">
   <style>
     /* 强制大模型生态选择卡片横向一排 8 列 (覆盖 Qwen, DeepSeek, MiniMax, Kimi, GLM, Gemini, ChatGPT, 自定义) */
     .llm-ecosystem-grid {
@@ -109,45 +109,81 @@
   <div class="main-layout">
 
     <!-- 左侧导航 -->
-        <aside class="sidebar">
-      <div class="nav-item active" data-tab="wizard">
-        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
-        <span>开播向导</span>
-      </div>
-      <div class="nav-item" data-tab="live">
-        <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="13" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
-        <span>直播大屏</span>
-      </div>
-      <div class="nav-item" data-tab="anchors">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        <span>主播管理</span>
-      </div>
-      <div class="nav-item" data-tab="voices">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        <span>TTS配置</span>
-      </div>
-      <div class="nav-item" data-tab="roles">
-        <svg class="icon" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-        <span>主播设定</span>
-      </div>
-      <div class="nav-item" data-tab="products">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-        <span>商品管理</span>
-      </div>
-      <div class="nav-item" data-tab="guardrails">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <span>违禁词汇</span>
-      </div>
-      <div class="nav-item" data-tab="knowledge">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>
-        <span>知识库</span>
-      </div>
-      <div class="nav-item" data-tab="settings">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-        <span>云端模型</span>
-      </div>
-    </aside>
-
+    <aside class="sidebar">
+  <div class="nav-item active" data-tab="wizard">
+    <svg class="icon" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88" />
+    </svg>
+    <span>开播向导</span>
+  </div>
+  <div class="nav-item" data-tab="live">
+    <svg class="icon" viewBox="0 0 24 24">
+      <rect x="2" y="7" width="20" height="13" rx="2" />
+      <polyline points="17 2 12 7 7 2" />
+    </svg>
+    <span>直播大屏</span>
+  </div>
+  <div class="nav-item" data-tab="anchors">
+    <svg class="icon" viewBox="0 0 24 24">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+    <span>主播管理</span>
+  </div>
+  <div class="nav-item" data-tab="voices">
+    <svg class="icon" viewBox="0 0 24 24">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+    <span>TTS配置</span>
+  </div>
+  <div class="nav-item" data-tab="roles">
+    <svg class="icon" viewBox="0 0 24 24">
+      <line x1="4" y1="21" x2="4" y2="14" />
+      <line x1="4" y1="10" x2="4" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12" y2="3" />
+      <line x1="20" y1="21" x2="20" y2="16" />
+      <line x1="20" y1="12" x2="20" y2="3" />
+      <line x1="1" y1="14" x2="7" y2="14" />
+      <line x1="9" y1="8" x2="15" y2="8" />
+      <line x1="17" y1="16" x2="23" y2="16" />
+    </svg>
+    <span>主播设定</span>
+  </div>
+  <div class="nav-item" data-tab="products">
+    <svg class="icon" viewBox="0 0 24 24">
+      <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <path d="M16 10a4 4 0 0 1-8 0" />
+    </svg>
+    <span>商品管理</span>
+  </div>
+  <div class="nav-item" data-tab="guardrails">
+    <svg class="icon" viewBox="0 0 24 24">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+    <span>违禁词汇</span>
+  </div>
+  <div class="nav-item" data-tab="knowledge">
+    <svg class="icon" viewBox="0 0 24 24">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      <line x1="9" y1="7" x2="15" y2="7" />
+      <line x1="9" y1="11" x2="15" y2="11" />
+    </svg>
+    <span>AI知识库</span>
+  </div>
+  <div class="nav-item" data-tab="settings">
+    <svg class="icon" viewBox="0 0 24 24">
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+    </svg>
+    <span>云端模型</span>
+  </div>
+</aside>
 
     <!-- ============ 中央舞台 ============ -->
     <main class="center-stage">
@@ -376,6 +412,10 @@
                 <option value="relay">其他平台(中继)</option>
               </select>
               <input type="text" id="live-room-input" class="form-control" style="width: 160px; padding: 7px 11px; font-size: 12px;" placeholder="房间号/链接（留空仿真）" title="房间号或直播链接" aria-label="房间号或直播链接">
+              <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; user-select: none; margin: 0 4px;" title="开播时通过 OBS WebSocket 联动开启 OBS 推流">
+                <input type="checkbox" id="obs-auto-link-check" style="cursor: pointer;">
+                <span style="color: var(--text-secondary);">OBS联动</span>
+              </label>
               <button class="btn btn-sm" onclick="runPreflight({ auto: false })" title="开播前逐项检查模式/角色/AI/OBS/商品等开播条件">
                 <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 开播前检查
@@ -407,6 +447,7 @@
               <div style="display: flex; gap: 8px; align-items: center;">
                 <span id="cam-status-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #fff;">摄像头状态检测中</span>
                 <span id="stream-fps-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #fff; font-family: var(--font-mono);">25.0 FPS</span>
+                <span id="obs-status-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #94A3B8; font-family: var(--font-mono); pointer-events: auto; cursor: pointer;" onclick="promptObsConnect()" title="点击连接/刷新 OBS-WebSocket 状态">OBS: 未连接</span>
               </div>
               <span id="stream-mode-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: var(--signal); font-family: var(--font-mono);">数字人渲染</span>
             </div>
@@ -1275,6 +1316,6 @@
   </div>
 
 
-  <script src="/static/js/console.js?v=1.9.4"></script>
+  <script src="/static/js/console.js?v=1.9.6"></script>
 </body>
 </html>

@@ -51,16 +51,22 @@ class EdgeTTSMediaDriver(BaseMediaDriver):
         """
         流式合成文本为音频字节流，支持被 interrupt 瞬间取消
         """
+        self._is_interrupted = False
         try:
             import edge_tts
             communicate = edge_tts.Communicate(text, self.voice, rate=self.rate, pitch=self.pitch, volume=self.volume)
             async for chunk in communicate.stream():
+                if getattr(self, "_is_interrupted", False):
+                    logger.info("EdgeTTS 合成已被打断")
+                    break
                 if chunk["type"] == "audio":
                     yield chunk["data"]
         except ImportError:
             logger.warning("未检测到本地 edge-tts 库，使用模拟音频流回退")
             # 模拟生成 5 个切片并支持打断检查
             for i in range(5):
+                if getattr(self, "_is_interrupted", False):
+                    break
                 await asyncio.sleep(0.06)
                 yield b"\x00" * 3200
         except asyncio.CancelledError:
@@ -71,12 +77,10 @@ class EdgeTTSMediaDriver(BaseMediaDriver):
         """响应抢占打断信令：瞬间中断当前生成与播报"""
         logger.info(f"EdgeTTSMediaDriver 接收打断信令: {reason}，重置缓冲区与播报态")
         self.is_speaking = False
-        if self.current_task and not self.current_task.done():
+        self._is_interrupted = True
+        curr = asyncio.current_task()
+        if self.current_task and not self.current_task.done() and self.current_task is not curr:
             self.current_task.cancel()
-            try:
-                await self.current_task
-            except asyncio.CancelledError:
-                pass
             self.current_task = None
 
         # 清空等待缓冲队列

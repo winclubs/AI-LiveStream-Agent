@@ -1,38 +1,73 @@
+import asyncio
 import json
+import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Set
+from typing import Set, Dict, Optional
 
+logger = logging.getLogger("LiveAgent.WebSocketManager")
 router = APIRouter(tags=["WebSocket 实时推流监控"])
 
 class ConnectionManager:
-    """直播监控大屏全双工 WebSocket 连接管理器"""
-    def __init__(self):
+    """直播监控大屏全双工 WebSocket 连接管理器 (带慢客户端隔离与有界背压)"""
+    def __init__(self, client_queue_size: int = 100, send_timeout: float = 1.0):
         self.active_connections: Set[WebSocket] = set()
+        self.client_queues: Dict[WebSocket, asyncio.Queue] = {}
+        self.sender_tasks: Dict[WebSocket, asyncio.Task] = {}
+        self.client_queue_size = client_queue_size
+        self.send_timeout = send_timeout
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.add(websocket)
+        queue: asyncio.Queue[str] = asyncio.Queue(maxsize=self.client_queue_size)
+        self.client_queues[websocket] = queue
+        self.sender_tasks[websocket] = asyncio.create_task(self._sender_loop(websocket, queue))
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.discard(websocket)
+        self.client_queues.pop(websocket, None)
+        task = self.sender_tasks.pop(websocket, None)
+        if task and not task.done():
+            task.cancel()
+
+    async def _sender_loop(self, websocket: WebSocket, queue: asyncio.Queue):
+        """每个客户端独立的有界发送循环，单次发送超时保护"""
+        try:
+            while True:
+                message = await queue.get()
+                try:
+                    await asyncio.wait_for(websocket.send_text(message), timeout=self.send_timeout)
+                except (asyncio.TimeoutError, Exception) as e:
+                    logger.warning("WebSocket 客户端发送超时或异常，主动断开慢客户端: %s", e)
+                    break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.disconnect(websocket)
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
     async def broadcast(self, event_name: str, payload: dict):
-        """向所有打开大屏监控的客户端广播事件 (双向兼容协议字段)"""
+        """非阻塞广播：消息写入各客户端独立有界队列，队列超限自动剔除慢客户端，绝不阻塞直播循环"""
         message = json.dumps({
             "event": event_name,
             "event_type": event_name,
             "payload": payload,
             "data": payload
         }, ensure_ascii=False)
-        disconnected = []
 
-        for connection in list(self.active_connections):
+        for ws, queue in list(self.client_queues.items()):
             try:
-                await connection.send_text(message)
-            except Exception:
-                disconnected.append(connection)
-        for dead in disconnected:
-            self.active_connections.discard(dead)
+                queue.put_nowait(message)
+            except asyncio.QueueFull:
+                logger.warning("客户端发送队列已满，主动淘汰超载慢客户端")
+                self.disconnect(ws)
+                try:
+                    asyncio.create_task(ws.close())
+                except Exception:
+                    pass
 
 ws_manager = ConnectionManager()
 
@@ -59,9 +94,8 @@ async def websocket_live_control(websocket: WebSocket):
 async def websocket_danmaku_ingest(websocket: WebSocket):
     """
     通用弹幕 WebSocket 接入端点：供本地弹幕中继器/浏览器脚本/第三方弹幕姬推送事件。
-    报文: {"event_type":"danmaku|gift","user_name":"...","text":"...","gift_name":"...","total_coin":0}
+    统一走 global_live_controller.ingest_event 归一化处理。
     """
-    import uuid as _uuid
     await websocket.accept()
     try:
         while True:
@@ -83,18 +117,19 @@ async def websocket_danmaku_ingest(websocket: WebSocket):
                     "total_coin": total_coin,
                     "platform": msg.get("platform", "relay"),
                 }
-                priority = 0 if total_coin >= 50000 else 1  # 与 /live/danmaku-webhook 的 P0 阈值对齐
+                priority = 0 if total_coin >= 50000 else 1
                 etype = "gift"
             else:
                 payload = {"text": msg.get("text") or msg.get("message") or "", "platform": msg.get("platform", "relay")}
                 priority = 2
                 etype = "danmaku"
-            await global_live_controller.event_queue.put(
-                event_id=f"relay_{_uuid.uuid4().hex[:8]}",
+
+            await global_live_controller.ingest_event(
                 event_type=etype,
                 user_name=user,
                 payload=payload,
                 priority=priority,
+                source="websocket_relay"
             )
     except WebSocketDisconnect:
         pass

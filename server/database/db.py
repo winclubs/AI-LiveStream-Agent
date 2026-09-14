@@ -1,5 +1,7 @@
+import os
 import json
 import uuid
+import struct
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, update, event, text
@@ -145,30 +147,32 @@ async def init_db():
         # 3. 服务商配置 (LLM / TTS / 远程GPU 均为敏感生产配置，绝不预填任何虚假数据，完全由用户真实配置并保存)
         # 保持 api_provider_configs 真实为空，待用户在控制台显式配置并持久化
 
-        # 4. 初始化预设默认形象
+        # 4. 初始化目录结构 (未上传时保持真实文件系统干净，不伪造 1x1 或静音伪文件)
+        from server.config import DATA_DIR
+        os.makedirs(os.path.join(DATA_DIR, "avatars"), exist_ok=True)
+        os.makedirs(os.path.join(DATA_DIR, "voices"), exist_ok=True)
+
+        # 5. 初始化预设形象与音色记录 (保证主播角色外键 voice_id 完整性)
         avatars_check = await session.execute(select(Avatar))
         if not avatars_check.scalars().first():
-            default_avatar = Avatar(
+            session.add(Avatar(
                 id="avatar_default_muse",
                 name="标准虚拟主播形象·艾米",
                 avatar_type="image",
                 source_file_path="uploads/avatars/default_anchor.png",
-                preprocessed_cache_path="uploads/avatars/cache/default_anchor.pkl"
-            )
-            session.add(default_avatar)
+                preprocessed_cache_path=None
+            ))
 
-        # 5. 初始化预设默认音色
         voices_check = await session.execute(select(VoiceProfile))
         if not voices_check.scalars().first():
-            default_voice = VoiceProfile(
+            session.add(VoiceProfile(
                 id="voice_default_female",
                 name="通用亲和女声（官方预置）",
                 sample_wav_path="uploads/voices/default_sample.wav",
-                embedding_npy_path="uploads/voices/embeddings/default_sample.npy",
+                embedding_npy_path=None,
                 speech_speed=1.0,
                 volume_gain=1.0
-            )
-            session.add(default_voice)
+            ))
 
         # 6. 初始化预设专家知识库 (劳动法常用 FAQ，供 RAG 双路检索开箱可用)
         knowledge_check = await session.execute(select(KnowledgeChunk))

@@ -63,6 +63,10 @@
                 <option value="relay">其他平台(中继)</option>
               </select>
               <input type="text" id="live-room-input" class="form-control" style="width: 160px; padding: 7px 11px; font-size: 12px;" placeholder="房间号/链接（留空仿真）" title="房间号或直播链接" aria-label="房间号或直播链接">
+              <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; user-select: none; margin: 0 4px;" title="开播时通过 OBS WebSocket 联动开启 OBS 推流">
+                <input type="checkbox" id="obs-auto-link-check" style="cursor: pointer;">
+                <span style="color: var(--text-secondary);">OBS联动</span>
+              </label>
               <button class="btn btn-sm" onclick="runPreflight({ auto: false })" title="开播前逐项检查模式/角色/AI/OBS/商品等开播条件">
                 <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 开播前检查
@@ -94,6 +98,7 @@
               <div style="display: flex; gap: 8px; align-items: center;">
                 <span id="cam-status-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #fff;">摄像头状态检测中</span>
                 <span id="stream-fps-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #fff; font-family: var(--font-mono);">25.0 FPS</span>
+                <span id="obs-status-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #94A3B8; font-family: var(--font-mono); pointer-events: auto; cursor: pointer;" onclick="promptObsConnect()" title="点击连接/刷新 OBS-WebSocket 状态">OBS: 未连接</span>
               </div>
               <span id="stream-mode-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: var(--signal); font-family: var(--font-mono);">数字人渲染</span>
             </div>

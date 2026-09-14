@@ -131,9 +131,10 @@ def load_or_build_portrait(path: str, width: int, height: int):
 
 def synth_frame(base_portrait, width: int, height: int, t: float, mouth_open: float,
                 face_box: Optional[Tuple[int, int, int, int]] = None, action_clip=None,
-                is_blinking: Optional[bool] = None):
+                is_blinking: Optional[bool] = None, mouth_form: float = 0.0):
     """
     合成单帧。face_box 用于定位口型/眨眼区域 (来自人脸检测)，缺省用底板中心比例。
+    mouth_form: 水平形状 (-1.0 到 +1.0)，用于 Viseme 展唇/圆唇多维形态映射。
     action_clip: 可选 numpy 图像 (用户预录真人小切片)，周期性无缝插入以打破视频哈希指纹。
     is_blinking: 显式眨眼状态 (由泊松调度器 MicroExpressionState 给出)；缺省回退固定周期。
     """
@@ -161,13 +162,28 @@ def synth_frame(base_portrait, width: int, height: int, t: float, mouth_open: fl
         blink_phase = (t % 4.2)
         is_blinking = blink_phase > 4.0
 
+    # Viseme 多维口型映射渲染 (垂直开度 open + 水平形态 form)
     if mouth_open > 0.05:
-        open_h = int(12 * mouth_open)
+        # mouth_form > 0: 扁唇展唇 (发 /i/, /e/)，唇更宽；mouth_form < 0: 圆唇收拢 (发 /u/, /o/)
+        rx_val = max(8, int(mouth_rx * (1.0 + 0.28 * mouth_form)))
+        open_h = max(2, int(14 * mouth_open * (1.0 - 0.12 * max(0.0, mouth_form))))
         cy = mouth_cy + breath_offset
-        cv2.ellipse(frame, (mouth_cx, cy), (mouth_rx, 8 + open_h), 0, 0, 360, (50, 15, 20), -1)
-        cv2.ellipse(frame, (mouth_cx, cy - 2), (max(6, mouth_rx - 8), 3), 0, 0, 360, (230, 230, 235), -1)
-        cv2.ellipse(frame, (mouth_cx, cy), (mouth_rx + 2, 10 + open_h), 0, 0, 360, (170, 75, 80), 2)
+
+        # 说话时伴随微弱的下颌肌肉微动
+        jaw_jitter = int(math.sin(t * 12.0) * mouth_open * 1.5)
+        cy += jaw_jitter
+
+        # 口腔内腔暗部
+        cv2.ellipse(frame, (mouth_cx, cy), (rx_val, 8 + open_h), 0, 0, 360, (46, 14, 20), -1)
+
+        # 上齿牙弓 (开合较大或展唇时显露)
+        if open_h >= 5 or mouth_form > 0.15:
+            cv2.ellipse(frame, (mouth_cx, cy - 2), (max(5, rx_val - 6), 3), 0, 0, 360, (232, 232, 236), -1)
+
+        # 唇缘红润边缘轮廓
+        cv2.ellipse(frame, (mouth_cx, cy), (rx_val + 2, 10 + open_h), 0, 0, 360, (172, 76, 80), 2)
     else:
+        # 闭嘴待机唇线
         cv2.ellipse(frame, (mouth_cx, mouth_cy + breath_offset), (mouth_rx, 7), 0, 0, 360, (160, 68, 72), -1)
 
     if is_blinking:
@@ -209,6 +225,35 @@ def encode_jpeg(frame, quality: int = 80) -> bytes:
     return buf.tobytes() if ok else b""
 
 
+def audio_samples_to_viseme(samples: "np.ndarray", scale: float = 11.7) -> Tuple[float, float]:
+    """
+    根据 float32 音频采样帧计算 Viseme 口型参数：
+    :return: (mouth_open, mouth_form)
+      - mouth_open: 垂直开合度 (0.0 ~ 1.0)
+      - mouth_form: 水平形态 (-1.0 圆唇聚拢 ~ +1.0 扁平横向拉伸)
+    """
+    if not CV_AVAILABLE or samples is None or len(samples) == 0:
+        return 0.0, 0.0
+    try:
+        samples_f = samples.astype(np.float32)
+        rms = float(np.sqrt(np.mean(np.square(samples_f))))
+        if rms < 0.006:
+            return 0.0, 0.0
+
+        mouth_open = min(1.0, max(0.12, rms * scale))
+
+        # 频段能量比估算：一阶差分高频分量占比分析 (高频发音 /i/, /e/, /s/ vs 低频发音 /u/, /o/, /a/)
+        diff = np.diff(samples_f)
+        hf_energy = float(np.mean(diff ** 2))
+        total_energy = float(np.mean(samples_f ** 2)) + 1e-7
+        hf_ratio = hf_energy / total_energy
+        # 归一化到 [-0.8, +0.8] 范围
+        mouth_form = float(np.clip((hf_ratio - 0.35) * 2.2, -0.8, 0.8))
+        return mouth_open, mouth_form
+    except Exception:
+        return 0.3, 0.0
+
+
 def audio_rms_to_mouth(
     audio_bytes: bytes,
     scale: float = 11.7,
@@ -219,9 +264,7 @@ def audio_rms_to_mouth(
 ) -> float:
     """
     将音频切片能量映射为口型开合度 (0.15~0.95)。
-    输入先经统一解码器还原为 float32 采样 (兼容 MP3/WAV 容器与裸 PCM)，
-    严禁直接对压缩字节计算伪 RMS。scale 针对归一化浮点域
-    (等价旧 int16 域的 2800/32768 ≈ 11.7)。
+    保留对旧代码与测试的完整兼容。
     """
     try:
         from server.core.media.audio_decode import decode_audio_to_float32
@@ -243,9 +286,7 @@ def audio_rms_to_mouth(
             codec=explicit_codec,
             channels=channels,
         )
-        if samples is None or len(samples) == 0:
-            return 0.35
-        rms = float(np.sqrt(np.mean(np.square(samples))))
-        return min(1.0, max(0.15, rms * scale))
+        mouth_open, _ = audio_samples_to_viseme(samples, scale=scale)
+        return mouth_open if mouth_open > 0 else 0.15
     except Exception:
         return 0.4
