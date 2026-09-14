@@ -561,3 +561,118 @@ def test_douyin_heartbeat_requires_downlink_frame():
     now = time.time()
     fetcher.on_heartbeat()
     assert fetcher.get_health().last_heartbeat_at >= now
+
+
+def test_obs_connection_epoch_prevents_stale_cleanup():
+    """验证 OBS Connection Epoch 隔离：旧连接触发的 cleanup 绝不会污染或清理新连接状态"""
+    async def _run():
+        from server.adapters.obs.obs_client import ObsWebSocketClient
+        client = ObsWebSocketClient(host="127.0.0.1", port=4455)
+
+        # 模拟连接建立，当前 epoch 为 1
+        client.is_connected = True
+        client._connection_epoch = 1
+        mock_ws_old = MagicMock()
+        client.ws = mock_ws_old
+        client.is_streaming = True
+        client._we_started_streaming = True
+
+        # 模拟新一轮重连发生，epoch 递增到 2，ws 指向新连接
+        mock_ws_new = MagicMock()
+        client._connection_epoch = 2
+        client.ws = mock_ws_new
+
+        # 此时旧连接的监听循环退出，传入 epoch=1 和 mock_ws_old 执行 cleanup
+        await client._cleanup(epoch=1, ws_instance=mock_ws_old, reason="stale_disconnect")
+
+        # 断言：新连接的状态完全未被重置，推流状态依然受保护
+        assert client.is_connected is True
+        assert client.connection_epoch == 2
+        assert client.ws is mock_ws_new
+        assert client.is_streaming is True
+        assert client._we_started_streaming is True
+
+        # 当传入 epoch=2 时，清理生效
+        await client._cleanup(epoch=2, ws_instance=mock_ws_new, reason="current_disconnect")
+        assert client.is_connected is False
+        assert client.ws is None
+
+    asyncio.run(_run())
+
+
+def test_virtual_audio_shared_playback_clock():
+    """验证 VirtualAudioService 物理声卡写入采样计数与口型驱动共享时钟机制"""
+    async def _run():
+        import server.core.media.virtual_audio as va_module
+        from server.core.media.virtual_audio import VirtualAudioService, global_virtual_audio
+        from server.adapters.media.musetalk_driver import ProceduralAvatarDriver
+
+        with patch.object(va_module, "SD_AVAILABLE", True), patch.object(va_module, "sd", MagicMock()):
+            audio_service = VirtualAudioService()
+            driver = ProceduralAvatarDriver()
+
+            # 阻止后台真实消费线程，单步受控验证采样推进
+            with patch.object(audio_service, "_ensure_worker"):
+                # 1. 模拟向虚拟声卡推入 16000 采样（1 秒 16kHz 音频）
+                chunk = b"\x00\x00" * 16000  # 16-bit PCM = 2 bytes/sample
+                audio_id = "test_audio_001"
+                audio_service.play_chunk(chunk, fallback_sample_rate=16000, audio_id=audio_id)
+
+                # 口型驱动注册该句子，但此时物理 DAC 采样计数 samples_played 仍为 0
+                await driver.feed_audio_chunk(chunk, "你好测试", sample_rate=16000, audio_id=audio_id)
+
+                # 此时查询时钟：已入队但未物理发声前，samples_played 应为 0
+                clock = audio_service.get_playback_clock(audio_id)
+                assert clock is not None
+                assert clock["samples_played"] == 0
+                assert clock["has_started"] is False
+                assert clock["elapsed_sec"] == 0.0
+
+            # 2. 模拟底层播放循环启动并消耗了 8000 个采样
+            with audio_service._cursor_lock:
+                audio_service._cursors[audio_id]["started_at"] = 123.456
+                audio_service._cursors[audio_id]["samples_played"] = 8000
+                audio_service._cursors[audio_id]["sample_rate"] = 16000
+
+            clock = audio_service.get_playback_clock(audio_id)
+            assert clock["samples_played"] == 8000
+            assert clock["has_started"] is True
+            assert clock["elapsed_sec"] == 0.5  # 8000 / 16000 = 0.5 秒
+
+            # 3. 验证 driver 的能力声明契约 (在有声卡驱动时暴露 shared_playback_clock)
+            caps = driver.get_capabilities()
+            assert caps["capabilities"]["shared_playback_clock"] is True
+
+            # 4. 验证打断清理
+            audio_service.stop()
+            clock = audio_service.get_playback_clock(audio_id)
+            assert clock["is_interrupted"] is True
+
+            await driver.interrupt()
+
+    asyncio.run(_run())
+
+
+def test_douyin_heartbeat_failure_closes_ws():
+    """验证抖音心跳发送失败时主动调用 ws.close() 触发主循环快速自愈与退避"""
+    async def _run():
+        from server.adapters.danmaku.douyin_fetcher import DouyinDanmakuFetcher
+
+        fetcher = DouyinDanmakuFetcher("12345", MagicMock())
+        mock_ws = AsyncMock()
+        # 模拟 send 发送抛出异常（网络中断）
+        mock_ws.send.side_effect = ConnectionResetError("Socket broken")
+        mock_ws.close = AsyncMock()
+
+        fetcher._ws = mock_ws
+        fetcher.is_running = True
+
+        # 执行一次心跳循环步骤（模拟心跳异常退出）
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            mock_sleep.return_value = None
+            await fetcher._heartbeat_loop(mock_ws)
+
+        # 校验：心跳发送失败时，必须主动关闭 ws
+        mock_ws.close.assert_awaited_once()
+
+    asyncio.run(_run())

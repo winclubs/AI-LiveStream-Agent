@@ -10,6 +10,7 @@
 import logging
 import queue
 import threading
+import time
 from typing import List, Dict, Any, Optional
 
 from server.core.media.audio_decode import decode_audio_to_float32
@@ -54,6 +55,10 @@ class VirtualAudioService:
         self._worker_lock = threading.Lock()
         self._stream_refresh_event = threading.Event()
         self._shutdown_event = threading.Event()
+
+        # 声卡物理 DAC 播放时钟游标跟踪 (供口型与外部驱动绝对对齐)
+        self._cursor_lock = threading.Lock()
+        self._cursors: Dict[str, dict] = {}
 
     @property
     def available(self) -> bool:
@@ -132,8 +137,9 @@ class VirtualAudioService:
         audio_generation: Optional[int] = None,
         session_generation: Optional[int] = None,
         allow_raw_pcm: bool = False,
+        audio_id: Optional[str] = None,
     ):
-        """非阻塞入队；每个 packet 都携带格式及 audio/session generation。"""
+        """非阻塞入队；每个 packet 都携带格式、audio/session generation 以及时钟跟踪 audio_id。"""
         if not self.is_enabled or not self.available or sd is None or not audio_bytes:
             return
         with self._generation_lock:
@@ -151,6 +157,23 @@ class VirtualAudioService:
                 self._accepted_session_generation = max(
                     self._accepted_session_generation, int(session_generation)
                 )
+
+        if audio_id:
+            with self._cursor_lock:
+                if len(self._cursors) > 128:
+                    for old_k in list(self._cursors.keys())[:64]:
+                        self._cursors.pop(old_k, None)
+                self._cursors[audio_id] = {
+                    "audio_id": audio_id,
+                    "total_samples": 0,
+                    "samples_played": 0,
+                    "sample_rate": fallback_sample_rate,
+                    "started_at": None,
+                    "last_update_at": None,
+                    "is_finished": False,
+                    "is_interrupted": False,
+                }
+
         self._ensure_worker()
         packet = (
             audio_bytes,
@@ -160,11 +183,34 @@ class VirtualAudioService:
             audio_generation,
             session_generation,
             bool(allow_raw_pcm),
+            audio_id,
         )
         try:
             self._queue.put_nowait(packet)
         except queue.Full:
             self.dropped_chunks += 1
+
+    def get_playback_clock(self, audio_id: str) -> Optional[Dict[str, Any]]:
+        """获取指定 audio_id 的真实物理 DAC 播放进度 (供数字人口型绝对音画同步)"""
+        with self._cursor_lock:
+            c = self._cursors.get(audio_id)
+            if not c:
+                return None
+            started = c["started_at"] is not None
+            elapsed_sec = 0.0
+            if started and c["sample_rate"] > 0:
+                elapsed_sec = float(c["samples_played"]) / float(c["sample_rate"])
+            return {
+                "audio_id": audio_id,
+                "has_started": started,
+                "started_at": c["started_at"],
+                "samples_played": c["samples_played"],
+                "total_samples": c["total_samples"],
+                "sample_rate": c["sample_rate"],
+                "elapsed_sec": elapsed_sec,
+                "is_finished": c["is_finished"],
+                "is_interrupted": c["is_interrupted"],
+            }
 
     def _packet_is_current(self, audio_generation, session_generation) -> bool:
         with self._generation_lock:
@@ -193,20 +239,39 @@ class VirtualAudioService:
                     self._discard_stream_locked(abort=True)
                     self._stream_refresh_event.clear()
                 try:
-                    (
-                        audio_bytes,
-                        fallback_sr,
-                        codec,
-                        channels,
-                        audio_generation,
-                        session_generation,
-                        allow_raw_pcm,
-                    ) = self._queue.get(timeout=0.05)
+                    packet_item = self._queue.get(timeout=0.05)
+                    if len(packet_item) == 8:
+                        (
+                            audio_bytes,
+                            fallback_sr,
+                            codec,
+                            channels,
+                            audio_generation,
+                            session_generation,
+                            allow_raw_pcm,
+                            audio_id,
+                        ) = packet_item
+                    else:
+                        (
+                            audio_bytes,
+                            fallback_sr,
+                            codec,
+                            channels,
+                            audio_generation,
+                            session_generation,
+                            allow_raw_pcm,
+                        ) = packet_item
+                        audio_id = None
                 except queue.Empty:
                     continue
                 try:
                     if not self._packet_is_current(audio_generation, session_generation):
                         self.dropped_chunks += 1
+                        if audio_id:
+                            with self._cursor_lock:
+                                c = self._cursors.get(audio_id)
+                                if c:
+                                    c["is_interrupted"] = True
                         continue
                     samples, sr = decode_audio_to_float32(
                         audio_bytes,
@@ -219,32 +284,75 @@ class VirtualAudioService:
                         continue
                     if not self._packet_is_current(audio_generation, session_generation):
                         self.dropped_chunks += 1
+                        if audio_id:
+                            with self._cursor_lock:
+                                c = self._cursors.get(audio_id)
+                                if c:
+                                    c["is_interrupted"] = True
                         continue
                     gen = self._stream_gen
                     stream = self._get_stream(sr, gen)
                     if stream is None:
                         self.dropped_chunks += 1
                         continue
+
+                    # 物理声卡开始写入发声：标记时钟启动时间戳与总采样数
+                    if audio_id:
+                        with self._cursor_lock:
+                            c = self._cursors.get(audio_id)
+                            if c:
+                                c["total_samples"] = len(samples)
+                                c["sample_rate"] = sr
+                                c["started_at"] = time.monotonic()
+                                c["last_update_at"] = time.monotonic()
+
                     for start in range(0, len(samples), self.WRITE_SLICE_SAMPLES):
                         if (
                             gen != self._stream_gen
                             or self._shutdown_event.is_set()
                             or not self._packet_is_current(audio_generation, session_generation)
                         ):
+                            if audio_id:
+                                with self._cursor_lock:
+                                    c = self._cursors.get(audio_id)
+                                    if c:
+                                        c["is_interrupted"] = True
                             break
                         piece = samples[start:start + self.WRITE_SLICE_SAMPLES]
                         stream.write(piece.reshape(-1, 1))
+                        if audio_id:
+                            with self._cursor_lock:
+                                c = self._cursors.get(audio_id)
+                                if c:
+                                    c["samples_played"] += len(piece)
+                                    c["last_update_at"] = time.monotonic()
+
                     packet_current = self._packet_is_current(audio_generation, session_generation)
                     if gen != self._stream_gen or self._shutdown_event.is_set() or not packet_current:
                         self._discard_stream_locked(abort=True)
                         if not packet_current:
                             self.dropped_chunks += 1
+                        if audio_id:
+                            with self._cursor_lock:
+                                c = self._cursors.get(audio_id)
+                                if c:
+                                    c["is_interrupted"] = True
                     else:
                         self.total_chunks_played += 1
                         self.last_error = ""
+                        if audio_id:
+                            with self._cursor_lock:
+                                c = self._cursors.get(audio_id)
+                                if c:
+                                    c["is_finished"] = True
                 except Exception as e:
                     self.last_error = str(e)
                     self.dropped_chunks += 1
+                    if audio_id:
+                        with self._cursor_lock:
+                            c = self._cursors.get(audio_id)
+                            if c:
+                                c["is_interrupted"] = True
                     self._discard_stream_locked(abort=True)
                     logger.debug(f"物理音频设备播放片段失败 (软降级忽略): {e}")
         finally:
@@ -312,6 +420,10 @@ class VirtualAudioService:
                 self._queue.get_nowait()
             except queue.Empty:
                 break
+        with self._cursor_lock:
+            for c in self._cursors.values():
+                if not c.get("is_finished"):
+                    c["is_interrupted"] = True
         self._stream_refresh_event.set()
 
     def shutdown(self, timeout: float = 2.0):

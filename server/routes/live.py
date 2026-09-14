@@ -970,6 +970,7 @@ class LiveSessionController:
             "channels": channels,
             "audio_generation": audio_generation,
             "session_generation": session_generation,
+            "audio_id": audio_id,
         }
 
         # 口型 driver 可能执行异步解码；恢复后必须再次拒绝已失效代际。
@@ -1067,11 +1068,14 @@ class LiveSessionController:
 
 global_live_controller = LiveSessionController()
 
-def _on_obs_external_state_change(active: bool, state: str):
+def _on_obs_external_state_change(active: bool, state: str, epoch: Optional[int] = None):
     if not active:
-        # 当 OBS 外部停流或断开连接时，主动释放 Agent 的推流所有权，杜绝跨场残留
+        # 当 OBS 外部停流或断开连接时，若事件来自于当前活跃 epoch，主动释放 Agent 的推流所有权，杜绝跨场残留
+        if epoch is not None and epoch != global_obs_client.connection_epoch:
+            logger.debug("忽略来自过时 OBS 连接的停流事件 (epoch=%d < current=%d)", epoch, global_obs_client.connection_epoch)
+            return
         if getattr(global_live_controller, "obs_owner_session_id", None):
-            logger.info("OBS 外部推流已停止或连接中断 (%s)，释放 Agent 推流所有权 (session=%s)", state, global_live_controller.obs_owner_session_id)
+            logger.info("OBS 外部推流已停止或连接中断 (%s, epoch=%s)，释放 Agent 推流所有权 (session=%s)", state, epoch, global_live_controller.obs_owner_session_id)
             global_live_controller.obs_owner_session_id = None
 
 global_obs_client.add_stream_state_listener(_on_obs_external_state_change)

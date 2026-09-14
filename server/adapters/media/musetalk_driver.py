@@ -76,6 +76,10 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         self._accepted_audio_generation = 0
         self._accepted_session_generation = 0
 
+        # 共享音频物理播放时钟句子缓存 (消除声卡排队缓冲抢跑与长句累计漂移)
+        self._sentence_lock = threading.Lock()
+        self._active_sentence: Optional[dict] = None
+
         # 泊松过程眨眼调度器 (规划 §4.4)
         from server.core.media.procedural_renderer import MicroExpressionState
         self.micro_expr = MicroExpressionState()
@@ -192,8 +196,9 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         channels: int = 1,
         audio_generation: Optional[int] = None,
         session_generation: Optional[int] = None,
+        audio_id: Optional[str] = None,
     ):
-        """按真实采样时长生成带双代际标签的 25fps 口型目标。"""
+        """按真实采样时长生成带双代际标签与 audio_id 播放时钟绑定的 25fps 口型目标。"""
         if not audio_bytes:
             return
 
@@ -242,6 +247,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
 
             from server.core.media.procedural_renderer import audio_samples_to_viseme
             frame_idx = 0
+            viseme_list = []
             for start in range(0, len(samples), samples_per_frame):
                 if not self._generation_is_current(audio_generation, session_generation):
                     return
@@ -254,6 +260,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 else:
                     m_open, m_form = audio_samples_to_viseme(frame_samples)
 
+                viseme_list.append((m_open, m_form))
                 self.mouth_open_queue.put((
                     audio_generation,
                     session_generation,
@@ -261,18 +268,30 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                     m_form,
                 ))
                 frame_idx += 1
+
+            if self._generation_is_current(audio_generation, session_generation):
+                with self._sentence_lock:
+                    self._active_sentence = {
+                        "audio_id": audio_id,
+                        "audio_generation": audio_generation,
+                        "session_generation": session_generation,
+                        "visemes": viseme_list,
+                        "feed_time": time.monotonic(),
+                    }
         except Exception as exc:
             if self._generation_is_current(audio_generation, session_generation):
                 logger.warning("口型音频解码失败，使用单帧保守口型: %s", exc)
                 self.mouth_open_queue.put((audio_generation, session_generation, 0.3, 0.0))
 
     async def interrupt(self, reason: str = "Barge-in", next_generation: Optional[int] = None):
-        """推进口型代际并清空排队帧，旧 producer 恢复后也无法重新入队。"""
+        """推进口型代际并清空排队帧与句子缓存，旧 producer 恢复后也无法重新入队。"""
         with self._generation_lock:
             if next_generation is not None:
                 self._accepted_audio_generation = max(
                     self._accepted_audio_generation, int(next_generation)
                 )
+        with self._sentence_lock:
+            self._active_sentence = None
         self.is_speaking = False
         self.target_mouth_open = 0.0
         self.target_mouth_form = 0.0
@@ -292,29 +311,82 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             loop_start = time.time()
             t += frame_interval
 
-            # 1. 消费 Viseme 唇形开合与形态目标
-            try:
-                queued_data = self.mouth_open_queue.get_nowait()
-                if len(queued_data) == 4:
-                    queued_generation, queued_session, mouth_open, mouth_form = queued_data
-                else:
-                    queued_generation, queued_session, mouth_open = queued_data
-                    mouth_form = 0.0
+            # 1. 消费 Viseme 唇形开合与形态目标 (优先基于真实声卡物理 DAC 播放时钟对齐)
+            viseme_target = None
+            with self._sentence_lock:
+                sent = self._active_sentence
+            if sent and self._generation_is_current(sent.get("audio_generation"), sent.get("session_generation")):
+                audio_id = sent.get("audio_id")
+                use_clock_sync = False
+                if audio_id:
+                    from server.core.media.virtual_audio import global_virtual_audio
+                    clock = global_virtual_audio.get_playback_clock(audio_id)
+                    if clock:
+                        use_clock_sync = True
+                        if clock.get("is_interrupted"):
+                            with self._sentence_lock:
+                                if self._active_sentence is sent:
+                                    self._active_sentence = None
+                            sent = None
+                        elif not clock.get("has_started"):
+                            # 处于声卡排队缓冲或设备启动期：嘴巴静默等待物理出声，绝不抢跑！
+                            viseme_target = (0.0, 0.0)
+                        else:
+                            # 依据真实声卡 DAC 物理已播放秒数，严格吸附对齐口型帧游标
+                            elapsed = clock.get("elapsed_sec", 0.0)
+                            f_idx = int(elapsed * self.fps)
+                            visemes = sent.get("visemes", [])
+                            if f_idx < len(visemes):
+                                viseme_target = visemes[f_idx]
+                            elif clock.get("is_finished"):
+                                with self._sentence_lock:
+                                    if self._active_sentence is sent:
+                                        self._active_sentence = None
+                                viseme_target = (0.0, 0.0)
+                            else:
+                                viseme_target = (0.0, 0.0)
+                if not use_clock_sync and sent:
+                    # 降级模式 (无声卡/无 audio_id)：以单调时钟平滑驱动
+                    elapsed = time.monotonic() - sent.get("feed_time", time.monotonic())
+                    f_idx = int(elapsed * self.fps)
+                    visemes = sent.get("visemes", [])
+                    if f_idx < len(visemes):
+                        viseme_target = visemes[f_idx]
+                    else:
+                        with self._sentence_lock:
+                            if self._active_sentence is sent:
+                                self._active_sentence = None
+                        viseme_target = (0.0, 0.0)
 
-                if self._generation_is_current(queued_generation, queued_session):
-                    self.target_mouth_open = mouth_open
-                    self.target_mouth_form = mouth_form
-                    self.is_speaking = True
-                else:
+            # 若从共享时钟句子获得目标则直接采纳；否则消费旧 mouth_open_queue 保持兼容
+            if viseme_target is not None:
+                m_open, m_form = viseme_target
+                self.target_mouth_open = m_open
+                self.target_mouth_form = m_form
+                self.is_speaking = (m_open > 0.05)
+            else:
+                try:
+                    queued_data = self.mouth_open_queue.get_nowait()
+                    if len(queued_data) >= 4:
+                        queued_generation, queued_session, mouth_open, mouth_form = queued_data[:4]
+                    else:
+                        queued_generation, queued_session, mouth_open = queued_data[:3]
+                        mouth_form = 0.0
+
+                    if self._generation_is_current(queued_generation, queued_session):
+                        self.target_mouth_open = mouth_open
+                        self.target_mouth_form = mouth_form
+                        self.is_speaking = True
+                    else:
+                        self.target_mouth_open = 0.0
+                        self.target_mouth_form = 0.0
+                except queue.Empty:
                     self.target_mouth_open = 0.0
                     self.target_mouth_form = 0.0
-            except queue.Empty:
-                self.target_mouth_open = 0.0
-                self.target_mouth_form = 0.0
-                if self.current_mouth_open < 0.05:
-                    self.is_speaking = False
+                    if self.current_mouth_open < 0.05:
+                        self.is_speaking = False
 
-            # 直接采用上游 G2P 时间线发音目标，消除双重低通 EMA 引起的动态压缩与 40~80ms 相位迟滞；仅静音回落时轻量平滑
+            # 直接采用发音目标，消除双重低通 EMA 引起的动态压缩与 40~80ms 相位迟滞；仅静音回落时轻量平滑
             if self.target_mouth_open > 0.0 or abs(self.target_mouth_form) > 0.0:
                 self.current_mouth_open = self.target_mouth_open
                 self.current_mouth_form = self.target_mouth_form
@@ -369,6 +441,8 @@ class ProceduralAvatarDriver(BaseMediaDriver):
 
     def get_capabilities(self) -> dict:
         """机器可读能力清单上报 (ADR-16 / 规划 §4.2 如实声明契约，绝不虚报)"""
+        from server.core.media.virtual_audio import global_virtual_audio
+        shared_clock = bool(global_virtual_audio.available)
         return {
             "driver": "procedural_avatar",
             "capabilities": {
@@ -378,7 +452,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 "alignment_mode": "heuristic_uniform",
                 "phoneme_source": "pypinyin_or_builtin",
                 "forced_alignment": False,
-                "shared_playback_clock": False,
+                "shared_playback_clock": shared_clock,
                 "expressions": True,
                 "head_motion": True,
                 "remote_rendering": False,

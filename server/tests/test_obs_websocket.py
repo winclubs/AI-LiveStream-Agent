@@ -14,6 +14,7 @@ class MockObsServer:
         self.password = password
         self.server = None
         self.is_streaming = False
+        self.output_bytes = 0
 
     async def _handler(self, ws):
         # 1. 下发 Op=0 Hello
@@ -61,6 +62,8 @@ class MockObsServer:
                     req_type = req["d"]["requestType"]
                     req_id = req["d"]["requestId"]
                     if req_type == "GetStreamStatus":
+                        if self.is_streaming:
+                            self.output_bytes += 50000
                         resp = {
                             "op": 7,
                             "d": {
@@ -72,7 +75,7 @@ class MockObsServer:
                                     "outputReconnecting": False,
                                     "outputTimecode": "00:01:23.000",
                                     "outputDuration": 83000,
-                                    "outputBytes": 12345678 if self.is_streaming else 0,
+                                    "outputBytes": self.output_bytes if self.is_streaming else 0,
                                     "outputSkippedFrames": 0,
                                     "outputTotalFrames": 2075,
                                 }
@@ -108,6 +111,7 @@ class MockObsServer:
                         await ws.send(json.dumps(resp))
                     elif req_type == "StopStream":
                         self.is_streaming = False
+                        self.output_bytes = 0
                         resp = {
                             "op": 7,
                             "d": {
@@ -156,6 +160,9 @@ def test_obs_client_connect_and_rpc():
             idem_start = await client.start_stream()
             assert idem_start.get("result") is True
             assert idem_start.get("already_streaming") is True
+
+            # 等待微小时钟步长确保采样差分时间推进
+            await asyncio.sleep(0.01)
 
             # 再次拉取状态 (应显示推流中，基于 outputBytes 计算码率，基于 GetStats 获得 fps)
             stats_after = await client.refresh_stream_status()

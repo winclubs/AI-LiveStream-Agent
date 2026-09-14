@@ -180,9 +180,8 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                             # 增加静默超时保护 (45s 未收到任何服务端数据帧，判定为链路假死)
                             msg = await asyncio.wait_for(ws.recv(), timeout=45.0)
                         except asyncio.TimeoutError as te:
-                            logger.warning("抖音弹幕长连接接收超时 (45s 无数据帧)，触发连接重连自愈")
-                            self.notify_error(te, "抖音下行数据帧接收超时")
-                            break
+                            logger.warning("抖音弹幕长连接接收超时 (45s 无数据帧)，抛出异常进入指数退避自愈重连")
+                            raise TimeoutError("抖音下行数据帧 45s 静默超时") from te
 
                         # 真实收到服务端下行数据帧才作为健康证据刷新心跳
                         self.on_heartbeat()
@@ -198,7 +197,7 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                 backoff = min(backoff * 2.0, max_backoff)
 
     async def _heartbeat_loop(self, ws):
-        """每 10 秒发送心跳保持连接活路"""
+        """每 10 秒发送心跳保持连接活路 (发送失败立即关闭 socket 唤醒主接收协程自愈)"""
         while self.is_running:
             try:
                 await asyncio.sleep(10.0)
@@ -209,6 +208,10 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
             except Exception as e:
                 logger.warning("抖音心跳发送异常: %s", e)
                 self.notify_error(e, "抖音心跳发送失败")
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
                 break
 
     # ------------------------------------------------------------------

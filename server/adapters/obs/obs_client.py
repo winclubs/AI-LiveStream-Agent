@@ -48,6 +48,7 @@ class ObsWebSocketClient:
         self._monitor_task: Optional[asyncio.Task] = None
         self._auto_reconnect = True
         self._lock = asyncio.Lock()
+        self._connection_epoch: int = 0
 
         # 实时码率采样差分基准
         self._last_stats_time: Optional[float] = None
@@ -56,8 +57,12 @@ class ObsWebSocketClient:
         self._connected_port: int = 0
         self._connected_password: str = ""
 
-    def add_stream_state_listener(self, listener: Callable[[bool, str], Any]):
-        """注册推流状态变更监听回调"""
+    @property
+    def connection_epoch(self) -> int:
+        return self._connection_epoch
+
+    def add_stream_state_listener(self, listener: Callable[..., Any]):
+        """注册推流状态变更监听回调 (支持 (active, state) 或 (active, state, epoch))"""
         if listener not in self._stream_state_listeners:
             self._stream_state_listeners.append(listener)
 
@@ -66,7 +71,7 @@ class ObsWebSocketClient:
         return f"ws://{self.host}:{self.port}"
 
     async def connect(self, timeout: float = 3.0) -> bool:
-        """连接到 OBS Studio 并完成 v5 握手认证 (若配置变更则先断开旧连接)"""
+        """连接到 OBS Studio 并完成 v5 握手认证 (每次连接分配单调递增的 connection epoch)"""
         if websockets is None:
             logger.warning("未安装 websockets 库，无法建立 OBS-WebSocket 连接")
             return False
@@ -77,24 +82,29 @@ class ObsWebSocketClient:
             if (
                 self.is_connected
                 and self.ws
-                and not self.ws.closed
+                and not getattr(self.ws, "closed", False)
                 and self._connected_host == self.host
                 and self._connected_port == self.port
                 and self._connected_password == self.password
             ):
                 return True
 
-            if self.is_connected and self.ws:
-                logger.info("OBS 配置变更，重置旧连接: %s:%s -> %s:%s", self._connected_host, self._connected_port, self.host, self.port)
-                await self._cleanup()
+            if self.is_connected or self.ws:
+                logger.info("OBS 配置变更或重置，清理旧连接: %s:%s (epoch=%d)", self._connected_host, self._connected_port, self._connection_epoch)
+                await self._cleanup(epoch=self._connection_epoch, reason="reconnect_cleanup")
+
+            # 分配全局唯一单调递增的连接代际
+            epoch = self._connection_epoch + 1
+            self._connection_epoch = epoch
+            ws = None
 
             try:
-                self.ws = await asyncio.wait_for(
+                ws = await asyncio.wait_for(
                     websockets.connect(self.url, ping_interval=10, ping_timeout=5),
                     timeout=timeout
                 )
                 # 接收 Op=0 (Hello)
-                hello_raw = await asyncio.wait_for(self.ws.recv(), timeout=timeout)
+                hello_raw = await asyncio.wait_for(ws.recv(), timeout=timeout)
                 hello_msg = json.loads(hello_raw)
                 if hello_msg.get("op") != 0:
                     raise RuntimeError(f"预期 Op=0 Hello 消息，实际收到: {hello_msg}")
@@ -123,14 +133,15 @@ class ObsWebSocketClient:
                     ).decode("utf-8")
                     identify_payload["d"]["authentication"] = auth_resp
 
-                await self.ws.send(json.dumps(identify_payload))
+                await ws.send(json.dumps(identify_payload))
 
                 # 接收 Op=2 (Identified)
-                identified_raw = await asyncio.wait_for(self.ws.recv(), timeout=timeout)
+                identified_raw = await asyncio.wait_for(ws.recv(), timeout=timeout)
                 identified_msg = json.loads(identified_raw)
                 if identified_msg.get("op") != 2:
                     raise RuntimeError(f"OBS 认证失败，预期 Op=2 Identified，实际收到: {identified_msg}")
 
+                self.ws = ws
                 self.is_connected = True
                 self.is_stale = False
                 self._connected_host = self.host
@@ -139,48 +150,67 @@ class ObsWebSocketClient:
                 self._last_stats_time = None
                 self._last_stats_bytes = 0
 
-                self._receive_task = asyncio.create_task(self._listen_loop())
+                self._receive_task = asyncio.create_task(self._listen_loop(epoch, ws))
                 if not self._monitor_task or self._monitor_task.done():
                     self._monitor_task = asyncio.create_task(self._monitor_loop())
-                logger.info("已成功建立与 OBS Studio (WebSocket v5) 的受控连接: %s", self.url)
+                logger.info("已成功建立与 OBS Studio (WebSocket v5) 的受控连接: %s (epoch=%d)", self.url, epoch)
 
                 # 初始拉取一次推流状态与硬件监控
                 await self.refresh_stream_status()
                 return True
 
             except Exception as e:
-                logger.debug("连接 OBS-WebSocket 失败 (%s): %s", self.url, e)
-                await self._cleanup()
+                logger.debug("连接 OBS-WebSocket 失败 (%s, epoch=%d): %s", self.url, epoch, e)
+                await self._cleanup(epoch=epoch, ws_instance=ws, reason="connect_failed")
                 return False
 
-    def _notify_stream_state(self, active: bool, state: str):
-        """统一分发流状态变更给所有监听者 (如直播控制器释放所有权)"""
+    def _notify_stream_state(self, active: bool, state: str, epoch: Optional[int] = None):
+        """统一分发流状态变更给所有监听者 (携带 epoch，严防旧连接迟到事件误伤新场次所有权)"""
+        notify_epoch = epoch if epoch is not None else self._connection_epoch
         for listener in list(self._stream_state_listeners):
             try:
-                res = listener(active, state)
+                try:
+                    res = listener(active, state, notify_epoch)
+                except TypeError:
+                    # 兼容仅接受 2 个参数的旧签名回调
+                    res = listener(active, state)
                 if asyncio.iscoroutine(res):
                     asyncio.create_task(res)
             except Exception as e:
                 logger.warning("推流状态变更监听回调执行异常: %s", e)
 
-    async def _cleanup(self):
+    async def _cleanup(self, epoch: Optional[int] = None, ws_instance: Optional[Any] = None, reason: str = ""):
+        """安全清理连接资源；旧 epoch 的迟到退出绝不触碰全局活跃连接与事件广播"""
+        if epoch is not None and epoch < self._connection_epoch:
+            logger.debug("忽略过时旧连接的迟到清理 (epoch=%d < current=%d, reason=%s)", epoch, self._connection_epoch, reason)
+            if ws_instance:
+                try:
+                    await ws_instance.close()
+                except Exception:
+                    pass
+            return
+
         was_streaming = self.is_streaming
         was_connected = self.is_connected
+        current_epoch = self._connection_epoch
         self.is_connected = False
         self.is_streaming = False
+
         if was_streaming or was_connected:
-            self._notify_stream_state(False, "Disconnected")
+            self._notify_stream_state(False, "Disconnected", epoch=current_epoch)
 
         if self._receive_task and not self._receive_task.done():
             if self._receive_task is not asyncio.current_task():
                 self._receive_task.cancel()
             self._receive_task = None
 
-        if self.ws:
+        target_ws = ws_instance or self.ws
+        if target_ws:
             try:
-                await self.ws.close()
+                await target_ws.close()
             except Exception:
                 pass
+        if self.ws is target_ws or not ws_instance:
             self.ws = None
 
         # 清除未完成的 request futures
@@ -193,8 +223,9 @@ class ObsWebSocketClient:
         self._last_stats_bytes = 0
 
     async def _monitor_loop(self):
-        """后台采样与断线自动指数退避重连"""
+        """后台采样与断线自动指数退避重连 (连续采样错误主动 teardown 进入退避自愈)"""
         backoff = 1.0
+        sample_failures = 0
         while True:
             try:
                 await asyncio.sleep(3.0)
@@ -203,8 +234,14 @@ class ObsWebSocketClient:
                         stats = await self.refresh_stream_status()
                         if stats and stats.get("error"):
                             self.is_stale = True
+                            sample_failures += 1
+                            if sample_failures >= 3:
+                                logger.warning("OBS 后台采样连续 %d 次失败，主动拆除失效连接并触发重连", sample_failures)
+                                await self._cleanup(epoch=self._connection_epoch, reason="sample_errors_exceeded")
+                                sample_failures = 0
                         else:
                             self.is_stale = False
+                            sample_failures = 0
                         backoff = 1.0
                     except Exception as e:
                         self.is_stale = True
@@ -216,6 +253,7 @@ class ObsWebSocketClient:
                     if ok:
                         logger.info("OBS 自动重连并恢复握手与订阅成功！")
                         backoff = 1.0
+                        sample_failures = 0
                     else:
                         backoff = min(15.0, backoff * 2.0)
                     await asyncio.sleep(backoff)
@@ -231,16 +269,18 @@ class ObsWebSocketClient:
             self._monitor_task.cancel()
             self._monitor_task = None
         async with self._lock:
-            await self._cleanup()
+            await self._cleanup(epoch=None, reason="manual_disconnect")
             logger.info("OBS-WebSocket 连接已安全断开")
 
-    async def _listen_loop(self):
-        """后台循环处理 OBS 事件与 RPC 回包"""
+    async def _listen_loop(self, epoch: int, ws: Any):
+        """后台循环处理 OBS 事件与 RPC 回包 (严格绑定连接 epoch 与对应 ws 实例)"""
         try:
-            while self.is_connected and self.ws:
-                msg_raw = await self.ws.recv()
+            while self.is_connected and self._connection_epoch == epoch and ws and not getattr(ws, "closed", False):
+                msg_raw = await ws.recv()
                 if not msg_raw:
                     continue
+                if self._connection_epoch != epoch:
+                    break
                 msg = json.loads(msg_raw)
                 op = msg.get("op")
                 d = msg.get("d", {})
@@ -255,23 +295,26 @@ class ObsWebSocketClient:
                 elif op == 5:  # Event
                     event_type = d.get("eventType")
                     event_data = d.get("eventData", {})
-                    await self._handle_event(event_type, event_data)
+                    await self._handle_event(event_type, event_data, epoch)
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.warning("OBS-WebSocket 接收监听异常: %s", e)
+            logger.warning("OBS-WebSocket 接收监听异常 (epoch=%d): %s", epoch, e)
         finally:
-            await self._cleanup()
+            await self._cleanup(epoch=epoch, ws_instance=ws, reason="listen_loop_finally")
 
-    async def _handle_event(self, event_type: str, event_data: dict):
-        """处理 OBS 推流/录制状态变动事件"""
+    async def _handle_event(self, event_type: str, event_data: dict, epoch: int):
+        """处理 OBS 推流/录制状态变动事件 (过时 epoch 事件直接静默丢弃)"""
+        if epoch != self._connection_epoch:
+            logger.debug("丢弃来自过时连接的 OBS 事件: epoch=%d < current=%d", epoch, self._connection_epoch)
+            return
         if event_type == "StreamStateChanged":
             active = event_data.get("outputActive", False)
             state = event_data.get("outputState", "")
             self.is_streaming = active
-            logger.info("OBS 推流状态变动通知: active=%s, state=%s", active, state)
-            self._notify_stream_state(active, state)
+            logger.info("OBS 推流状态变动通知: active=%s, state=%s (epoch=%d)", active, state, epoch)
+            self._notify_stream_state(active, state, epoch=epoch)
 
     async def send_request(self, request_type: str, request_data: Optional[dict] = None, timeout: float = 4.0) -> dict:
         """发送 v5 RPC 请求 (Op=6) 并等待响应 (Op=7)"""
@@ -369,12 +412,14 @@ class ObsWebSocketClient:
         return self.stream_stats
 
     async def start_stream(self) -> Dict[str, Any]:
-        """通知 OBS 开始推流 (具备幂等性)"""
+        """通知 OBS 开始推流 (具备严格幂等性)"""
         if self.is_connected:
             try:
-                await self.refresh_stream_status()
-            except Exception:
-                pass
+                stats = await self.refresh_stream_status()
+                if stats and stats.get("error"):
+                    return {"result": False, "error": f"刷新推流状态失败: {stats.get('error')}"}
+            except Exception as e:
+                return {"result": False, "error": f"刷新推流状态异常: {e}"}
         if self.is_streaming:
             logger.info("OBS 当前已处于推流状态，无需重复触发")
             return {"result": True, "already_streaming": True}
@@ -388,12 +433,14 @@ class ObsWebSocketClient:
         return res
 
     async def stop_stream(self) -> Dict[str, Any]:
-        """通知 OBS 停止推流 (具备幂等性)"""
+        """通知 OBS 停止推流 (具备严格幂等性)"""
         if self.is_connected:
             try:
-                await self.refresh_stream_status()
-            except Exception:
-                pass
+                stats = await self.refresh_stream_status()
+                if stats and stats.get("error"):
+                    return {"result": False, "error": f"刷新推流状态失败: {stats.get('error')}"}
+            except Exception as e:
+                return {"result": False, "error": f"刷新推流状态异常: {e}"}
         if not self.is_streaming:
             logger.info("OBS 当前未在推流，无需重复停止")
             return {"result": True, "already_stopped": True}
