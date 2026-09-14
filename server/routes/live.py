@@ -74,7 +74,8 @@ class LiveSessionController:
         self._lifecycle_lock: Optional[asyncio.Lock] = None
         self.tts_driver = EdgeTTSMediaDriver()
         self.vram_watchdog = VRAMWatchdog(on_alert=self._on_vram_alert)
-        self.obs_stream_started_by_agent: bool = False
+        self.obs_owner_session_id: Optional[str] = None
+        self.demo_mode: bool = False
         self.current_tts_task: Optional[asyncio.Task] = None
         self.cleanup_errors: list = []
         # 直播大屏运营统计 (需求 8)
@@ -90,6 +91,18 @@ class LiveSessionController:
             "guardrail_hits": 0,
             "flash_sales": 0
         }
+
+    @property
+    def obs_stream_started_by_agent(self) -> bool:
+        """推流所有权严格绑定当前会话 session_id，跨场次自动失效"""
+        return bool(self.obs_owner_session_id and self.session_id and self.obs_owner_session_id == self.session_id)
+
+    @obs_stream_started_by_agent.setter
+    def obs_stream_started_by_agent(self, val: bool):
+        if val:
+            self.obs_owner_session_id = self.session_id or "active_session"
+        else:
+            self.obs_owner_session_id = None
 
     @property
     def lifecycle_lock(self) -> asyncio.Lock:
@@ -351,22 +364,23 @@ class LiveSessionController:
         task.add_done_callback(self._background_tasks.discard)
         return task
 
-    async def start(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = ""):
+    async def start(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False):
         """事务式启动资源；任一步失败都回滚已启动任务和设备。"""
         try:
             await self._start_resources(
                 session_id, products, room_id, platform, theme, voice_id,
-                avatar_path, mode, landmarks_path
+                avatar_path, mode, landmarks_path, demo_mode=demo_mode
             )
         except Exception:
             logger.exception("直播资源启动失败，正在回滚")
             await self.stop()
             raise
 
-    async def _start_resources(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = ""):
+    async def _start_resources(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False):
         if self.is_live:
             return
         self.is_live = True
+        self.demo_mode = demo_mode
         self._session_generation += 1
         self._audio_generation += 1
         self.session_id = session_id
@@ -404,42 +418,46 @@ class LiveSessionController:
         # 启动 VRAM 看门狗 (无 GPU 环境自动空转)
         self.vram_watchdog.start()
 
-        # 根据平台经注册表选择真实抓取器；未注册平台回退中继/仿真
+        # 根据平台经注册表选择真实抓取器；正式平台绝不静默注入假弹幕
         from server.adapters.danmaku.registry import global_danmaku_registry
         platform_lower = (platform or "bilibili").lower().strip()
-        is_mock_room = not room_id or not room_id.strip() or room_id.strip().lower() in ["room_demo", "mock"]
+        raw_room = (room_id or "").strip()
+        is_explicit_demo = self.demo_mode or platform_lower in ("mock", "demo") or raw_room.lower() in ["room_demo", "mock"]
 
-        if is_mock_room or platform_lower in ("mock", "demo"):
-            logger.info("启动仿真弹幕注入器 (MockDanmakuFetcher)")
-            self.fetcher = MockDanmakuFetcher("room_demo_888", self._on_danmaku_event)
+        if is_explicit_demo:
+            logger.info("启动仿真弹幕注入器 (MockDanmakuFetcher, auto_inject=True)")
+            self.fetcher = MockDanmakuFetcher("room_demo_888", self._on_danmaku_event, auto_inject=True)
         elif global_danmaku_registry.has(platform_lower):
-            clean_id = re.sub(r"[^0-9]", "", room_id.split("?")[0].rstrip("/").split("/")[-1]) or room_id
-            logger.info(f"启动【{platform_lower}】真实弹幕监听，房间: {clean_id}")
-            fetcher_kwargs = {}
-            if platform_lower == "douyin":
-                fetcher_kwargs = await self._load_douyin_cookie_config()
-            real_fetcher = global_danmaku_registry.create(platform_lower, clean_id, self._on_danmaku_event, **fetcher_kwargs)
-            if real_fetcher:
-                self.fetcher = CircuitBreakerDanmakuFetcher(
-                    real_fetcher=real_fetcher,
-                    room_id=clean_id,
-                    on_event_callback=self._on_danmaku_event,
-                    on_state_change_callback=self._on_danmaku_circuit_state_change,
-                    failure_threshold=5,
-                    recovery_timeout_sec=30.0,
-                    enable_mock_fallback=False,  # 正式直播严禁自动注入假弹幕
-                )
+            clean_id = re.sub(r"[^0-9]", "", raw_room.split("?")[0].rstrip("/").split("/")[-1]) or raw_room
+            if not clean_id:
+                logger.warning("正式平台【%s】未提供有效房间号，挂载无自动注入的被动中继器", platform_lower)
+                self.fetcher = MockDanmakuFetcher(room_id="passive", on_event_callback=self._on_danmaku_event, auto_inject=False)
             else:
-                logger.error("无法为正式平台【%s】创建弹幕监听器，挂载无自动注入的被动中继器", platform_lower)
-                # 正式平台绝不自动产生仿真假弹幕，仅支持通过 Webhook / WS 被动中继推送
-                self.fetcher = MockDanmakuFetcher(room_id=clean_id, on_event_callback=self._on_danmaku_event, auto_inject=False)
+                logger.info(f"启动【{platform_lower}】真实弹幕监听，房间: {clean_id}")
+                fetcher_kwargs = {}
+                if platform_lower == "douyin":
+                    fetcher_kwargs = await self._load_douyin_cookie_config()
+                real_fetcher = global_danmaku_registry.create(platform_lower, clean_id, self._on_danmaku_event, **fetcher_kwargs)
+                if real_fetcher:
+                    self.fetcher = CircuitBreakerDanmakuFetcher(
+                        real_fetcher=real_fetcher,
+                        room_id=clean_id,
+                        on_event_callback=self._on_danmaku_event,
+                        on_state_change_callback=self._on_danmaku_circuit_state_change,
+                        failure_threshold=5,
+                        recovery_timeout_sec=30.0,
+                        enable_mock_fallback=False,  # 正式直播严禁自动注入假弹幕
+                    )
+                else:
+                    logger.error("无法为正式平台【%s】创建弹幕监听器，挂载无自动注入的被动中继器", platform_lower)
+                    self.fetcher = MockDanmakuFetcher(room_id=clean_id, on_event_callback=self._on_danmaku_event, auto_inject=False)
         else:
             logger.info(
                 f"平台【{platform}】未内置真实协议 (可用平台: {global_danmaku_registry.list_platforms()})，"
                 f"已挂载被动监听器：请通过 POST /live/danmaku-webhook 或 WS /ws/danmaku-ingest 推送弹幕"
             )
             # 被动模式：不注入仿真事件，弹幕完全依赖外部中继推送
-            self.fetcher = MockDanmakuFetcher(room_id=room_id, on_event_callback=self._on_danmaku_event, auto_inject=False)
+            self.fetcher = MockDanmakuFetcher(room_id=raw_room or "passive", on_event_callback=self._on_danmaku_event, auto_inject=False)
 
         await self.fetcher.start()
 
@@ -579,6 +597,7 @@ class LiveSessionController:
             # 8. 最终复位所有身份和引用
             self.is_live = False
             self.session_id = None
+            self.obs_owner_session_id = None
             self.live_context = {"products": []}
             self.fetcher = None
             self.worker_task = self.viewer_task = self.vision_task = None
@@ -1051,9 +1070,9 @@ global_live_controller = LiveSessionController()
 def _on_obs_external_state_change(active: bool, state: str):
     if not active:
         # 当 OBS 外部停流或断开连接时，主动释放 Agent 的推流所有权，杜绝跨场残留
-        if getattr(global_live_controller, "obs_stream_started_by_agent", False):
-            logger.info("OBS 外部推流已停止或连接中断 (%s)，释放 Agent 推流所有权", state)
-            global_live_controller.obs_stream_started_by_agent = False
+        if getattr(global_live_controller, "obs_owner_session_id", None):
+            logger.info("OBS 外部推流已停止或连接中断 (%s)，释放 Agent 推流所有权 (session=%s)", state, global_live_controller.obs_owner_session_id)
+            global_live_controller.obs_owner_session_id = None
 
 global_obs_client.add_stream_state_listener(_on_obs_external_state_change)
 
@@ -1179,10 +1198,11 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
     await db.commit()
 
     try:
+        is_demo = bool(getattr(req, "demo_mode", False))
         await global_live_controller.start(
             session_id, products, target_room, platform=platform, theme=live_theme,
             voice_id=target_voice_id, avatar_path=avatar_path, mode=live_mode,
-            landmarks_path=landmarks_path
+            landmarks_path=landmarks_path, demo_mode=is_demo
         )
         session_record.status = "live"
         await db.commit()
@@ -1202,7 +1222,7 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
                     if res.get("result"):
                         obs_linked = True
                         if not res.get("already_streaming"):
-                            global_live_controller.obs_stream_started_by_agent = True
+                            global_live_controller.obs_owner_session_id = session_id
                         else:
                             logger.info("OBS 此前已在推流中，保持现有推流所有权不变，停播时不主动切断")
                     else:
@@ -1255,6 +1275,13 @@ async def _stop_live_unlocked(db: AsyncSession):
         return {"code": 0, "is_live": False, "message": "直播已停止"}
     stats = global_live_controller.stats.copy()
 
+    # 提前在会话未销毁前判定推流所有权，防止 controller.stop() 清空 session 后丢失所有权事实
+    should_stop_obs = bool(
+        getattr(global_live_controller, "obs_stream_started_by_agent", False)
+        and global_obs_client.is_connected
+        and global_obs_client.is_streaming
+    )
+
     cleanup_errors = []
     try:
         cleanup_errors = await global_live_controller.stop()
@@ -1264,11 +1291,7 @@ async def _stop_live_unlocked(db: AsyncSession):
     finally:
         # 联动 OBS：仅当本场直播由 Agent 启动推流时才停止 OBS，防止误关用户手动推流
         try:
-            if (
-                getattr(global_live_controller, "obs_stream_started_by_agent", False)
-                and global_obs_client.is_connected
-                and global_obs_client.is_streaming
-            ):
+            if should_stop_obs:
                 try:
                     res = await global_obs_client.stop_stream()
                     if not res.get("result") and not res.get("already_stopped"):
@@ -1281,6 +1304,7 @@ async def _stop_live_unlocked(db: AsyncSession):
         finally:
             # 无论 OBS 处于何种连接/推流状态，场次结束时必须无条件复位所有权，防止跨场残留
             global_live_controller.obs_stream_started_by_agent = False
+            global_live_controller.obs_owner_session_id = None
 
         if sid:
             try:

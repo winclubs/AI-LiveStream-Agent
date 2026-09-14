@@ -38,7 +38,7 @@ def test_audio_samples_to_viseme_extraction():
 
 
 def test_synth_frame_with_viseme_form():
-    """测试多维口型参数合成为 RGB 帧不报错且尺寸正确"""
+    """测试多维口型参数合成为 RGB 帧且产生真实像素几何形态差异"""
     portrait = generate_default_portrait(720, 960)
     assert portrait.shape == (960, 720, 3)
 
@@ -46,13 +46,20 @@ def test_synth_frame_with_viseme_form():
     frame_normal = synth_frame(portrait, 720, 960, t=1.0, mouth_open=0.5, mouth_form=0.0)
     assert frame_normal.shape == (960, 720, 3)
 
-    # 2. 展唇微开口测试 (/i/)
+    # 2. 展唇开口测试 (/i/，水平拉伸、高度较扁)
     frame_spread = synth_frame(portrait, 720, 960, t=1.0, mouth_open=0.4, mouth_form=0.8)
     assert frame_spread.shape == (960, 720, 3)
 
-    # 3. 圆唇微开口测试 (/u/)
+    # 3. 圆唇开口测试 (/u/，水平收拢、高度收拢成 O 型)
     frame_round = synth_frame(portrait, 720, 960, t=1.0, mouth_open=0.4, mouth_form=-0.8)
     assert frame_round.shape == (960, 720, 3)
+
+    # 4. 严谨断言：展唇与圆唇在嘴部核心 ROI 区域必须产生绝对矩阵像素差异，杜绝无意义空转
+    mouth_roi_spread = frame_spread[int(960 * 0.50):int(960 * 0.75), int(720 * 0.35):int(720 * 0.65), :]
+    mouth_roi_round = frame_round[int(960 * 0.50):int(960 * 0.75), int(720 * 0.35):int(720 * 0.65), :]
+    abs_diff = np.abs(mouth_roi_spread.astype(np.int32) - mouth_roi_round.astype(np.int32))
+    assert np.sum(abs_diff) > 0, "展唇与圆唇在嘴部 ROI 区域未产生任何像素矩阵变化"
+    assert np.max(abs_diff) > 10, "展唇与圆唇像素差异过小，未达到有效视觉形变阈值"
 
 
 def test_driver_alias_compatibility():

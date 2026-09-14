@@ -108,6 +108,11 @@ async def lifespan(app: FastAPI):
         except BaseException:
             logger.exception("关闭视觉采集失败")
         try:
+            from server.adapters.obs.obs_client import global_obs_client
+            await global_obs_client.disconnect()
+        except BaseException:
+            logger.exception("关闭 OBS 客户端连接失败")
+        try:
             await engine.dispose()
         except BaseException:
             logger.exception("释放数据库引擎失败")

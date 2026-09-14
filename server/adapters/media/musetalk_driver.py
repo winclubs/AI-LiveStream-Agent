@@ -314,9 +314,13 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 if self.current_mouth_open < 0.05:
                     self.is_speaking = False
 
-            # 平滑过渡插值 (开度与形态动态平滑，降低级联低通造成的相位迟滞)
-            self.current_mouth_open += (self.target_mouth_open - self.current_mouth_open) * 0.70
-            self.current_mouth_form += (self.target_mouth_form - self.current_mouth_form) * 0.65
+            # 直接采用上游 G2P 时间线发音目标，消除双重低通 EMA 引起的动态压缩与 40~80ms 相位迟滞；仅静音回落时轻量平滑
+            if self.target_mouth_open > 0.0 or abs(self.target_mouth_form) > 0.0:
+                self.current_mouth_open = self.target_mouth_open
+                self.current_mouth_form = self.target_mouth_form
+            else:
+                self.current_mouth_open += (0.0 - self.current_mouth_open) * 0.5
+                self.current_mouth_form += (0.0 - self.current_mouth_form) * 0.5
 
             # 2. 生成当前合成视频帧 (呼吸扰动 + 泊松眨眼 + Viseme 口型 + 防封杀运镜光影)
             render_started = time.time()

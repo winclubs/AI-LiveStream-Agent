@@ -174,20 +174,20 @@ async def init_db():
                 volume_gain=1.0
             ))
 
-        # 数据清洗迁移：旧数据库中若存在指向不存在文件的历史路径，重置为 None
-        all_avatars = (await session.execute(select(Avatar))).scalars().all()
-        for a in all_avatars:
-            if a.source_file_path:
-                full_p = os.path.join(DATA_DIR, a.source_file_path) if not os.path.isabs(a.source_file_path) else a.source_file_path
-                if not os.path.exists(full_p) and not os.path.exists(a.source_file_path):
-                    a.source_file_path = None
+        # 数据清洗迁移：仅针对历史版本内置伪默认记录中指向不存在文件的路径进行重置，严禁误清空用户自定义数据
+        legacy_avatar = await session.get(Avatar, "avatar_default_muse")
+        if legacy_avatar and legacy_avatar.source_file_path:
+            full_p = os.path.join(DATA_DIR, legacy_avatar.source_file_path) if not os.path.isabs(legacy_avatar.source_file_path) else legacy_avatar.source_file_path
+            if not os.path.exists(full_p) and not os.path.exists(legacy_avatar.source_file_path):
+                legacy_avatar.source_file_path = None
+                legacy_avatar.preprocessed_cache_path = None
 
-        all_voices = (await session.execute(select(VoiceProfile))).scalars().all()
-        for v in all_voices:
-            if v.sample_wav_path:
-                full_p = os.path.join(DATA_DIR, v.sample_wav_path) if not os.path.isabs(v.sample_wav_path) else v.sample_wav_path
-                if not os.path.exists(full_p) and not os.path.exists(v.sample_wav_path):
-                    v.sample_wav_path = None
+        legacy_voice = await session.get(VoiceProfile, "voice_default_female")
+        if legacy_voice and legacy_voice.sample_wav_path:
+            full_p = os.path.join(DATA_DIR, legacy_voice.sample_wav_path) if not os.path.isabs(legacy_voice.sample_wav_path) else legacy_voice.sample_wav_path
+            if not os.path.exists(full_p) and not os.path.exists(legacy_voice.sample_wav_path):
+                legacy_voice.sample_wav_path = None
+                legacy_voice.embedding_npy_path = None
 
         # 6. 初始化预设专家知识库 (劳动法常用 FAQ，供 RAG 双路检索开箱可用)
         knowledge_check = await session.execute(select(KnowledgeChunk))

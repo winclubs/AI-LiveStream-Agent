@@ -176,7 +176,15 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                     self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(ws))
 
                     while self.is_running:
-                        msg = await ws.recv()
+                        try:
+                            # 增加静默超时保护 (45s 未收到任何服务端数据帧，判定为链路假死)
+                            msg = await asyncio.wait_for(ws.recv(), timeout=45.0)
+                        except asyncio.TimeoutError as te:
+                            logger.warning("抖音弹幕长连接接收超时 (45s 无数据帧)，触发连接重连自愈")
+                            self.notify_error(te, "抖音下行数据帧接收超时")
+                            break
+
+                        # 真实收到服务端下行数据帧才作为健康证据刷新心跳
                         self.on_heartbeat()
                         if isinstance(msg, bytes):
                             self._parse_push_frame(msg)
@@ -194,12 +202,13 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
         while self.is_running:
             try:
                 await asyncio.sleep(10.0)
-                # 抖音心跳包 (空 payload 或结构化 ping)
+                # 抖音心跳包 (空 payload 或结构化 ping)；发送仅维持 socket 可写，不单方面虚报链路存活
                 await ws.send(b":")
-                self.on_heartbeat()
             except asyncio.CancelledError:
                 break
-            except Exception:
+            except Exception as e:
+                logger.warning("抖音心跳发送异常: %s", e)
+                self.notify_error(e, "抖音心跳发送失败")
                 break
 
     # ------------------------------------------------------------------

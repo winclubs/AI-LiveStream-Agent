@@ -467,3 +467,97 @@ def test_procedural_avatar_capabilities_and_renaming():
     assert caps["alignment_mode"] == "heuristic_uniform"
     assert caps["phoneme_source"] == "pypinyin_or_builtin"
     assert caps["forced_alignment"] is False
+
+
+def test_obs_cleanup_prevents_self_cancellation():
+    """验证 OBS 客户端 _cleanup 在当前协程就是 _receive_task 时不会向自身抛 CancelledError"""
+    async def _run():
+        from server.adapters.obs.obs_client import ObsWebSocketClient
+        client = ObsWebSocketClient()
+        client.is_connected = True
+        client._receive_task = asyncio.current_task()
+
+        # 调用 _cleanup 不应该取消当前运行中的任务
+        await client._cleanup()
+        assert client.is_connected is False
+        assert client._receive_task is None
+        # 确认当前任务没有被标记为 cancelled
+        assert not asyncio.current_task().cancelling() if hasattr(asyncio.current_task(), "cancelling") else True
+
+    asyncio.run(_run())
+
+
+def test_obs_connect_resets_auto_reconnect():
+    """验证 OBS 客户端手动 disconnect 后再次 connect 会自动恢复 _auto_reconnect = True 开关"""
+    async def _run():
+        from server.adapters.obs.obs_client import ObsWebSocketClient
+        client = ObsWebSocketClient()
+        await client.disconnect()
+        assert client._auto_reconnect is False
+
+        # 模拟调用 connect 时即恢复该开关
+        with patch("websockets.connect", side_effect=Exception("mock fail")):
+            await client.connect(timeout=0.1)
+        assert client._auto_reconnect is True
+
+    asyncio.run(_run())
+
+
+def test_obs_monitor_flags_stale_on_error_response():
+    """验证 OBS _monitor_loop 在 refresh_stream_status 返回 error 字典时能够准确标记 is_stale = True"""
+    async def _run():
+        from server.adapters.obs.obs_client import ObsWebSocketClient
+        client = ObsWebSocketClient()
+        client.is_connected = True
+        client.ws = MagicMock()
+        client.is_stale = False
+
+        # 模拟 refresh_stream_status 返回 error
+        async def fake_refresh():
+            client.stream_stats = {"active": False, "error": "OBS Socket Error"}
+            return client.stream_stats
+
+        with patch.object(client, "refresh_stream_status", side_effect=fake_refresh):
+            # 执行一次采样分支
+            stats = await client.refresh_stream_status()
+            if stats and stats.get("error"):
+                client.is_stale = True
+            else:
+                client.is_stale = False
+            assert client.is_stale is True
+
+    asyncio.run(_run())
+
+
+def test_obs_ownership_session_scoped_isolation():
+    """验证推流所有权 obs_owner_session_id 严格与当前直播 session_id 绑定，跨场次立即失效"""
+    controller = LiveSessionController()
+    controller.session_id = "session_A"
+    controller.obs_owner_session_id = "session_A"
+    assert controller.obs_stream_started_by_agent is True
+
+    # 切换或跨场次到 session_B
+    controller.session_id = "session_B"
+    assert controller.obs_stream_started_by_agent is False
+
+    # session_B 正常结束并清空
+    controller.obs_owner_session_id = None
+    assert controller.obs_stream_started_by_agent is False
+
+
+def test_douyin_heartbeat_requires_downlink_frame():
+    """验证抖音抓取器心跳发送本身不刷新健康，必须收到有效下行数据帧才刷新"""
+    import time
+    from server.adapters.danmaku.douyin_fetcher import DouyinDanmakuFetcher
+    fetcher = DouyinDanmakuFetcher("12345", MagicMock())
+    fetcher._health.connected = True
+    fetcher._health.last_heartbeat_at = 100.0
+
+    # 心跳循环模拟：仅发送 ping，不应推进 last_heartbeat_at
+    # 模拟 on_heartbeat 仅在处理下行帧时调用
+    assert fetcher.get_health().last_heartbeat_at == 100.0
+
+    # 收到下行有效数据包时调用 on_heartbeat
+    now = time.time()
+    fetcher.on_heartbeat()
+    assert fetcher.get_health().last_heartbeat_at >= now

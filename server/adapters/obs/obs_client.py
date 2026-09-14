@@ -72,14 +72,19 @@ class ObsWebSocketClient:
             return False
 
         async with self._lock:
-            # 如果配置变更（比如换了 host/port/password），必须先断开旧连接
+            self._auto_reconnect = True
+            # 若已连接且配置未变，直接复用
+            if (
+                self.is_connected
+                and self.ws
+                and not self.ws.closed
+                and self._connected_host == self.host
+                and self._connected_port == self.port
+                and self._connected_password == self.password
+            ):
+                return True
+
             if self.is_connected and self.ws:
-                if (
-                    self._connected_host == self.host
-                    and self._connected_port == self.port
-                    and self._connected_password == self.password
-                ):
-                    return True
                 logger.info("OBS 配置变更，重置旧连接: %s:%s -> %s:%s", self._connected_host, self._connected_port, self.host, self.port)
                 await self._cleanup()
 
@@ -167,7 +172,8 @@ class ObsWebSocketClient:
             self._notify_stream_state(False, "Disconnected")
 
         if self._receive_task and not self._receive_task.done():
-            self._receive_task.cancel()
+            if self._receive_task is not asyncio.current_task():
+                self._receive_task.cancel()
             self._receive_task = None
 
         if self.ws:
@@ -194,10 +200,14 @@ class ObsWebSocketClient:
                 await asyncio.sleep(3.0)
                 if self.is_connected and self.ws:
                     try:
-                        await self.refresh_stream_status()
-                        self.is_stale = False
+                        stats = await self.refresh_stream_status()
+                        if stats and stats.get("error"):
+                            self.is_stale = True
+                        else:
+                            self.is_stale = False
                         backoff = 1.0
                     except Exception as e:
+                        self.is_stale = True
                         logger.debug("OBS 后台指标采样异常: %s", e)
                 elif self._auto_reconnect and self._connected_host:
                     self.is_stale = True
@@ -360,6 +370,11 @@ class ObsWebSocketClient:
 
     async def start_stream(self) -> Dict[str, Any]:
         """通知 OBS 开始推流 (具备幂等性)"""
+        if self.is_connected:
+            try:
+                await self.refresh_stream_status()
+            except Exception:
+                pass
         if self.is_streaming:
             logger.info("OBS 当前已处于推流状态，无需重复触发")
             return {"result": True, "already_streaming": True}
@@ -374,6 +389,11 @@ class ObsWebSocketClient:
 
     async def stop_stream(self) -> Dict[str, Any]:
         """通知 OBS 停止推流 (具备幂等性)"""
+        if self.is_connected:
+            try:
+                await self.refresh_stream_status()
+            except Exception:
+                pass
         if not self.is_streaming:
             logger.info("OBS 当前未在推流，无需重复停止")
             return {"result": True, "already_stopped": True}
