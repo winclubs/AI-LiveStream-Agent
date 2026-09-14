@@ -666,8 +666,14 @@ async function startLiveDirect() {
         if (json.code === 0) {
             updateLiveStateUI(true);
             updateObsStatusUI();
-            logDanmaku("系统通知", `本地直播源已启动！${roomId ? `正在监听【${platform}】房间事件: ${roomId}` : '已启动仿真弹幕互动'}；外部平台发布已接入 OBS 联动`, false);
-            showToast("本地直播源已成功启动", "success", 5000);
+            let obsText = "未联动 OBS";
+            if (json.obs_linked) {
+                obsText = "OBS 联动推流已启动";
+            } else if (json.degraded) {
+                obsText = `OBS 联动降级 (${json.obs_error || "未推流"})`;
+            }
+            logDanmaku("系统通知", `本地直播源已启动！${roomId ? `正在监听【${platform}】房间事件: ${roomId}` : '已启动仿真互动'}；[${obsText}]`, false);
+            showToast(`本地直播源已启动 (${obsText})`, json.degraded ? "warning" : "success", 5000);
         } else {
             alert("开播失败: " + (json.message || json.detail || "未知错误"));
         }
@@ -686,6 +692,7 @@ async function stopLiveDirect() {
             updateLiveStateUI(false);
             stopAllAudioPlayback();
             logDanmaku("系统通知", "本地直播源已停止", false);
+            updateObsStatusUI();
         }
     } catch (e) {
         alert("操作异常: " + e);
@@ -701,10 +708,13 @@ async function updateObsStatusUI() {
         if (json.code === 0 && json.data) {
             const data = json.data;
             if (data.is_connected) {
-                if (data.is_streaming) {
+                if (data.is_stale) {
+                    badge.style.color = "#F59E0B";
+                    badge.innerText = "OBS: 信号重连中...";
+                } else if (data.is_streaming) {
                     const stats = data.stats || {};
                     badge.style.color = "#10B981";
-                    badge.innerText = `OBS: 推流中 (${stats.kbits_per_sec || 0}kbps)`;
+                    badge.innerText = `OBS: 推流中 (${stats.kbits_per_sec || 0}kbps, ${stats.fps || 0}fps)`;
                 } else {
                     badge.style.color = "#38BDF8";
                     badge.innerText = "OBS: 已连接就绪";
@@ -718,6 +728,12 @@ async function updateObsStatusUI() {
         badge.style.color = "#94A3B8";
         badge.innerText = "OBS: 未连接";
     }
+}
+
+// 自动启动 OBS 状态周期后台轮询 (每 3 秒刷新一次)
+if (typeof window !== "undefined" && !window._obsStatusIntervalStarted) {
+    window._obsStatusIntervalStarted = true;
+    setInterval(updateObsStatusUI, 3000);
 }
 
 async function promptObsConnect() {

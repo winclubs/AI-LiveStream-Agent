@@ -30,7 +30,7 @@ class Avatar(Base):
     id = Column(String(64), primary_key=True)
     name = Column(String(128), nullable=False)
     avatar_type = Column(String(32), default="image")  # image / video / live2d
-    source_file_path = Column(String(512), nullable=False)
+    source_file_path = Column(String(512), nullable=True)
     preprocessed_cache_path = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=utc_now)
 
@@ -40,7 +40,7 @@ class VoiceProfile(Base):
 
     id = Column(String(64), primary_key=True)
     name = Column(String(128), nullable=False)
-    sample_wav_path = Column(String(512), nullable=False)
+    sample_wav_path = Column(String(512), nullable=True)
     embedding_npy_path = Column(String(512), nullable=True)
     speech_speed = Column(Float, default=1.0)
     volume_gain = Column(Float, default=1.0)

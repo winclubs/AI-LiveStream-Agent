@@ -36,7 +36,8 @@ def test_avatar_driver_capabilities():
     assert caps["driver"] == "procedural_avatar"
     assert caps["capabilities"]["neural_lipsync"] is False
     assert caps["capabilities"]["viseme_lipsync"] is True
-    assert caps["capabilities"]["g2p_aligned"] is True
+    assert caps["capabilities"]["g2p_aligned"] is False
+    assert caps["capabilities"]["alignment_mode"] == "heuristic_uniform"
 
     live2d = Live2DDriver()
     l2d_caps = live2d.get_capabilities()
@@ -119,7 +120,7 @@ def test_obs_ownership_protection():
         mock_obs = MagicMock()
         mock_obs.is_connected = True
         mock_obs.is_streaming = True
-        mock_obs.stop_stream = AsyncMock()
+        mock_obs.stop_stream = AsyncMock(return_value={"result": True, "already_stopped": False})
 
         # 场景 A: Agent 未启动推流 (用户自己开启)
         controller.obs_stream_started_by_agent = False

@@ -409,7 +409,7 @@ class LiveSessionController:
         platform_lower = (platform or "bilibili").lower().strip()
         is_mock_room = not room_id or not room_id.strip() or room_id.strip().lower() in ["room_demo", "mock"]
 
-        if is_mock_room:
+        if is_mock_room or platform_lower in ("mock", "demo"):
             logger.info("启动仿真弹幕注入器 (MockDanmakuFetcher)")
             self.fetcher = MockDanmakuFetcher("room_demo_888", self._on_danmaku_event)
         elif global_danmaku_registry.has(platform_lower):
@@ -430,7 +430,9 @@ class LiveSessionController:
                     enable_mock_fallback=False,  # 正式直播严禁自动注入假弹幕
                 )
             else:
-                self.fetcher = MockDanmakuFetcher(room_id=room_id, on_event_callback=self._on_danmaku_event)
+                logger.error("无法为正式平台【%s】创建弹幕监听器，挂载无自动注入的被动中继器", platform_lower)
+                # 正式平台绝不自动产生仿真假弹幕，仅支持通过 Webhook / WS 被动中继推送
+                self.fetcher = MockDanmakuFetcher(room_id=clean_id, on_event_callback=self._on_danmaku_event, auto_inject=False)
         else:
             logger.info(
                 f"平台【{platform}】未内置真实协议 (可用平台: {global_danmaku_registry.list_platforms()})，"
@@ -1046,6 +1048,15 @@ class LiveSessionController:
 
 global_live_controller = LiveSessionController()
 
+def _on_obs_external_state_change(active: bool, state: str):
+    if not active:
+        # 当 OBS 外部停流或断开连接时，主动释放 Agent 的推流所有权，杜绝跨场残留
+        if getattr(global_live_controller, "obs_stream_started_by_agent", False):
+            logger.info("OBS 外部推流已停止或连接中断 (%s)，释放 Agent 推流所有权", state)
+            global_live_controller.obs_stream_started_by_agent = False
+
+global_obs_client.add_stream_state_listener(_on_obs_external_state_change)
+
 class LiveStartRequest(BaseModel):
     room_url: Optional[str] = ""
     room_id: Optional[str] = None
@@ -1053,6 +1064,7 @@ class LiveStartRequest(BaseModel):
     anchor_id: Optional[str] = None
     voice_id: Optional[str] = None
     platform: Optional[str] = "bilibili"
+    demo_mode: Optional[bool] = False  # 是否为明确的演示模式 (允许使用 mock 弹幕)
     obs_auto_link: Optional[bool] = False  # 是否联动 OBS 同步开启推流
 
 class LiveInterruptRequest(BaseModel):
@@ -1133,9 +1145,20 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
     from server.routes.products import product_to_context
     products = [product_to_context(product) for product in rows]
 
-    target_room = req.room_id or req.room_url
+    target_room = (req.room_id or req.room_url or "").strip()
     session_id = f"sess_{uuid.uuid4().hex[:12]}"
-    platform = req.platform or "bilibili"
+    platform = (req.platform or "bilibili").strip()
+    platform_lower = platform.lower()
+    is_demo = bool(getattr(req, "demo_mode", False) or platform_lower in ("mock", "demo") or target_room.lower() in ("room_demo", "mock"))
+
+    # 正式直播平台严禁空房间静默进入仿真模式，必须拦截并校验
+    if platform_lower in ("bilibili", "douyin") and not is_demo:
+        if not target_room:
+            raise HTTPException(
+                status_code=400,
+                detail=f"【{platform}】正式直播必须提供有效的房间号或房间链接；如需测试仿真互动，请选择 mock 模式或开启 demo_mode"
+            )
+
     live_mode = await _get_setting(db, SETTING_KEY_LIVE_MODE) or "B"
     live_theme = await _get_setting(db, "live_theme") or ""
     avatar_path = anchor_row.photo_portrait if anchor_row and anchor_row.photo_portrait else ""
@@ -1178,7 +1201,10 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
                     res = await global_obs_client.start_stream()
                     if res.get("result"):
                         obs_linked = True
-                        global_live_controller.obs_stream_started_by_agent = True
+                        if not res.get("already_streaming"):
+                            global_live_controller.obs_stream_started_by_agent = True
+                        else:
+                            logger.info("OBS 此前已在推流中，保持现有推流所有权不变，停播时不主动切断")
                     else:
                         obs_degraded = True
                         obs_error_msg = res.get("comment") or res.get("error") or "OBS 拒绝推流"
@@ -1244,7 +1270,11 @@ async def _stop_live_unlocked(db: AsyncSession):
                 and global_obs_client.is_streaming
             ):
                 try:
-                    await global_obs_client.stop_stream()
+                    res = await global_obs_client.stop_stream()
+                    if not res.get("result") and not res.get("already_stopped"):
+                        err_msg = res.get("error") or res.get("comment") or "OBS 拒绝停止推流"
+                        logger.warning("联动 OBS 停止推流失败: %s", err_msg)
+                        cleanup_errors.append(f"obs_stop_rejected: {err_msg}")
                 except Exception as e:
                     logger.warning("联动 OBS 停止推流异常: %s", e)
                     cleanup_errors.append(f"obs_stop_failed: {e}")

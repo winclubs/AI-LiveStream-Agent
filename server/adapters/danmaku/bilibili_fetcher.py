@@ -160,8 +160,9 @@ class BilibiliDanmakuFetcher(BaseDanmakuFetcher):
                 await asyncio.sleep(30.0)
         except asyncio.CancelledError:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("B站心跳发送异常: %s", e)
+            self.on_connection_error(e, reason="heartbeat_send_failed")
 
     async def _listen_loop(self):
         """

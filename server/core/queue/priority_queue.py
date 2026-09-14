@@ -127,10 +127,6 @@ class PriorityBargeInQueue:
             ttl_seconds=ttl
         )
 
-        if priority == 0:
-            detail = payload.get("gift_name") or payload.get("text") or event_type
-            await self.trigger_barge_in(f"收到用户【{user_name}】的高优先级事件: {detail}")
-
         current_size = self._queue.qsize()
 
         def _ret(res: QueuePutResult):
@@ -158,6 +154,8 @@ class PriorityBargeInQueue:
                     if dropped_id:
                         break
             await self._queue.put(item)
+            detail = (payload or {}).get("gift_name") or (payload or {}).get("text") or event_type
+            await self.trigger_barge_in(f"收到用户【{user_name}】的高优先级事件: {detail}")
             return _ret(QueuePutResult(accepted=True, dropped_event_id=dropped_id))
 
         # P1 (促单咨询)：满载时驱逐最旧 P3，无则驱逐最旧 P2；若全为高优则拒绝扩展入队

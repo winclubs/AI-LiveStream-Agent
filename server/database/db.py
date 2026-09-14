@@ -152,14 +152,14 @@ async def init_db():
         os.makedirs(os.path.join(DATA_DIR, "avatars"), exist_ok=True)
         os.makedirs(os.path.join(DATA_DIR, "voices"), exist_ok=True)
 
-        # 5. 初始化预设形象与音色记录 (保证主播角色外键 voice_id 完整性)
+        # 5. 初始化预设形象与音色记录 (无物理真实文件时设为 None，UI 引导真实上传；保证主播外键完整性)
         avatars_check = await session.execute(select(Avatar))
         if not avatars_check.scalars().first():
             session.add(Avatar(
                 id="avatar_default_muse",
                 name="标准虚拟主播形象·艾米",
                 avatar_type="image",
-                source_file_path="uploads/avatars/default_anchor.png",
+                source_file_path=None,  # 未上传有效资产时诚实置为 None
                 preprocessed_cache_path=None
             ))
 
@@ -168,11 +168,26 @@ async def init_db():
             session.add(VoiceProfile(
                 id="voice_default_female",
                 name="通用亲和女声（官方预置）",
-                sample_wav_path="uploads/voices/default_sample.wav",
+                sample_wav_path=None,  # 未上传真实录音采样时诚实置为 None
                 embedding_npy_path=None,
                 speech_speed=1.0,
                 volume_gain=1.0
             ))
+
+        # 数据清洗迁移：旧数据库中若存在指向不存在文件的历史路径，重置为 None
+        all_avatars = (await session.execute(select(Avatar))).scalars().all()
+        for a in all_avatars:
+            if a.source_file_path:
+                full_p = os.path.join(DATA_DIR, a.source_file_path) if not os.path.isabs(a.source_file_path) else a.source_file_path
+                if not os.path.exists(full_p) and not os.path.exists(a.source_file_path):
+                    a.source_file_path = None
+
+        all_voices = (await session.execute(select(VoiceProfile))).scalars().all()
+        for v in all_voices:
+            if v.sample_wav_path:
+                full_p = os.path.join(DATA_DIR, v.sample_wav_path) if not os.path.isabs(v.sample_wav_path) else v.sample_wav_path
+                if not os.path.exists(full_p) and not os.path.exists(v.sample_wav_path):
+                    v.sample_wav_path = None
 
         # 6. 初始化预设专家知识库 (劳动法常用 FAQ，供 RAG 双路检索开箱可用)
         knowledge_check = await session.execute(select(KnowledgeChunk))

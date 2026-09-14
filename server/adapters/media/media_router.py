@@ -92,8 +92,9 @@ class MediaDriverRouter(BaseMediaDriver):
         caps = {
             "procedural_avatar": status.get("render_backend") == "procedural",
             "neural_lipsync": False,
-            "viseme_lipsync": status.get("viseme_lipsync", True),
-            "g2p_aligned": status.get("g2p_aligned", True),
+            "viseme_lipsync": status.get("viseme_lipsync", True if status.get("render_backend") == "procedural" else False),
+            "g2p_aligned": status.get("g2p_aligned", False),
+            "alignment_mode": status.get("alignment_mode", "heuristic_uniform" if status.get("render_backend") == "procedural" else "none"),
             "local_preview": bool(status.get("is_running")),
             "virtual_camera": bool((status.get("virtual_cam") or {}).get("is_active")),
         }

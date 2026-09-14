@@ -60,6 +60,8 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
 
         self._monitor_task: Optional[asyncio.Task] = None
         self.last_real_event_time = time.time()
+        self.heartbeat_timeout_sec = 45.0
+        self._is_unhealthy_edge = False
 
         # 劫持并替换真实 fetcher 的回调，以便统计成功/失败事件及链路错误
         if hasattr(self.real_fetcher, "on_event_callback"):
@@ -73,12 +75,14 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
         """响应底层抓取器上报的真实健康协议 (仅同步状态与探活恢复，不重复调用 record_failure 避免双重计次)"""
         self._health = health
         if health.connected and health.worker_alive:
+            self._is_unhealthy_edge = False
+            self.consecutive_failures = 0
             if self.state != self.STATE_CLOSED:
-                self.consecutive_failures = 0
                 self._notify_state_change(self.STATE_CLOSED, "底层健康协议检测到连接与心跳已恢复")
 
     def _on_underlying_error(self, exc: Exception, reason: str = ""):
         """底层抓取器连接中断/重连时触发，直接计入熔断器失败 (单点权威记录)"""
+        self._is_unhealthy_edge = True
         self.record_failure(f"底层数据源异常 [{reason}]: {exc}")
 
     def _notify_state_change(self, new_state: str, reason: str):
@@ -103,6 +107,7 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
     def _on_real_event(self, event_type: str, user_name: str, payload: Dict[str, Any], priority: int = 2):
         """真实数据源收到消息，说明通信正常"""
         self.last_real_event_time = time.time()
+        self._is_unhealthy_edge = False
         if self.state in (self.STATE_OPEN, self.STATE_HALF_OPEN):
             self.consecutive_failures = 0
             self._notify_state_change(self.STATE_CLOSED, "真实弹幕源恢复通信，自动恢复正常流")
@@ -190,9 +195,25 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
                 # 检查真实 fetcher 健康状态协议
                 health = self.real_fetcher.get_health() if hasattr(self.real_fetcher, "get_health") else None
                 if health:
+                    is_down = False
+                    reason = ""
+                    now = time.time()
+
                     if not health.worker_alive or not health.connected:
-                        if self.state == self.STATE_CLOSED:
-                            self.record_failure(f"健康协议检测到断联: {health.last_error or '连接断开'}")
+                        is_down = True
+                        reason = f"健康协议检测到断联: {health.last_error or '连接断开'}"
+                    elif health.last_heartbeat_at > 0 and (now - health.last_heartbeat_at) > self.heartbeat_timeout_sec:
+                        is_down = True
+                        reason = f"心跳超时 (距离上次心跳已过去 {int(now - health.last_heartbeat_at)} 秒)"
+
+                    if is_down:
+                        # 边沿触发：仅在从正常状态转为故障状态时计入一次失败，持续故障期间不重复累加
+                        if not self._is_unhealthy_edge:
+                            self._is_unhealthy_edge = True
+                            if self.state == self.STATE_CLOSED:
+                                self.record_failure(reason)
+                    else:
+                        self._is_unhealthy_edge = False
 
                 if self.state == self.STATE_DEGRADED:
                     now = time.time()

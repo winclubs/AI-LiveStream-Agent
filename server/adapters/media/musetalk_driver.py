@@ -41,9 +41,9 @@ except Exception:  # pragma: no cover - 环境相关
 import os as _os
 RENDER_BACKEND = _os.getenv("LIVE_AGENT_RENDER_BACKEND", "procedural").lower()
 
-logger = logging.getLogger("LiveAgent.MuseTalkDriver")
+logger = logging.getLogger("LiveAgent.ProceduralAvatar")
 
-class MuseTalkMediaDriver(BaseMediaDriver):
+class ProceduralAvatarDriver(BaseMediaDriver):
     def __init__(self, avatar_source_path: str = "", landmarks_cache: Optional[str] = None):
         super().__init__()
         self.avatar_source_path = avatar_source_path
@@ -314,9 +314,9 @@ class MuseTalkMediaDriver(BaseMediaDriver):
                 if self.current_mouth_open < 0.05:
                     self.is_speaking = False
 
-            # 平滑过渡插值 (开度与形态双平滑)
-            self.current_mouth_open += (self.target_mouth_open - self.current_mouth_open) * 0.45
-            self.current_mouth_form += (self.target_mouth_form - self.current_mouth_form) * 0.40
+            # 平滑过渡插值 (开度与形态动态平滑，降低级联低通造成的相位迟滞)
+            self.current_mouth_open += (self.target_mouth_open - self.current_mouth_open) * 0.70
+            self.current_mouth_form += (self.target_mouth_form - self.current_mouth_form) * 0.65
 
             # 2. 生成当前合成视频帧 (呼吸扰动 + 泊松眨眼 + Viseme 口型 + 防封杀运镜光影)
             render_started = time.time()
@@ -364,13 +364,17 @@ class MuseTalkMediaDriver(BaseMediaDriver):
         return self.latest_jpeg_frame
 
     def get_capabilities(self) -> dict:
-        """机器可读能力清单上报 (ADR-16 / 规划 §4.2)"""
+        """机器可读能力清单上报 (ADR-16 / 规划 §4.2 如实声明契约，绝不虚报)"""
         return {
             "driver": "procedural_avatar",
             "capabilities": {
                 "neural_lipsync": False,
                 "viseme_lipsync": True,
-                "g2p_aligned": True,
+                "g2p_aligned": False,  # 启发式均分非严格音素强制对齐
+                "alignment_mode": "heuristic_uniform",
+                "phoneme_source": "pypinyin_or_builtin",
+                "forced_alignment": False,
+                "shared_playback_clock": False,
                 "expressions": True,
                 "head_motion": True,
                 "remote_rendering": False,
@@ -394,12 +398,13 @@ class MuseTalkMediaDriver(BaseMediaDriver):
             "capabilities": self.get_capabilities()["capabilities"],
         }
 
-# 全局数字人媒体单例
-global_musetalk_driver = MuseTalkMediaDriver()
+# 全局数字人媒体单例与规范命名
+global_procedural_avatar_driver = ProceduralAvatarDriver()
+global_musetalk_driver = global_procedural_avatar_driver
 
-# 别名定义：明确项目当前轻量实用驱动定位，同时完全兼容旧类名引用
-ProceduralAvatarDriver = MuseTalkMediaDriver
-Viseme2DMediaDriver = MuseTalkMediaDriver
+# 别名兼容定义：保持旧代码与测试导入兼容
+MuseTalkMediaDriver = ProceduralAvatarDriver
+Viseme2DMediaDriver = ProceduralAvatarDriver
 
 
 class Live2DDriver(BaseMediaDriver):

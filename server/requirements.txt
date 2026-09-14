@@ -18,3 +18,6 @@ numpy==2.2.6
 
 # Bilibili protover=3 弹幕帧解压
 Brotli==1.1.0
+
+# 中文文本拼音与音素启发式映射
+pypinyin==0.53.0

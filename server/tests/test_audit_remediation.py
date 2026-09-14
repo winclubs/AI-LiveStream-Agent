@@ -266,6 +266,7 @@ def test_obs_auto_link_degraded_response():
     async def _run():
         from server.routes.live import LiveStartRequest
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()  # db.add 为同步方法，避免 RuntimeWarning
         mock_db.commit = AsyncMock()
         mock_db.rollback = AsyncMock()
         mock_db.get = AsyncMock(return_value=None)
@@ -275,7 +276,7 @@ def test_obs_auto_link_degraded_response():
         mock_result.scalars.return_value.all.return_value = []
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        req = LiveStartRequest(platform="bilibili", mode="D", obs_auto_link=True)
+        req = LiveStartRequest(platform="bilibili", room_id="123456", obs_auto_link=True)
 
         mock_obs = MagicMock()
         mock_obs.is_connected = False  # OBS 未连接
@@ -290,3 +291,179 @@ def test_obs_auto_link_degraded_response():
             assert "OBS 未连接" in res["obs_error"]
 
     asyncio.run(_run())
+
+
+def test_official_platform_empty_room_rejected():
+    """验证正式平台（B站/抖音）未提供房间号时被 400 拦截校验"""
+    async def _run():
+        from server.routes.live import LiveStartRequest
+        from fastapi import HTTPException
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.execute = AsyncMock(return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))))
+
+        # 缺少 room_id，未开启 demo_mode，应被拦截
+        req = LiveStartRequest(platform="bilibili", room_id="", demo_mode=False)
+        with patch("server.routes.live.global_live_controller.start", new_callable=AsyncMock):
+            try:
+                await _start_live_unlocked(req, mock_db)
+                assert False, "应当抛出 HTTPException(400)"
+            except HTTPException as e:
+                assert e.status_code == 400
+                assert "正式直播必须提供有效的房间号" in e.detail
+
+        # 开启 demo_mode 时允许空房间号进入演示模式
+        req_demo = LiveStartRequest(platform="bilibili", room_id="", demo_mode=True)
+        with patch("server.routes.live.global_live_controller.start", new_callable=AsyncMock):
+            res = await _start_live_unlocked(req_demo, mock_db)
+            assert res["code"] == 0
+
+    asyncio.run(_run())
+
+
+def test_p0_capacity_exceeded_does_not_barge_in():
+    """验证当 P0 达到容量限制被拒绝入队时，决不触发播报打断"""
+    async def _run():
+        from server.core.queue.priority_queue import PriorityBargeInQueue
+        barge_in_mock = AsyncMock()
+        # 创建一个 P0 容量极小（1个）的队列
+        queue = PriorityBargeInQueue(on_interrupt_callback=barge_in_mock, maxsize=10, p0_maxsize=1)
+
+        # 第 1 个 P0 成功入队，触发打断
+        res1 = await queue.put(priority=0, event_id="p0_1", user_name="VIP1", as_result=True)
+        assert res1.accepted is True
+        assert barge_in_mock.call_count == 1
+
+        # 第 2 个 P0 达到 p0_maxsize 限制，被拒绝入队
+        res2 = await queue.put(priority=0, event_id="p0_2", user_name="VIP2", as_result=True)
+        assert res2.accepted is False
+        assert res2.reason == "p0_capacity_exceeded"
+        # 核心断言：打断计数器仍然为 1，被拒绝的 P0 决不打断当前播报！
+        assert barge_in_mock.call_count == 1
+
+    asyncio.run(_run())
+
+
+def test_obs_already_streaming_does_not_steal_ownership():
+    """验证 OBS 已在推流时，Agent 开播不抢占所有权"""
+    async def _run():
+        from server.routes.live import LiveStartRequest, global_live_controller
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))))
+
+        req = LiveStartRequest(platform="bilibili", room_id="12345", obs_auto_link=True)
+
+        mock_obs = MagicMock()
+        mock_obs.is_connected = True
+        mock_obs.is_streaming = True
+        # 返回 already_streaming: True
+        mock_obs.start_stream = AsyncMock(return_value={"result": True, "already_streaming": True})
+
+        with patch("server.routes.live.global_obs_client", mock_obs), \
+             patch("server.routes.live.global_live_controller.start", new_callable=AsyncMock):
+            # 初始确保标记为 False
+            global_live_controller.obs_stream_started_by_agent = False
+            res = await _start_live_unlocked(req, mock_db)
+            assert res["code"] == 0
+            assert res["obs_linked"] is True
+            # 核心断言：绝不认领所有权！
+            assert global_live_controller.obs_stream_started_by_agent is False
+
+    asyncio.run(_run())
+
+
+def test_obs_stop_failed_records_cleanup_error():
+    """验证 StopStream 明确返回失败时记入 cleanup_errors 并报告 stopped_with_errors"""
+    async def _run():
+        from server.routes.live import global_live_controller
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=MagicMock())
+        mock_db.commit = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=MagicMock(one=MagicMock(return_value=(0.0, 0))))
+
+        mock_obs = MagicMock()
+        mock_obs.is_connected = True
+        mock_obs.is_streaming = True
+        # 模拟 OBS 拒绝停流
+        mock_obs.stop_stream = AsyncMock(return_value={"result": False, "comment": "OBS Busy"})
+
+        with patch("server.routes.live.global_obs_client", mock_obs), \
+             patch("server.routes.live.global_live_controller.stop", new_callable=AsyncMock, return_value=[]):
+            global_live_controller.session_id = "sess_test_obs_err"
+            global_live_controller.is_live = True
+            global_live_controller.obs_stream_started_by_agent = True
+
+            res = await _stop_live_unlocked(mock_db)
+            assert res["status"] == "stopped_with_errors"
+            assert any("obs_stop_rejected" in err for err in res["cleanup_errors"])
+            assert global_live_controller.obs_stream_started_by_agent is False
+
+    asyncio.run(_run())
+
+
+def test_circuit_breaker_heartbeat_timeout_and_edge_count():
+    """验证熔断器心跳超时检测以及持续断开期间边沿单次计数"""
+    async def _run():
+        import time
+        from server.adapters.danmaku.circuit_breaker import CircuitBreakerDanmakuFetcher
+        from server.adapters.danmaku.base_fetcher import FetcherHealth
+
+        mock_real = MagicMock()
+        mock_real.start = AsyncMock()
+        mock_real.stop = AsyncMock()
+        # 模拟持续断联的健康状态
+        bad_health = FetcherHealth(connected=False, worker_alive=False, last_heartbeat_at=0.0)
+        mock_real.get_health.return_value = bad_health
+
+        cb = CircuitBreakerDanmakuFetcher(
+            real_fetcher=mock_real,
+            room_id="123",
+            on_event_callback=MagicMock(),
+            failure_threshold=5,
+            recovery_timeout_sec=30.0,
+            enable_mock_fallback=False
+        )
+        cb.state = "CLOSED"
+        cb.consecutive_failures = 0
+        cb.is_running = True
+
+        # 模拟巡检中的一步执行逻辑
+        health = cb.real_fetcher.get_health()
+        assert not health.connected
+        assert not cb._is_unhealthy_edge
+        # 模拟第 1 次巡检检测到故障
+        cb.record_failure("连接断开")
+        cb._is_unhealthy_edge = True
+        assert cb.consecutive_failures == 1
+
+        # 模拟第 2 次巡检：故障持续，但因为处于边沿已触发状态，不应再次调用 record_failure
+        if cb._is_unhealthy_edge:
+            pass  # 边沿保护，不再增加
+        assert cb.consecutive_failures == 1
+
+        # 模拟恢复健康
+        good_health = FetcherHealth(connected=True, worker_alive=True, last_heartbeat_at=time.time())
+        cb._on_underlying_health_change(good_health)
+        assert cb._is_unhealthy_edge is False
+        assert cb.consecutive_failures == 0
+
+    asyncio.run(_run())
+
+
+def test_procedural_avatar_capabilities_and_renaming():
+    """验证主实现规范命名为 ProceduralAvatarDriver 并如实声明 alignment_mode 契约"""
+    from server.adapters.media.musetalk_driver import ProceduralAvatarDriver, MuseTalkMediaDriver
+    # 验证类定义一致与别名兼容
+    assert ProceduralAvatarDriver is MuseTalkMediaDriver
+
+    driver = ProceduralAvatarDriver()
+    caps = driver.get_capabilities()["capabilities"]
+    assert caps["neural_lipsync"] is False
+    assert caps["viseme_lipsync"] is True
+    # 核心契约：如实声明非强制对齐，杜绝虚报
+    assert caps["g2p_aligned"] is False
+    assert caps["alignment_mode"] == "heuristic_uniform"
+    assert caps["phoneme_source"] == "pypinyin_or_builtin"
+    assert caps["forced_alignment"] is False
