@@ -37,4 +37,5 @@ class BaseAnchorRole(ABC):
         :param live_context: 直播间当前上下文 (当前商品、在看人数等)
         :return: 异步生成器，依次输出文本切片
         """
-        pass
+        if False:
+            yield ""

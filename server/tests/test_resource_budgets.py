@@ -97,10 +97,11 @@ def test_image_pixel_budget_and_failed_anchor_cleanup(client, monkeypatch):
 def test_voice_duration_budget_cleans_artifacts(client):
     voice_dir = DATA_DIR / "voices"
     before = set(voice_dir.iterdir())
+    # 时长预算已随产品提示放宽至 120 秒，用超预算样本验证拒绝与清理
     response = client.post(
         "/api/v1/voices/clone",
         data={"name": "超时声音样本", "speed": 1.0, "volume": 1.0},
-        files={"audio_file": ("long.wav", wav_bytes(31), "audio/wav")},
+        files={"audio_file": ("long.wav", wav_bytes(121), "audio/wav")},
     )
     assert response.status_code == 413
     assert set(voice_dir.iterdir()) == before

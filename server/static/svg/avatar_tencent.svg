@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" width="44" height="44">
+  <defs>
+    <linearGradient id="tencentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0066FF"/>
+      <stop offset="100%" stop-color="#00A3FF"/>
+    </linearGradient>
+  </defs>
+  <!-- 底座背景 -->
+  <circle cx="22" cy="22" r="21" fill="#081426" stroke="rgba(0, 102, 255, 0.35)" stroke-width="1.5"/>
+  <!-- 腾讯云经典云朵轮廓 -->
+  <path d="M 16 26 L 27 26 C 29.5 26 31 24.5 31 22.5 C 31 20.5 29.5 19 27.5 19 C 27.2 16.5 25 15 22.5 15 C 20.2 15 18.5 16.2 18 18 C 15.5 18.2 14 20 14 22 C 14 24.2 15 26 16 26 Z" fill="none" stroke="url(#tencentGrad)" stroke-width="1.8" stroke-linejoin="round"/>
+  <!-- 智慧人像光点 -->
+  <circle cx="22.5" cy="21.5" r="2" fill="#00A3FF"/>
+</svg>

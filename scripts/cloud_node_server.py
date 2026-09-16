@@ -72,6 +72,19 @@ def _encode_audio_envelope(request_id: str, audio: bytes) -> bytes:
     return AUDIO_MAGIC + bytes([len(request_bytes)]) + request_bytes + audio
 
 
+async def _iter_edge_stream(communicate):
+    """确保客户端取消或提前退出时同步关闭 Edge-TTS 的 aiohttp 资源。"""
+    stream = communicate.stream()
+    try:
+        async for chunk in stream:
+            yield chunk
+    finally:
+        try:
+            await stream.aclose()
+        except Exception:
+            logger.debug("关闭 Edge-TTS 云节点流失败", exc_info=True)
+
+
 async def _synthesize_and_send(
     ws,
     text: str,
@@ -87,7 +100,7 @@ async def _synthesize_and_send(
         total = 0
         frames = 0
         t = 0.0
-        async for chunk in communicate.stream():
+        async for chunk in _iter_edge_stream(communicate):
             if chunk["type"] != "audio":
                 continue
             audio = chunk["data"]

@@ -1,0 +1,126 @@
+<div class="tab-content" id="tab-gpu">
+  <!-- 标题与导言栏 -->
+  <div class="panel-card" style="margin-bottom: 20px;">
+    <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="panel-title" style="color: #10B981; display: flex; align-items: center; gap: 8px;">
+          <svg class="icon" viewBox="0 0 24 24" style="stroke: #10B981; fill: none; stroke-width: 2;">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+            <rect x="9" y="9" width="6" height="6" />
+            <line x1="9" y1="1" x2="9" y2="4" />
+            <line x1="15" y1="1" x2="15" y2="4" />
+            <line x1="9" y1="20" x2="9" y2="23" />
+            <line x1="15" y1="20" x2="15" y2="23" />
+            <line x1="20" y1="9" x2="23" y2="9" />
+            <line x1="20" y1="14" x2="23" y2="14" />
+            <line x1="1" y1="9" x2="4" y2="9" />
+            <line x1="1" y1="14" x2="4" y2="14" />
+          </svg>
+          GPU配置(2) · 数字人画面与云端渲染
+        </span>
+        <span class="brand-badge green">第二步基础设施配置</span>
+      </div>
+      <div style="font-size: 12px; color: var(--text-muted);">
+        系统默认保底：本地程序化形象随时守护，断网不黑屏
+      </div>
+    </div>
+    <p class="page-intro" style="margin-bottom: 0;">
+      本模块负责<strong>数字人画面的实时生成、唇形驱动与算力节点分配</strong>。系统支持从 0 门槛的免显卡本地卡通/真人微动态，到租用低成本云端 GPU（约 1.2 元/小时）跑高清写实真人，以及大厂官方商业数智人。
+    </p>
+  </div>
+
+  <!-- 一行多个紧凑选项卡片 -->
+  <div class="panel-card" style="margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: inline-flex; align-items: center; gap: 8px;">
+        <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        选择数字人画面与渲染引擎（一行横向卡片，点击选中其一）:
+      </span>
+      <span style="font-size: 12px; color: var(--text-muted);">点击卡片后，下方描述卡片将即刻呈现对应多维解读</span>
+    </div>
+
+    <!-- 紧凑一行多卡片容器 -->
+    <div id="gpu-avatar-provider-cards" class="avatar-compact-grid" aria-live="polite">
+      <div class="hw-cell" style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 24px;">
+        正在加载数字人渲染引擎注册表...
+      </div>
+    </div>
+  </div>
+
+  <!-- 选中的专属独立描述与配置卡片 -->
+  <div id="gpu-provider-detail-card" class="panel-card" style="border: 1.5px solid rgba(16, 185, 129, 0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.25);">
+    <div class="panel-header" style="border-bottom: 1px solid rgba(148, 163, 184, 0.15); padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 16px; font-weight: 700; color: #f8fafc;" id="gpu-detail-title">
+          数字人渲染方案详情
+        </span>
+        <span id="gpu-detail-badge" class="brand-badge green">已选中</span>
+      </div>
+      <div id="gpu-detail-official-link-box"></div>
+    </div>
+
+    <!-- 关键指标独立行呈现（画面效果、硬件门槛、适合人群各占整整一行） -->
+    <div class="avatar-spec-rows-container" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px;">
+      <!-- 画面效果（独立一行） -->
+      <div class="spec-row-item">
+        <div class="spec-row-badge visual">
+          <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke-width: 2.2;"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          画面效果
+        </div>
+        <div class="spec-row-content" id="gpu-detail-visual">—</div>
+      </div>
+
+      <!-- 硬件门槛（独立一行） -->
+      <div class="spec-row-item">
+        <div class="spec-row-badge hardware">
+          <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke-width: 2.2;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          硬件门槛
+        </div>
+        <div class="spec-row-content" id="gpu-detail-hardware">—</div>
+      </div>
+
+      <!-- 适合人群（独立一行） -->
+      <div class="spec-row-item">
+        <div class="spec-row-badge audience">
+          <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke-width: 2.2;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          适合人群
+        </div>
+        <div class="spec-row-content" id="gpu-detail-audience">—</div>
+      </div>
+    </div>
+
+    <!-- 白话解读与深度指引 -->
+    <div class="avatar-detail-plain-box" id="gpu-detail-plain-box" style="margin-bottom: 20px;">
+      <div style="display: flex; align-items: flex-start; gap: 8px;">
+        <span style="font-size: 16px; flex-shrink: 0;">💡</span>
+        <div id="gpu-detail-plain-text" style="font-size: 12.5px; color: #cbd5e1; line-height: 1.7;">
+          请选择上方任意一个数字人选项。
+        </div>
+      </div>
+    </div>
+
+    <!-- 对应 Provider 实例配置输入表单区域 -->
+    <input type="hidden" id="gpu-avatar-config-id" value="">
+    <div id="gpu-avatar-config-fields-panel" class="settings-sub-card" style="display: none; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 8px; padding: 18px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px dashed rgba(148, 163, 184, 0.15); padding-bottom: 10px;">
+        <span style="font-size: 13.5px; font-weight: 700; color: var(--text-primary); display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          实例连接参数配置
+        </span>
+        <span id="gpu-avatar-status-hint" style="font-size: 12px; color: var(--text-muted);"></span>
+      </div>
+      <div id="gpu-avatar-fields-container" class="grid-2"></div>
+      <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed rgba(148, 163, 184, 0.15);">
+        <button id="gpu-avatar-test-btn" type="button" class="btn btn-sm btn-secondary" onclick="testCurrentGpuAvatarConnection()" style="font-weight: 500; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+          测试通信连接
+        </button>
+        <button id="gpu-avatar-save-btn" type="button" class="btn btn-sm btn-primary" onclick="handleSaveGpuAvatarConfig()" style="background: #10B981; border-color: #10B981; font-weight: 600; padding: 6px 20px; display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          保存并启用此数字人方案
+        </button>
+      </div>
+      <div id="gpu-avatar-conn-result" style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px; align-items: center; gap: 8px;"></div>
+    </div>
+  </div>
+</div>

@@ -124,7 +124,8 @@ def test_scene_tools_broadcast_renderable_payloads(monkeypatch):
 def test_console_contains_real_scene_overlay_lifecycle():
     root = Path(__file__).parents[2]
     html = (root / "server/static/index.html").read_text(encoding="utf-8")
-    js = (root / "server/static/js/console.js").read_text(encoding="utf-8")
+    js_modules = (root / "server/static/js/modules").glob("*.js")
+    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules)) + (root / "server/static/js/console.js").read_text(encoding="utf-8")
     css = (root / "server/static/css/console.css").read_text(encoding="utf-8")
 
     for element_id in ("coupon-overlay", "product-scene-overlay", "scene-overlay-content"):

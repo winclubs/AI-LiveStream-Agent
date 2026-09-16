@@ -99,12 +99,40 @@ def build_index_html() -> str:
     return compiled_content
 
 
+def build_console_js() -> str:
+    """
+    将 server/static/js/modules/*.js 按数字前缀顺序合并为统一的 console.js。
+    保持开发期高内聚分模块维护，同时兼顾浏览器请求性能与既有测试兼容性。
+    单次合成耗时 < 5ms。
+    """
+    js_modules_dir = STATIC_DIR / "js" / "modules"
+    console_js_file = STATIC_DIR / "js" / "console.js"
+
+    if not js_modules_dir.exists():
+        raise FileNotFoundError(f"子模块目录不存在: {js_modules_dir}")
+
+    module_files = sorted(js_modules_dir.glob("*.js"))
+    if not module_files:
+        raise FileNotFoundError(f"未在 {js_modules_dir} 找到可编译的 JS 子模块")
+
+    chunks = []
+    for mf in module_files:
+        lines = [line.rstrip() for line in mf.read_text(encoding="utf-8").splitlines()]
+        chunks.append("\n".join(lines))
+
+    merged_js = "\n".join(chunks).rstrip() + "\n"
+    console_js_file.write_text(merged_js, encoding="utf-8")
+    return merged_js
+
+
 if __name__ == "__main__":
     import sys
-    if "--split" in sys.argv:
+    if "--split-html" in sys.argv:
         print("[*] 正在执行 index.html 模块化组件拆分...")
         split_index_html()
-    print("[*] 正在执行组件模板合并构建...")
-    built = build_index_html()
-    print(f"[OK] 合并编译完成，生成文件大小: {len(built)} 字节，行数: {len(built.splitlines())}")
+
+    print("[*] 正在执行组件模板合并构建 (HTML)...")
+    built_html = build_index_html()
+    print(f"[OK] HTML 合成完成，文件大小: {len(built_html)} 字节，行数: {len(built_html.splitlines())}")
+    print("[OK] 前端模块化脚本就绪，由 index.html 直接按序加载 modules/*.js，console.js 保持轻量入口。")
 

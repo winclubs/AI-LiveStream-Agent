@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="customAvatarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="url(#customAvatarGrad)"/>
+  
+  <!-- Avatar Head & Shoulders Silhouette -->
+  <circle cx="21" cy="18" r="6" fill="#ffffff" opacity="0.95"/>
+  <path d="M12 34 C12 27.5, 16 25, 21 25 C26 25, 30 27.5, 30 34" fill="#ffffff" opacity="0.95"/>
+  
+  <!-- Custom Link / Network Plug Badge on top right -->
+  <circle cx="34" cy="17" r="8.5" fill="#0f172a" stroke="#38bdf8" stroke-width="1.8"/>
+  <!-- Link / Plug Icon -->
+  <path d="M31.5 19.5 L36.5 14.5" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/>
+  <path d="M33 13 L37 13 L37 17" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Tech wave dot grid at bottom -->
+  <circle cx="34" cy="31" r="1.5" fill="#38bdf8"/>
+  <circle cx="38" cy="31" r="1.5" fill="#a5f3fc"/>
+  <circle cx="34" cy="35" r="1.5" fill="#a5f3fc"/>
+  <circle cx="38" cy="35" r="1.5" fill="#38bdf8"/>
+</svg>

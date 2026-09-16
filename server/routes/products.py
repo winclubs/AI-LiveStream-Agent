@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field, model_validator
-from typing import List, Optional
+from typing import List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from server.database.db import get_db
@@ -23,29 +23,45 @@ PRODUCT_IMAGES_DIR = DATA_DIR / "product_images"
 PRODUCT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _json_value(raw: Optional[str], fallback):
+def _json_value(raw: Any, fallback: Any) -> Any:
+    if not raw:
+        return fallback
     try:
-        value = json.loads(raw or "")
+        value = json.loads(str(raw))
     except (TypeError, json.JSONDecodeError):
         return fallback
     return value if isinstance(value, type(fallback)) else fallback
 
 
+def _safe_float(val: Any, fallback: float = 0.0) -> float:
+    try:
+        return float(val) if val is not None else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _safe_int(val: Any, fallback: int = 0) -> int:
+    try:
+        return int(val) if val is not None else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
 def product_to_context(product: Product) -> dict:
     """将数据库商品转换为直播运行时结构，并限制单项体积。"""
     return {
-        "id": product.id,
-        "sku": product.sku_code,
-        "title": (product.title or "")[:200],
-        "category": (product.category or "")[:100],
-        "original_price": product.original_price,
-        "live_price": product.live_price,
-        "current_stock": product.current_stock,
+        "id": str(product.id),
+        "sku": str(product.sku_code),
+        "title": str(product.title or "")[:200],
+        "category": str(product.category or "")[:100],
+        "original_price": _safe_float(product.original_price, 0.0),
+        "live_price": _safe_float(product.live_price, 0.0),
+        "current_stock": _safe_int(product.current_stock, 0),
         "selling_points": _json_value(product.selling_points, [])[:12],
         "faq_data": _json_value(product.faq_data, [])[:20],
         "size_chart": _json_value(product.size_chart, {}),
-        "coupon_script": (product.coupon_script or "")[:1000],
-        "description": (product.description or "")[:2000],
+        "coupon_script": str(product.coupon_script or "")[:1000],
+        "description": str(product.description or "")[:2000],
         "images": _json_value(product.images, [])[:8],
     }
 
@@ -90,19 +106,19 @@ async def list_products(db: AsyncSession = Depends(get_db)):
         "total": len(products),
         "data": [
             {
-                "id": p.id,
-                "sku_code": p.sku_code,
-                "title": p.title,
-                "category": p.category,
-                "original_price": p.original_price,
-                "live_price": p.live_price,
-                "current_stock": p.current_stock,
+                "id": str(p.id),
+                "sku_code": str(p.sku_code),
+                "title": str(p.title or ""),
+                "category": str(p.category or ""),
+                "original_price": _safe_float(p.original_price, 0.0),
+                "live_price": _safe_float(p.live_price, 0.0),
+                "current_stock": _safe_int(p.current_stock, 0),
                 "selling_points": _json_value(p.selling_points, []),
                 "faq_data": _json_value(p.faq_data, []),
                 "size_chart": _json_value(p.size_chart, {}),
-                "description": p.description or "",
+                "description": str(p.description or ""),
                 "images": _json_value(p.images, []),
-                "coupon_script": p.coupon_script or "",
+                "coupon_script": str(p.coupon_script or ""),
                 "is_active": bool(p.is_active),
             }
             for p in products
@@ -191,27 +207,31 @@ async def flash_sale(prod_id: str, db: AsyncSession = Depends(get_db)):
     if not global_live_controller.is_live:
         raise HTTPException(status_code=400, detail="直播间尚未开播，请先在直播大屏一键开播")
 
-    promo_text = product.coupon_script or (
-        f"家人们注意了！{product.title}直播专享价只要{product.live_price}元！"
-        f"库存只剩{product.current_stock}件，拍一件少一件，马上点击小黄车{product.sku_code}号链接下单！"
+    sku_code = str(product.sku_code or "")
+    title = str(product.title or "")
+    live_price = _safe_float(product.live_price, 0.0)
+    current_stock = _safe_int(product.current_stock, 0)
+    promo_text = str(product.coupon_script or "") or (
+        f"家人们注意了！{title}直播专享价只要{live_price}元！"
+        f"库存只剩{current_stock}件，拍一件少一件，马上点击小黄车{sku_code}号链接下单！"
     )
     await global_live_controller.event_queue.put(
         event_id=f"evt_flash_{uuid.uuid4().hex[:6]}",
         event_type="chat",
         user_name="运营促单指令",
-        payload={"text": promo_text, "flash_sale": True, "sku": product.sku_code},
+        payload={"text": promo_text, "flash_sale": True, "sku": sku_code},
         priority=0
     )
 
     from server.routes.ws_live import ws_manager
     global_live_controller.stats["flash_sales"] += 1
     await ws_manager.broadcast("FLASH_SALE", {
-        "sku": product.sku_code,
-        "title": product.title,
-        "live_price": product.live_price,
-        "stock": product.current_stock
+        "sku": sku_code,
+        "title": title,
+        "live_price": live_price,
+        "stock": current_stock
     })
-    return {"code": 0, "message": f"【{product.title}】促单逼单指令已抢占插播！"}
+    return {"code": 0, "message": f"【{title}】促单逼单指令已抢占插播！"}
 
 
 @router.delete("/{prod_id}")
@@ -223,7 +243,7 @@ async def delete_product(prod_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="商品不存在")
     referenced = (await db.execute(select(Order.id).where(Order.product_id == prod_id).limit(1))).first()
     if referenced:
-        record.is_active = 0
+        setattr(record, "is_active", 0)
         await db.commit()
         # 下架同样需要热重载，保证主播不再播报已下架商品
         from server.routes.live import global_live_controller

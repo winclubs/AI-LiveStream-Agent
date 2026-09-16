@@ -1,4 +1,329 @@
       <div class="tab-content" id="tab-voices">
+        <!-- 语音合成与远程算力配置 (TTS 语音 / 远程 GPU) 核心板块 -->
+        <div class="panel-card" style="border: 1.5px solid rgba(16, 185, 129, 0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.3); margin-bottom: 24px;">
+          <div class="panel-header" style="border-bottom: 1px solid rgba(16, 185, 129, 0.2); padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="panel-title" style="color: #10B981; display: flex; align-items: center; gap: 8px;">
+                <svg class="icon" viewBox="0 0 24 24" style="stroke: #10B981; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                </svg>
+                语音合成与远程算力配置 (TTS 声音枢纽)
+              </span>
+              <span class="brand-badge green">真实发音与声纹克隆</span>
+            </div>
+            <button class="btn btn-sm" onclick="toggleAddCustomTTSForm()" style="display: inline-flex; align-items: center; gap: 6px;">
+              <svg class="icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              扩展自定义 / 远程 GPU
+            </button>
+          </div>
+
+          <p class="page-intro" style="margin-bottom: 18px;">
+            AI 发音枢纽负责<strong>将主播思考话术实时转化为极高拟真度的超自然人声与情感语气</strong>。
+            已内置 <strong>Edge-TTS、CosyVoice、ChatTTS、GPT-SoVITS、ElevenLabs 及本地自建</strong>。
+            支持多音色管理与试听，可在下方清单中随时一键设为【当前默认发音】。
+          </p>
+
+          <!-- 区域 1: 内置主流语音合成品牌生态网格 (Logo + 名称 + 简短定位) -->
+          <div style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <span>选择语音合成引擎 (点击下方卡片即可进行配置)</span>
+            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">支持 6 大主流语音与声音克隆引擎</span>
+          </div>
+          <div id="tts-ecosystem-grid" class="tts-ecosystem-grid"></div>
+
+          <!-- 区域 2: 当前语音引擎配置编辑面板 (含音色获取 & 试听 & 保存) -->
+          <div id="tts-editor-box" class="tts-editor-box" style="margin-top: 14px; padding: 20px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.12); padding-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <img id="tts-editor-logo" src="/static/svg/tts_edgetts.svg" alt="logo" style="width: 36px; height: 36px; border-radius: 8px;">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="tts-editor-title" style="font-size: 15px; font-weight: 700; color: var(--text-primary);">配置 Edge-TTS 微软超自然云语音</span>
+                    <span id="tts-editor-badge" class="brand-badge green">免 Key · 极速高保真</span>
+                  </div>
+                  <div id="tts-editor-desc" style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">微软官方云端超自然神经网络声音，免 API Key，开箱即用首选。</div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <a id="tts-editor-official-link" href="https://github.com/rany2/edge-tts" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 11px; border: 1px solid rgba(16, 185, 129, 0.35); color: #34d399; background: rgba(16, 185, 129, 0.08); border-radius: 6px; text-decoration: none;" title="查阅官方说明与文档 (在新标签页打开)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                  </svg>
+                  <span>官方说明 ↗</span>
+                </a>
+              </div>
+              <input type="hidden" id="tts-editor-provider" value="edge_tts">
+              <input type="hidden" id="tts-editor-config-id" value="">
+              <!-- 存储当前选中的具体音色代号，未配置或未获取时严格为空，禁止虚假填充 -->
+              <input type="hidden" id="tts-input-voice" value="">
+            </div>
+
+            <!-- 第一行：服务端接口地址 (Base URL):（输入框） -->
+            <div style="margin-bottom: 14px;">
+              <label class="form-label" id="tts-url-label" for="tts-input-url">服务端接口地址 (Base URL):</label>
+              <input type="text" id="tts-input-url" class="form-control" value="" placeholder="云端直接调用，无需填写 Base URL" title="服务端接口地址 (Base URL)" aria-label="服务端接口地址 (Base URL)">
+              <div id="tts-editor-url-pills" class="quick-pills-box" style="margin-top: 6px;"></div>
+            </div>
+
+            <!-- 第二行：API 访问密钥 (API Key - 硬件级 AES-256 加密):（输入框） -->
+            <div style="margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                <label class="form-label" for="tts-input-key" style="margin-bottom: 0;">API 访问密钥 (API Key - 硬件级 AES-256 加密):</label>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <a id="tts-get-key-link" href="#" target="_blank" rel="noopener noreferrer" style="font-size: 11.5px; color: #38bdf8; text-decoration: underline; font-weight: 500; display: none;" title="前往官方控制台开通并获取 API Key (在新标签页打开)">
+                    开通账号/获取API Key ↗
+                  </a>
+                  <span id="tts-key-status-hint" style="font-size: 11px; color: var(--accent-emerald);">此引擎免密钥</span>
+                </div>
+              </div>
+              <div class="api-key-input-wrapper" style="margin-top: 6px;">
+                <input type="password" id="tts-input-key" class="form-control" style="padding-right: 42px;" placeholder="当前引擎免 API 密钥" autocomplete="off" title="API 访问密钥 (API Key)" aria-label="API 访问密钥 (API Key)">
+                <button type="button" id="btn-toggle-tts-key-eye" class="btn-toggle-eye" title="点击显示真实密钥明文" onclick="toggleTTSKeyVisibility()">
+                  <svg id="icon-tts-eye-show" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+              <!-- 引擎专属快速开通指引盒子 -->
+              <div id="tts-provider-guide-box" style="margin-top: 10px;"></div>
+            </div>
+
+            <!-- 第三行：获取音色、测试连通性与试听 （两个按钮） -->
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+              <button type="button" class="btn btn-sm btn-primary" id="btn-fetch-tts-voices" onclick="handleFetchTTSVoices()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                获取音色与模型
+              </button>
+              <button type="button" class="btn btn-sm" id="btn-test-tts" onclick="handleTestTTSConnectivity()" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                测试连通性与试听
+              </button>
+              <audio id="tts-preview-audio" style="display: none;"></audio>
+            </div>
+
+            <!-- 第三方底层模型与协议信息视窗 -->
+            <div id="tts-thirdparty-model-box" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <span style="color: var(--text-muted); display: inline-flex; align-items: center; gap: 5px;">
+                    <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #38bdf8; fill: none; stroke-width: 2;"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>
+                    第三方底层生效模型:
+                  </span>
+                  <span id="tts-thirdparty-active-model" class="brand-badge sky" style="font-family: var(--font-mono); font-size: 12px; font-weight: 700;">cosyvoice-v3.5-flash</span>
+                  <span style="color: var(--text-muted); margin-left: 6px;">接口通道协议:</span>
+                  <span id="tts-thirdparty-protocol" style="color: #94a3b8; font-family: var(--font-mono);">阿里云百炼 DashScope 语音通道</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span id="tts-thirdparty-status-badge" class="brand-badge green">已就绪</span>
+                </div>
+              </div>
+              <div id="tts-thirdparty-models-pills-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(148, 163, 184, 0.15); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="color: var(--text-muted); font-size: 11px;">可用模型架构 (点击选用):</span>
+                <div id="tts-thirdparty-models-pills" style="display: inline-flex; gap: 6px; flex-wrap: wrap;"></div>
+              </div>
+            </div>
+
+            <!-- 第四行：获取到X个音色 / 连通成功或者失败，延时 -->
+            <div id="tts-status-bar" class="llm-status-bar" style="border-left: 3px solid #10B981;">
+              <div id="tts-voices-count-status" style="color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                <span>获取状态: 尚未加载音色（请点击上方「获取音色」）</span>
+              </div>
+              <div id="tts-ping-latency-status" style="color: var(--text-muted); font-family: var(--font-mono); font-size: 12px;">
+                握手测试: 未测试
+              </div>
+            </div>
+            <div id="tts-test-result" style="display: none; margin-bottom: 12px;"></div>
+
+            <!-- 第五行：获取到的具体 音色 (点击选择当前要使用的音色) -->
+            <div style="margin-bottom: 6px;">
+              <div style="margin-bottom: 8px;">
+                <label class="form-label" style="margin-bottom: 0; font-weight: 600;">
+                  获取到的具体音色 (点击选择当前要使用的发音音色):
+                </label>
+                <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">
+                  💡 点击下方任意音色药丸即可立即试听其独特色泽与发音；选定满意后点击右下方「保存此语音配置」即可设为当前生效发音。
+                </div>
+              </div>
+              <div id="tts-fetched-voices-container" class="fetched-models-box">
+                <div style="color: var(--text-muted); font-size: 12px;">
+                  暂未获取音色。请点击上方「获取音色」实时加载该引擎支持的声线。
+                </div>
+              </div>
+
+              <!-- 嵌入式：主播专属声音克隆与定制工作台 (试听与克隆一体化) -->
+              <div id="tts-clone-workbench" style="margin-top: 14px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 14px 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-weight: 700; font-size: 13px; color: #34d399; display: inline-flex; align-items: center; gap: 6px;">
+                      <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #34d399; fill: none; stroke-width: 2;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                      👑 主播专属声音复刻与试听 (<span id="tts-clone-target-engine-name">阿里云百炼 CosyVoice</span>)
+                    </span>
+                    <span id="tts-clone-engine-badge" class="brand-badge green">支持声音克隆</span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <button type="button" class="btn btn-xs active" id="btn-clone-tab-bind" onclick="switchTTSCloneTab('bind')" style="padding: 3px 10px; font-size: 11.5px; font-weight: 600;">
+                      🔗 登记百炼 Voice-ID (官方推荐)
+                    </button>
+                    <button type="button" class="btn btn-xs" id="btn-clone-tab-upload" onclick="switchTTSCloneTab('upload')" style="padding: 3px 10px; font-size: 11.5px;">
+                      🎙️ 本地上传/公网音频复刻
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 阿里云百炼官方复刻快速指引卡片 -->
+                <div style="margin-bottom: 12px; padding: 10px 14px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; font-size: 11.5px; color: #cbd5e1; line-height: 1.6;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                    <div>
+                      <strong style="color: #34d399;">⚡ 阿里云官方两步声音复刻标准流程：</strong><br>
+                      <span>① 打开 <a href="https://bailian.console.aliyun.com/cn-beijing/model/experience/voice/sound-cloning" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-weight: bold;">阿里云百炼声音复刻中心 ↗</a>，录制或上传 10~20 秒清晰人声生成专属 Voice-ID；</span><br>
+                      <span>② 在下方粘贴 Voice-ID 并绑定，系统将通过 <strong>官方 WebSocket 协议</strong> 由大模型实时生成专属全新试听台词！</span>
+                    </div>
+                    <a href="https://bailian.console.aliyun.com/cn-beijing/model/experience/voice/sound-cloning" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-primary" style="background: #059669; border-color: #059669; padding: 4px 10px; font-size: 11px; white-space: nowrap;">
+                      前往百炼声音复刻 ↗
+                    </a>
+                  </div>
+                </div>
+
+                <!-- 针对不支持克隆的引擎 (如 Edge-TTS) 的引导提示 -->
+                <div id="tts-clone-unsupported-notice" style="display: none; padding: 12px; background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 6px; font-size: 12px; color: #94a3b8; line-height: 1.6;">
+                  💡 <strong>Edge-TTS</strong> 为微软官方免费提供的预置超自然声音库，不支持上传自定义声音进行声纹克隆。<br>
+                  如需为主播克隆真人专属声音，推荐点击上方引擎卡片一键切换至：
+                  <button type="button" class="btn btn-xs btn-primary" onclick="selectTTSEcosystemCard('cosyvoice')" style="background: #10B981; border-color: #10B981; margin: 0 4px; padding: 2px 8px; font-size: 11px;">切换至 阿里云 CosyVoice (推荐) ↗</button>
+                  或
+                  <button type="button" class="btn btn-xs" onclick="selectTTSEcosystemCard('gpt_sovits')" style="margin: 0 4px; padding: 2px 8px; font-size: 11px;">切换至 GPT-SoVITS ↗</button>
+                </div>
+
+                <!-- 模式 1: 登记已有云端复刻 Voice-ID (推荐默认模式) -->
+                <div id="tts-clone-panel-bind" style="display: block;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 11.5px; color: #94a3b8;">
+                      输入在阿里云百炼控制台复刻生成的专属 Voice-ID，或直接一键同步云端有效音色：
+                    </span>
+                    <button type="button" class="btn btn-xs" id="btn-sync-dashscope-voices" onclick="handleSyncDashscopeVoices()" style="background: rgba(16, 185, 129, 0.15); border: 1px solid #10B981; color: #34d399; display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; font-size: 11px; font-weight: 600;">
+                      <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: #34d399; fill: none; stroke-width: 2;"><path d="M21.5 15a4.5 4.5 0 0 0-4-6.5h-.5A7 7 0 0 0 3.5 11 5 5 0 0 0 2 15a5 5 0 0 0 5 5h14.5a4.5 4.5 0 0 0 0-9z"/></svg>
+                      ☁️ 探测/同步云端已复刻音色
+                    </button>
+                  </div>
+                  <!-- 云端已探测音色智能快捷选择区 -->
+                  <div id="tts-cloud-voices-suggestion" style="display: none; margin-bottom: 10px; padding: 8px 12px; background: rgba(56, 189, 248, 0.1); border: 1px dashed rgba(56, 189, 248, 0.35); border-radius: 6px;">
+                    <div style="font-size: 11px; color: #38bdf8; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+                      <span>💡 探测到您当前百炼空间中真实可用的有效克隆音色 (点击直接填入并绑定):</span>
+                      <span id="tts-cloud-voices-close" style="cursor: pointer; opacity: 0.7;" onclick="document.getElementById('tts-cloud-voices-suggestion').style.display='none'">✕</span>
+                    </div>
+                    <div id="tts-cloud-voices-list" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+                  </div>
+                  <div class="grid-2" style="gap: 12px; margin-bottom: 10px;">
+                    <div>
+                      <label class="form-label" style="font-size: 11.5px; margin-bottom: 4px;">音色名称 <span style="color: #ef4444;">*</span></label>
+                      <input type="text" id="tts-bind-voice-name" class="form-control" placeholder="如：小琴琴" style="background: rgba(10, 14, 23, 0.88) !important; border: 1px solid rgba(148, 163, 184, 0.25) !important; color: #f1f5f9 !important; font-size: 12px; padding: 7px 11px; border-radius: 6px;">
+                    </div>
+                    <div>
+                      <label class="form-label" style="font-size: 11.5px; margin-bottom: 4px;">专属 Voice-ID <span style="color: #ef4444;">*</span></label>
+                      <input type="text" id="tts-bind-voice-id" class="form-control" placeholder="输入在百炼控制台复刻生成的音色 ID" oninput="handleVoiceIdInputAdaptModel(this.value)" style="background: rgba(10, 14, 23, 0.88) !important; border: 1px solid rgba(148, 163, 184, 0.25) !important; color: #f1f5f9 !important; font-size: 12px; padding: 7px 11px; border-radius: 6px;">
+                    </div>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <span id="tts-bind-model-hint" style="font-size: 11px; color: var(--text-muted);">
+                      🔗 登记后立即调用百炼官方 WebSocket 实测发声校验，100% 确保真实有效后入库！
+                    </span>
+                    <button type="button" class="btn btn-sm btn-primary" id="btn-bind-voice" onclick="handleRegisterExternalVoiceId()" style="background: #0284c7; border-color: #0284c7; display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; font-weight: 600;">
+                      <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                      一键绑定并 WebSocket 生成试听
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 模式 2: 上传本地音频/输入公网音频链接克隆 -->
+                <div id="tts-clone-panel-upload" style="display: none;">
+                  <div class="grid-3" style="gap: 12px; margin-bottom: 10px;">
+                    <div>
+                      <label class="form-label" style="font-size: 11.5px; margin-bottom: 4px;">克隆音色名称 <span style="color: #ef4444;">*</span></label>
+                      <input type="text" id="tts-clone-voice-name" class="form-control" placeholder="如：小琴琴" style="background: rgba(10, 14, 23, 0.88) !important; border: 1px solid rgba(148, 163, 184, 0.25) !important; color: #f1f5f9 !important; font-size: 12px; padding: 7px 11px; border-radius: 6px;">
+                    </div>
+                    <div>
+                      <label class="form-label" style="font-size: 11.5px; margin-bottom: 4px;">声音样本 (120秒内清晰人声 WAV/MP3) <span style="color: #ef4444;">*</span></label>
+                      <input type="file" id="tts-clone-voice-file" class="form-control" accept="audio/*" style="background: rgba(10, 14, 23, 0.88) !important; border: 1px solid rgba(148, 163, 184, 0.25) !important; color: #f1f5f9 !important; font-size: 11.5px; padding: 5px 8px; border-radius: 6px;">
+                    </div>
+                    <div>
+                      <label class="form-label" style="font-size: 11.5px; margin-bottom: 4px;">专属语速微调: <span id="tts-clone-speed-val" style="font-family: var(--font-mono); color: #38bdf8;">1.0x</span></label>
+                      <input type="range" id="tts-clone-speed" min="0.8" max="1.3" step="0.05" value="1.0" style="width: 100%; margin-top: 8px;" oninput="document.getElementById('tts-clone-speed-val').innerText = this.value + 'x'">
+                    </div>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <span id="tts-clone-upload-tip" style="font-size: 11px; color: var(--text-muted);">
+                      ⚡ 本地样本保存后，若因内网无法直传云端，建议直接在百炼控制台直传复刻并登记 Voice-ID。
+                    </span>
+                    <button type="button" class="btn btn-sm btn-primary" id="btn-execute-clone" onclick="handleExecuteTTSClone()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; font-weight: 600;">
+                      <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                      上传样本并尝试云端复刻
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 位于第五行“获取到的具体音色”下方靠右：保存此语音配置操作栏 -->
+              <div style="display: flex; justify-content: flex-end; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(148, 163, 184, 0.15);">
+                <button class="btn btn-sm btn-primary" id="btn-save-tts" onclick="handleSaveCurrentTTS()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  保存此语音配置
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 区域 3: 已配置的语音合成引擎清单 (支持设为默认发音、编辑、删除) -->
+          <div style="margin-top: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <strong style="font-size: 14px; color: var(--text-primary);">已配置的语音引擎清单</strong>
+                <span id="configured-tts-count" class="brand-badge green">0 个已配置</span>
+              </div>
+              <span style="font-size: 12px; color: var(--text-muted);">系统每次直播将采用【当前默认发音】进行合成</span>
+            </div>
+            <div id="configured-tts-list" class="configured-llm-list"></div>
+          </div>
+
+          <!-- 扩展自定义 / 远程 GPU 高级展开框 -->
+          <div id="custom-tts-advanced-box" style="display: none; margin-top: 20px; padding: 18px; background: rgba(7, 10, 15, 0.6); border-radius: var(--radius-md); border: 1px dashed rgba(16, 185, 129, 0.3);">
+            <div style="font-weight: 600; margin-bottom: 12px; font-size: 13px; color: #10B981; display: flex; align-items: center; justify-content: space-between;">
+              <span>高级服务商扩展（端云分离远程 GPU 渲染节点等）</span>
+              <button class="btn btn-xs" onclick="toggleAddCustomTTSForm()">收起</button>
+            </div>
+            <div class="grid-2" style="margin-bottom: 14px;">
+              <div>
+                <label class="form-label" for="new-cfg-group">服务分类</label>
+                <select id="new-cfg-group" class="form-control" title="服务分类选择" aria-label="服务分类选择">
+                  <option value="neural_renderer">远端神经 Avatar Provider（v3）</option>
+                  <option value="remote_gpu">旧版端云分离 TTS+视频节点（v1/v2）</option>
+                  <option value="tts">其他自定义语音（TTS）</option>
+                  <option value="llm">其他大语言模型（LLM）</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label" for="new-provider-name">服务商标识（英文唯一）</label>
+                <input type="text" id="new-provider-name" class="form-control" placeholder="如 my_remote_gpu" title="服务商标识（英文唯一）" aria-label="服务商标识（英文唯一）">
+              </div>
+              <div>
+                <label class="form-label" for="new-base-url">接口 Base URL 地址</label>
+                <input type="text" id="new-base-url" class="form-control" placeholder="如 http://192.168.1.100:8000" title="接口 Base URL 地址" aria-label="接口 Base URL 地址">
+              </div>
+              <div>
+                <label class="form-label" for="new-model-name">模型 / 节点标识</label>
+                <input type="text" id="new-model-name" class="form-control" placeholder="如 rtx4090-node-1" title="模型 / 节点标识" aria-label="模型 / 节点标识">
+              </div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <label class="form-label" for="new-api-key">节点通信密钥（Token / Key）</label>
+              <input type="password" id="new-api-key" class="form-control" placeholder="输入访问凭据（硬件级 AES-256 加密保存）" title="节点通信密钥（Token / Key）" aria-label="节点通信密钥（Token / Key）">
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-sm btn-primary" onclick="submitNewCustomProvider()">确认添加并保存</button>
+              <button class="btn btn-sm" onclick="toggleAddCustomTTSForm()">取消</button>
+            </div>
+          </div>
+        </div>
+
         <!-- 音频物理输出与虚拟声卡配置卡片 (规划 §7.1/§7.2) -->
         <div class="panel-card">
           <div class="panel-header">

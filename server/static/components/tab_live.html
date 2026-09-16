@@ -67,6 +67,14 @@
                 <input type="checkbox" id="obs-auto-link-check" style="cursor: pointer;">
                 <span style="color: var(--text-secondary);">OBS联动</span>
               </label>
+              <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; user-select: none; margin: 0 4px;" title="开播时自动启动内置 RTMP 直推引擎 (脱离 OBS 一键推流)">
+                <input type="checkbox" id="rtmp-auto-link-check" style="cursor: pointer;">
+                <span style="color: #10B981; font-weight: 600;">内置直推</span>
+              </label>
+              <button class="btn btn-sm" onclick="toggleRtmpModal()" title="设置 RTMP 直推服务器地址与推流码" style="padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                直推设置
+              </button>
               <button class="btn btn-sm" onclick="runPreflight({ auto: false })" title="开播前逐项检查模式/角色/AI/OBS/商品等开播条件">
                 <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 开播前检查
@@ -149,6 +157,65 @@
           <div style="display: flex; gap: 14px; align-items: flex-start;">
             <textarea id="manual-speech-input" class="form-control" rows="3" style="flex: 1;" placeholder="输入插播话术，例如：宝子们不要着急，刚才网络有点卡顿，我们马上上专属大额优惠券！" title="紧急插播话术" aria-label="紧急插播话术"></textarea>
             <button class="btn btn-primary" style="min-width: 170px; height: fit-content;" onclick="sendManualSpeech()">立即抢占打断并播报</button>
+          </div>
+        </div>
+
+        <!-- 内置 RTMP 直推引擎设置弹窗 -->
+        <div id="rtmp-settings-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.75); z-index: 9999; justify-content: center; align-items: center;">
+          <div style="background: #0f172a; border: 1.5px solid rgba(16, 185, 129, 0.4); border-radius: 12px; width: 620px; max-width: 90vw; padding: 24px; box-shadow: 0 16px 40px rgba(0,0,0,0.6); color: #e2e8f0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(148, 163, 184, 0.15); padding-bottom: 12px; margin-bottom: 16px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <svg class="icon" viewBox="0 0 24 24" style="color: #10B981;"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
+                <strong style="font-size: 16px; color: #f8fafc;">内置一键 RTMP 直推设置</strong>
+                <span class="brand-badge green">免装OBS · 直推全网</span>
+              </div>
+              <button class="btn btn-sm" onclick="toggleRtmpModal()" style="padding: 2px 8px; font-size: 16px;">×</button>
+            </div>
+
+            <p style="font-size: 12px; color: #94a3b8; line-height: 1.6; margin-bottom: 16px;">
+              无需运行第三方 OBS 软件！直接填入直播平台的<strong>推流服务器地址</strong>与<strong>直播码/推流密钥</strong>，AI 数字人画面与声音即可直推至平台。
+            </p>
+
+            <div style="margin-bottom: 14px;">
+              <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">常用直播平台快速填入:</label>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-sm" onclick="fillRtmpPreset('bilibili')" style="font-size: 12px;">B站直播 (Bilibili)</button>
+                <button type="button" class="btn btn-sm" onclick="fillRtmpPreset('douyin')" style="font-size: 12px;">抖音直播</button>
+                <button type="button" class="btn btn-sm" onclick="fillRtmpPreset('kuaishou')" style="font-size: 12px;">快手直播</button>
+                <button type="button" class="btn btn-sm" onclick="fillRtmpPreset('channels')" style="font-size: 12px;">微信视频号</button>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 14px;">
+              <label for="rtmp-input-url" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px;">推流服务器地址 (RTMP URL):</label>
+              <input type="text" id="rtmp-input-url" class="form-control" placeholder="rtmp://live-push.bilivideo.com/live-bvc/" style="width: 100%; font-family: var(--font-mono); font-size: 13px;">
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <label for="rtmp-input-key" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px;">直播码 / 推流密钥 (Stream Key):</label>
+              <input type="password" id="rtmp-input-key" class="form-control" placeholder="输入从平台开播后台获取的直播码" style="width: 100%; font-family: var(--font-mono); font-size: 13px;">
+            </div>
+
+            <!-- 推流实时运行状态卡片 -->
+            <div id="rtmp-runtime-status-card" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 8px; padding: 12px; margin-bottom: 18px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 12px; color: #94a3b8;">推流运行状态:</span>
+                <span id="rtmp-status-indicator" style="font-size: 12px; font-weight: 700; color: #94a3b8;">○ 未启动</span>
+              </div>
+              <div style="display: flex; gap: 16px; font-size: 12px; color: #cbd5e1; font-family: var(--font-mono);">
+                <div>已推时长: <span id="rtmp-metric-duration" style="color: #10B981;">00:00:00</span></div>
+                <div>已发视频帧: <span id="rtmp-metric-frames">0</span></div>
+                <div>音频流量: <span id="rtmp-metric-audio">0 KB</span></div>
+              </div>
+              <div id="rtmp-error-banner" style="display: none; margin-top: 8px; font-size: 12px; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 6px 10px; border-radius: 4px;"></div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 10px; align-items: center;">
+              <button type="button" class="btn" onclick="toggleRtmpModal()">关闭视窗</button>
+              <button type="button" id="btn-toggle-rtmp" class="btn btn-primary" onclick="toggleRtmpStreaming()" style="background: #10B981; border-color: #10B981; font-weight: 600;">
+                ▶ 立即开始直推
+              </button>
+            </div>
           </div>
         </div>
       </div>

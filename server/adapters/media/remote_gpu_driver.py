@@ -55,6 +55,8 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
         # 保留最近一次事务的兼容视图，旧调用方应改用 request_id 提交。
         self._pending_video_frames: list[tuple[int, bytes]] = []
         self._video_task: Optional[asyncio.Task] = None
+        self._video_tasks: set[asyncio.Task] = set()
+        self._video_timeline_lock = asyncio.Lock()
         self.latest_jpeg: bytes = b""
         self.frames_received = 0
 
@@ -238,6 +240,18 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
 
                     event = msg.get("event")
                     if event == "audio_end":
+                        if audio_bytes <= 0:
+                            raise RuntimeError("远程音频事务为空")
+                        declared_bytes = msg.get("bytes")
+                        if declared_bytes is not None:
+                            try:
+                                declared_bytes = int(declared_bytes)
+                            except (TypeError, ValueError) as exc:
+                                raise RuntimeError("远程 audio_end.bytes 非法") from exc
+                            if declared_bytes < 0 or declared_bytes != audio_bytes:
+                                raise RuntimeError(
+                                    f"远程音频完整性校验失败: declared={declared_bytes}, received={audio_bytes}"
+                                )
                         completed = True
                         break
                     if event == "video_frame":
@@ -310,8 +324,9 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
         sample_rate: int = 24000,
         channels: int = 1,
         request_id: Optional[str] = None,
+        audio_id: Optional[str] = None,
     ) -> None:
-        """在指定请求的音频提交播放后，按音频时长发布对应视频帧。"""
+        """提交远程帧；有 audio_id 时由同一 VirtualAudio 播放头决定发布进度。"""
         target_request_id = request_id or self._last_completed_request_id
         frames = self._pending_video_transactions.pop(target_request_id, []) if target_request_id else []
         if not frames and request_id is None:
@@ -320,7 +335,9 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
             self._last_completed_request_id = None
             self._pending_video_frames = []
 
-        await self._cancel_video_playback(clear_frame=True, clear_pending=False)
+        # 旧 API 没有 audio_id 时保持单时间线行为；原子事务模式允许多句各自等待其 cursor。
+        if not audio_id:
+            await self._cancel_video_playback(clear_frame=True, clear_pending=False)
         if not frames:
             return
 
@@ -340,32 +357,121 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
             except Exception:
                 logger.debug("无法读取远程音频时长，使用云帧时间线", exc_info=True)
 
-        self._video_task = asyncio.create_task(self._play_video_timeline(frames, duration))
+        task = asyncio.create_task(self._play_video_timeline(frames, duration, audio_id=audio_id))
+        self._video_task = task
+        self._video_tasks.add(task)
+        task.add_done_callback(self._video_tasks.discard)
 
-    async def _play_video_timeline(self, frames: list[tuple[int, bytes]], duration: float):
-        started = time.monotonic()
+    async def _play_video_timeline(
+        self,
+        frames: list[tuple[int, bytes]],
+        duration: float,
+        audio_id: Optional[str] = None,
+    ):
+        """按句子提交顺序串行视频时间线，与浏览器串行音频队列保持同序。"""
+        async with self._video_timeline_lock:
+            await self._play_video_timeline_serial(frames, duration, audio_id=audio_id)
+
+    async def _play_video_timeline_serial(
+        self,
+        frames: list[tuple[int, bytes]],
+        duration: float,
+        audio_id: Optional[str] = None,
+    ):
+        """按原始 PTS 选择当前最新帧；仅在没有可用共享 cursor 时使用 monotonic fallback。"""
+        ordered_frames = sorted(frames, key=lambda item: item[0])
+        timeline = [(max(0, pts), jpeg) for pts, jpeg in ordered_frames]
+        fallback_started = time.monotonic()
+        next_index = 0
+        published_index = -1
+        current_task = asyncio.current_task()
+        using_fallback = not audio_id
+        if using_fallback:
+            logger.debug("RemoteGPU 视频无 audio_id，使用 monotonic fallback 时间线")
         try:
-            count = len(frames)
-            for index, (_, jpeg) in enumerate(frames):
-                target = started + (duration * index / max(1, count - 1))
-                delay = target - time.monotonic()
-                if delay > 0:
-                    await asyncio.sleep(delay)
-                await self._publish_video_frame(jpeg)
-            remaining = started + duration - time.monotonic()
-            if remaining > 0:
-                await asyncio.sleep(remaining)
+            while next_index < len(timeline):
+                clock = None
+                if audio_id and not using_fallback:
+                    from server.core.media.virtual_audio import global_virtual_audio
+                    clock = global_virtual_audio.get_playback_clock(audio_id)
+                    reject_reason = clock.get("reject_reason") if clock else None
+                    browser_fallback = reject_reason in {
+                        "service_disabled",
+                        "audio_unavailable",
+                        "queue_full",
+                        "stream_unavailable",
+                        "decode_empty",
+                        "playback_error",
+                    }
+                    if clock and (clock.get("is_interrupted") or clock.get("is_rejected")):
+                        if not browser_fallback:
+                            return
+                        using_fallback = True
+                        inherited_elapsed = max(0.0, float(clock.get("elapsed_sec", 0.0) or 0.0))
+                        fallback_started = time.monotonic() - inherited_elapsed
+                        clock = None
+                        logger.debug(
+                            "RemoteGPU 本地播放不可用 (%s)，audio_id=%s 改用浏览器 monotonic fallback",
+                            reject_reason,
+                            audio_id,
+                        )
+                    if clock is None and not using_fallback:
+                        using_fallback = True
+                        fallback_started = time.monotonic()
+                        logger.debug(
+                            "RemoteGPU 找不到 audio_id=%s 播放时钟，使用 monotonic fallback",
+                            audio_id,
+                        )
+                    elif not clock.get("has_started"):
+                        await asyncio.sleep(0.01)
+                        continue
+                if clock is not None:
+                    elapsed_ms = max(0.0, float(clock.get("elapsed_sec", 0.0) or 0.0) * 1000.0)
+                else:
+                    elapsed_ms = max(0.0, (time.monotonic() - fallback_started) * 1000.0)
+
+                latest_due = published_index
+                while next_index < len(timeline) and timeline[next_index][0] <= elapsed_ms:
+                    latest_due = next_index
+                    next_index += 1
+                if latest_due > published_index:
+                    # 落后时直接跳到当前最新帧，不逐帧补播过期画面。
+                    published_index = latest_due
+                    await self._publish_video_frame(timeline[published_index][1])
+                    continue
+                if clock and clock.get("is_finished"):
+                    return
+                await asyncio.sleep(0.01)
+
+            if audio_id and not using_fallback:
+                while True:
+                    from server.core.media.virtual_audio import global_virtual_audio
+                    clock = global_virtual_audio.get_playback_clock(audio_id)
+                    if not clock or clock.get("is_finished") or clock.get("is_interrupted") or clock.get("is_rejected"):
+                        break
+                    await asyncio.sleep(0.01)
+            else:
+                remaining = fallback_started + duration - time.monotonic()
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
         except asyncio.CancelledError:
             raise
         finally:
-            self.latest_jpeg = b""
+            # 旧 task 不得清掉后续句子已经发布的新帧。
+            if self._video_task is current_task:
+                self.latest_jpeg = b""
 
     async def _cancel_video_playback(self, clear_frame: bool, clear_pending: bool = True):
-        task = self._video_task
+        tasks = list(self._video_tasks)
+        if self._video_task and self._video_task not in tasks:
+            tasks.append(self._video_task)
         self._video_task = None
-        if task and not task.done():
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        self._video_tasks.clear()
+        for task in tasks:
+            if task and not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         if clear_pending:
             self._pending_video_transactions.clear()
             self._last_completed_request_id = None
@@ -386,7 +492,11 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
             if global_virtual_cam.is_active:
                 arr = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
                 if arr is not None:
-                    global_virtual_cam.send_frame(cv2.cvtColor(arr, cv2.COLOR_BGR2RGB))
+                    global_virtual_cam.send_frame(
+                        cv2.cvtColor(arr, cv2.COLOR_BGR2RGB),
+                        owner="legacy_remote_gpu",
+                        priority=50,
+                    )
         except Exception:
             pass
 
@@ -401,6 +511,50 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
     def get_latest_jpeg(self) -> bytes:
         return self.latest_jpeg
 
+    def get_media_capabilities(self) -> dict:
+        """声明远程节点当前仍使用整句事务协议，不虚报本地帧输入。"""
+        from server.core.media.audio_frame import MediaCapabilities
+        from server.core.media.virtual_audio import global_virtual_audio
+
+        audio_status = global_virtual_audio.get_status()
+        return MediaCapabilities(
+            accepts_audio_frames=False,
+            tts_output_codec=str(getattr(self, "audio_codec", "mp3")),
+            chunk_semantics="transactional_sentence",
+            transactional_sentence=True,
+            supports_cancel=True,
+            supports_shared_clock=bool(audio_status.get("shared_playback_clock")),
+            remote_protocol_version=self._protocol_version,
+            extra={
+                "remote_audio_envelope": "RGA2" if self._protocol_version >= 2 else "legacy_binary",
+                "video_timeline": "remote_frame_pts",
+            },
+        ).to_dict()
+
+    def get_capabilities(self) -> dict:
+        from server.core.media.virtual_audio import global_virtual_audio
+
+        audio_status = global_virtual_audio.get_status()
+        return {
+            "driver": "remote_gpu",
+            "capabilities": {
+                # v1/v2 节点耦合 TTS 且没有 v3 evidence/strict completion，不能证明神经口型。
+                "neural_lipsync": False,
+                "neural_lipsync_verified": False,
+                "verification": "unverified_legacy_v1_v2",
+                "viseme_lipsync": False,
+                "g2p_aligned": False,
+                "alignment_mode": "remote_frame_pts",
+                "shared_playback_clock": bool(audio_status.get("shared_playback_clock")),
+                "hardware_dac_clock": bool(audio_status.get("hardware_dac_clock")),
+                "clock_source": audio_status.get("clock_source"),
+                "clock_precision": audio_status.get("clock_precision", "none"),
+                "expressions": False,
+                "head_motion": False,
+                "remote_rendering": True,
+            },
+        }
+
     def get_preview_status(self) -> dict:
         return {
             "fps": 25,
@@ -412,4 +566,5 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
             "remote_frames": self.frames_received,
             "has_frame": self.has_frames,
             "request_id": self._current_request_id,
+            "capabilities": self.get_capabilities()["capabilities"],
         }

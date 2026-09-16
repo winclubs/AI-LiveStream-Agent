@@ -52,10 +52,12 @@ class EdgeTTSMediaDriver(BaseMediaDriver):
         流式合成文本为音频字节流，支持被 interrupt 瞬间取消
         """
         self._is_interrupted = False
+        edge_stream = None
         try:
             import edge_tts
             communicate = edge_tts.Communicate(text, self.voice, rate=self.rate, pitch=self.pitch, volume=self.volume)
-            async for chunk in communicate.stream():
+            edge_stream = communicate.stream()
+            async for chunk in edge_stream:
                 if getattr(self, "_is_interrupted", False):
                     logger.info("EdgeTTS 合成已被打断")
                     break
@@ -72,6 +74,13 @@ class EdgeTTSMediaDriver(BaseMediaDriver):
         except asyncio.CancelledError:
             logger.info("EdgeTTS 合成任务已被抢占打断(Cancelled)")
             raise
+        finally:
+            close_stream = getattr(edge_stream, "aclose", None)
+            if close_stream is not None:
+                try:
+                    await close_stream()
+                except Exception:
+                    logger.debug("关闭 EdgeTTS 内层流失败", exc_info=True)
 
     async def interrupt(self, reason: str = "Barge-in"):
         """响应抢占打断信令：瞬间中断当前生成与播报"""

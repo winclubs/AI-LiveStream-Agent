@@ -119,7 +119,7 @@ class ApiProviderConfig(Base):
     __tablename__ = "api_provider_configs"
 
     id = Column(String(64), primary_key=True)
-    config_group = Column(String(32), nullable=False)  # llm / tts / vision / remote_gpu / live_fetcher
+    config_group = Column(String(32), nullable=False)  # llm / tts / vision / remote_gpu / neural_renderer / live_fetcher
     provider_name = Column(String(64), nullable=False)
     is_active = Column(Integer, default=0)
     encrypted_api_key = Column(Text, default="")

@@ -1,0 +1,28 @@
+{
+  "backend_id": "authorized-wav2lip-plugin",
+  "model_version": "replace-with-authorized-model-version",
+  "fps": 25,
+  "device": "cuda",
+  "initial_credit": 8,
+  "worker_queue_size": 8,
+  "sender_queue_size": 32,
+  "max_transaction_frames": 3000,
+  "max_transaction_bytes": 67108864,
+  "max_transaction_seconds": 30,
+  "max_connections": 32,
+  "max_active_renders": 1,
+  "auth_timeout_seconds": 5.0,
+  "idle_timeout_seconds": 60.0,
+  "model_call_timeout_seconds": 30.0,
+  "cancel_timeout_seconds": 2.0,
+  "bridge_queue_size": 8,
+  "input_formats": [
+    {
+      "codec": "pcm_s16le",
+      "sample_rate": 24000,
+      "channels": 1,
+      "sample_width_bytes": 2
+    }
+  ],
+  "plugin_config": {}
+}

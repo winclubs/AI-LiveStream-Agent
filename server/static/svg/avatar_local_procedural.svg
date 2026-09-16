@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" width="44" height="44">
+  <defs>
+    <linearGradient id="localAvatarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+  </defs>
+  <!-- 底座背景 -->
+  <circle cx="22" cy="22" r="21" fill="#071813" stroke="rgba(52, 211, 153, 0.35)" stroke-width="1.5"/>
+  <!-- 卡通小人头部与耳朵 -->
+  <circle cx="22" cy="21" r="12" fill="#0E2E25" stroke="#10B981" stroke-width="1.2"/>
+  <circle cx="10" cy="21" r="2" fill="#10B981"/>
+  <circle cx="34" cy="21" r="2" fill="#10B981"/>
+  <!-- 灵动眨眼与笑脸嘴巴 -->
+  <circle cx="18" cy="19" r="1.8" fill="#34D399"/>
+  <circle cx="26" cy="19" r="1.8" fill="#34D399"/>
+  <path d="M 18 24 Q 22 28 26 24" fill="none" stroke="#34D399" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- 底部安全保底微徽记 -->
+  <path d="M 22 36 L 19 33 C 19 30 25 30 25 33 Z" fill="url(#localAvatarGrad)" opacity="0.9"/>
+</svg>

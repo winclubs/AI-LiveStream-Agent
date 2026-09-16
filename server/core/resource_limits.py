@@ -16,7 +16,7 @@ MAX_IMAGE_PIXELS = 40_000_000
 MAX_IMAGE_FRAMES = 100
 MAX_IMAGE_TOTAL_PIXELS = 80_000_000
 MAX_AUDIO_BYTES = 20 * 1024 * 1024
-MAX_AUDIO_DURATION_SEC = 30.0
+MAX_AUDIO_DURATION_SEC = 120.0
 MAX_KNOWLEDGE_BYTES = 25 * 1024 * 1024
 MAX_KNOWLEDGE_TEXT_CHARS = 1_000_000
 MAX_KNOWLEDGE_PAGES = 200
@@ -111,7 +111,7 @@ def probe_audio_budget(path: Path) -> dict:
             raise HTTPException(status_code=400, detail="音频无法解析或不受当前环境支持") from exc
     duration = frames / rate if rate else 0.0
     if duration > MAX_AUDIO_DURATION_SEC:
-        raise HTTPException(status_code=413, detail="声音样本时长超过 30 秒预算")
+        raise HTTPException(status_code=413, detail=f"声音样本时长超过 {int(MAX_AUDIO_DURATION_SEC)} 秒预算")
     return {"duration_sec": duration, "sample_rate": rate, "channels": channels}
 
 

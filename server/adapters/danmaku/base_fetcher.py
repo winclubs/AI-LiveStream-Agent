@@ -14,6 +14,7 @@ class FetcherHealth:
     reconnect_failures: int = 0
     last_error: Optional[str] = None
     last_event_at: Optional[float] = None
+    connection_generation: int = 0
 
 
 class BaseDanmakuFetcher(ABC):
@@ -37,6 +38,7 @@ class BaseDanmakuFetcher(ABC):
         self.on_health_change_callback = on_health_change_callback
         self.is_running = False
         self._health = FetcherHealth()
+        self._connection_attempt_active = False
 
     def get_health(self) -> FetcherHealth:
         """获取当前抓取器链路健康状态快照"""
@@ -47,6 +49,7 @@ class BaseDanmakuFetcher(ABC):
             reconnect_failures=self._health.reconnect_failures,
             last_error=self._health.last_error,
             last_event_at=self._health.last_event_at,
+            connection_generation=self._health.connection_generation,
         )
 
     def _trigger_health_update(self):
@@ -59,25 +62,56 @@ class BaseDanmakuFetcher(ABC):
             except Exception:
                 pass
 
+    def on_connection_attempted(self):
+        """每次独立物理连接尝试开启新故障 episode，包括握手前失败。"""
+        self._health.connection_generation += 1
+        self._connection_attempt_active = True
+        self._health.connected = False
+        self._health.worker_alive = True
+        self._health.last_heartbeat_at = None
+        self._health.last_event_at = None
+        self._trigger_health_update()
+
     def on_connection_opened(self):
-        """链路物理连接建立成功"""
+        """记录物理连接建立；协议健康仍需等待服务端下行。"""
+        # 兼容没有先调用 on_connection_attempted() 的抓取器和测试替身。
+        if not self._connection_attempt_active:
+            self._health.connection_generation += 1
+        self._connection_attempt_active = False
+        self._health.connected = True
+        self._health.worker_alive = True
+        self._health.last_error = None
+        # 新连接不得继承上一代连接的健康证据，也不能仅凭握手清历史失败。
+        self._health.last_heartbeat_at = None
+        self._health.last_event_at = None
+        self._trigger_health_update()
+
+    def on_heartbeat(self):
+        """收到服务端协议心跳或其他有效下行。"""
+        self._health.last_heartbeat_at = time.time()
         self._health.connected = True
         self._health.worker_alive = True
         self._health.reconnect_failures = 0
         self._health.last_error = None
-        self._health.last_heartbeat_at = time.time()
         self._trigger_health_update()
 
-    def on_heartbeat(self):
-        """底层协议心跳包发送/响应成功"""
-        self._health.last_heartbeat_at = time.time()
+    def on_event_received(self):
+        """记录真实协议事件；真实事件同时构成链路恢复证据。"""
+        now = time.time()
+        self._health.last_event_at = now
+        self._health.last_heartbeat_at = now
         self._health.connected = True
         self._health.worker_alive = True
+        self._health.reconnect_failures = 0
+        self._health.last_error = None
         self._trigger_health_update()
 
     def on_connection_error(self, exc: Exception, reason: str = ""):
-        """底层连接或协议解析异常时主动调用"""
+        """底层连接或协议解析异常时主动调用。"""
+        self._connection_attempt_active = False
         self._health.connected = False
+        self._health.last_heartbeat_at = None
+        self._health.last_event_at = None
         self._health.reconnect_failures += 1
         self._health.last_error = f"{reason}: {exc}" if reason else str(exc)
         self._trigger_health_update()
@@ -93,8 +127,11 @@ class BaseDanmakuFetcher(ABC):
 
     def on_worker_stopped(self, error: Optional[Exception] = None):
         """后台 worker 协程停止或崩溃时主动调用"""
+        self._connection_attempt_active = False
         self._health.worker_alive = False
         self._health.connected = False
+        self._health.last_heartbeat_at = None
+        self._health.last_event_at = None
         if error:
             self._health.last_error = str(error)
         self._trigger_health_update()

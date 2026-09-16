@@ -23,6 +23,7 @@ from typing import Optional, Tuple
 from pathlib import Path
 
 from server.adapters.media.base_driver import BaseMediaDriver
+from server.core.media.audio_frame import validate_audio_frame_batch
 from server.core.media.virtual_cam import global_virtual_cam
 from server.core.media.av_sync import global_av_sync
 from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state
@@ -76,9 +77,10 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         self._accepted_audio_generation = 0
         self._accepted_session_generation = 0
 
-        # 共享音频物理播放时钟句子缓存 (消除声卡排队缓冲抢跑与长句累计漂移)
+        # 按音频提交顺序保存句子；后句不能覆盖仍在播放的前句。
         self._sentence_lock = threading.Lock()
-        self._active_sentence: Optional[dict] = None
+        self._active_sentences: list[dict] = []
+        self._active_sentence: Optional[dict] = None  # 旧诊断/测试兼容视图（队首）
 
         # 泊松过程眨眼调度器 (规划 §4.4)
         from server.core.media.procedural_renderer import MicroExpressionState
@@ -136,6 +138,12 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         except Exception:
             self.action_clip = None
 
+        try:
+            from server.core.media.real_avatar_lite import global_real_avatar_lite
+            global_real_avatar_lite.reload_source(path, landmarks_path=self.landmarks_cache)
+        except Exception as e:
+            logger.warning(f"同步真人微动态底模失败: {e}")
+
         self.latest_jpeg_frame = encode_jpeg(self.base_portrait, quality=85)
 
     async def start(self):
@@ -185,6 +193,35 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 (audio_generation is None or audio_generation >= self._accepted_audio_generation)
                 and (session_generation is None or session_generation >= self._accepted_session_generation)
             )
+
+    def get_media_capabilities(self) -> dict:
+        """声明程序化渲染器可消费标准 PCM 帧批次。"""
+        from server.core.media.audio_frame import MediaCapabilities
+
+        return MediaCapabilities(
+            accepts_audio_frames=True,
+            tts_output_codec="pcm_s16le",
+            chunk_semantics="transactional_sentence",
+            transactional_sentence=True,
+            supports_cancel=True,
+            supports_shared_clock=True,
+            extra={"frame_batch_mode": "coalesced_transaction"},
+        ).to_dict()
+
+    async def feed_audio_frames(self, frames) -> None:
+        """消费标准帧批次，并复用现有整句 G2P/播放 cursor 对齐算法。"""
+        frame_list = validate_audio_frame_batch(frames)
+        first = frame_list[0]
+        await self.feed_audio_chunk(
+            b"".join(frame.data for frame in frame_list),
+            first.text,
+            codec=first.format.codec,
+            sample_rate=first.format.sample_rate,
+            channels=first.format.channels,
+            audio_generation=first.audio_generation,
+            session_generation=first.session_generation,
+            audio_id=first.audio_id,
+        )
 
     async def feed_audio_chunk(
         self,
@@ -261,27 +298,47 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                     m_open, m_form = audio_samples_to_viseme(frame_samples)
 
                 viseme_list.append((m_open, m_form))
-                self.mouth_open_queue.put((
-                    audio_generation,
-                    session_generation,
-                    m_open,
-                    m_form,
-                ))
+                # audio_id 模式完全由共享播放头驱动，禁止重复进入兼容队列造成二次回放。
+                if not audio_id:
+                    self.mouth_open_queue.put((
+                        audio_generation,
+                        session_generation,
+                        m_open,
+                        m_form,
+                    ))
                 frame_idx += 1
 
-            if self._generation_is_current(audio_generation, session_generation):
+            if self._generation_is_current(audio_generation, session_generation) and audio_id:
+                sentence = {
+                    "audio_id": audio_id,
+                    "audio_generation": audio_generation,
+                    "session_generation": session_generation,
+                    "visemes": viseme_list,
+                }
                 with self._sentence_lock:
-                    self._active_sentence = {
-                        "audio_id": audio_id,
-                        "audio_generation": audio_generation,
-                        "session_generation": session_generation,
-                        "visemes": viseme_list,
-                        "feed_time": time.monotonic(),
-                    }
+                    self._active_sentences.append(sentence)
+                    self._active_sentence = self._active_sentences[0]
         except Exception as exc:
             if self._generation_is_current(audio_generation, session_generation):
                 logger.warning("口型音频解码失败，使用单帧保守口型: %s", exc)
-                self.mouth_open_queue.put((audio_generation, session_generation, 0.3, 0.0))
+                if audio_id:
+                    # cursor 会继续提供音频终态；不把失败帧塞入兼容队列，避免句后幽灵回放。
+                    with self._sentence_lock:
+                        sentence = {
+                            "audio_id": audio_id,
+                            "audio_generation": audio_generation,
+                            "session_generation": session_generation,
+                            "visemes": [(0.3, 0.0)],
+                        }
+                        self._active_sentences.append(sentence)
+                        self._active_sentence = self._active_sentences[0]
+                else:
+                    self.mouth_open_queue.put((audio_generation, session_generation, 0.3, 0.0))
+
+        # 解码可能在线程池运行；渲染线程可能在此期间观察到空队列并清除状态。
+        # 在提交完成点重新确认“已接受待播音频”，下一渲染 tick 再按真实队列/时钟收敛。
+        if self._generation_is_current(audio_generation, session_generation):
+            self.is_speaking = True
 
     async def interrupt(self, reason: str = "Barge-in", next_generation: Optional[int] = None):
         """推进口型代际并清空排队帧与句子缓存，旧 producer 恢复后也无法重新入队。"""
@@ -291,6 +348,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                     self._accepted_audio_generation, int(next_generation)
                 )
         with self._sentence_lock:
+            self._active_sentences.clear()
             self._active_sentence = None
         self.is_speaking = False
         self.target_mouth_open = 0.0
@@ -311,54 +369,76 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             loop_start = time.time()
             t += frame_interval
 
-            # 1. 消费 Viseme 唇形开合与形态目标 (优先基于真实声卡物理 DAC 播放时钟对齐)
+            # 1. audio_id 句子严格按提交顺序绑定共享绝对播放头；兼容队列仅处理无 audio_id。
             viseme_target = None
-            with self._sentence_lock:
-                sent = self._active_sentence
-            if sent and self._generation_is_current(sent.get("audio_generation"), sent.get("session_generation")):
-                audio_id = sent.get("audio_id")
-                use_clock_sync = False
-                if audio_id:
+            sent = None
+            while True:
+                with self._sentence_lock:
+                    sent = self._active_sentences[0] if self._active_sentences else None
+                    self._active_sentence = sent
+                if sent is None:
+                    break
+                if not self._generation_is_current(
+                    sent.get("audio_generation"), sent.get("session_generation")
+                ):
+                    terminal = True
+                    clock = None
+                else:
                     from server.core.media.virtual_audio import global_virtual_audio
-                    clock = global_virtual_audio.get_playback_clock(audio_id)
-                    if clock:
-                        use_clock_sync = True
-                        if clock.get("is_interrupted"):
-                            with self._sentence_lock:
-                                if self._active_sentence is sent:
-                                    self._active_sentence = None
-                            sent = None
-                        elif not clock.get("has_started"):
-                            # 处于声卡排队缓冲或设备启动期：嘴巴静默等待物理出声，绝不抢跑！
-                            viseme_target = (0.0, 0.0)
-                        else:
-                            # 依据真实声卡 DAC 物理已播放秒数，严格吸附对齐口型帧游标
-                            elapsed = clock.get("elapsed_sec", 0.0)
-                            f_idx = int(elapsed * self.fps)
-                            visemes = sent.get("visemes", [])
-                            if f_idx < len(visemes):
-                                viseme_target = visemes[f_idx]
-                            elif clock.get("is_finished"):
-                                with self._sentence_lock:
-                                    if self._active_sentence is sent:
-                                        self._active_sentence = None
-                                viseme_target = (0.0, 0.0)
-                            else:
-                                viseme_target = (0.0, 0.0)
-                if not use_clock_sync and sent:
-                    # 降级模式 (无声卡/无 audio_id)：以单调时钟平滑驱动
-                    elapsed = time.monotonic() - sent.get("feed_time", time.monotonic())
-                    f_idx = int(elapsed * self.fps)
+                    clock = global_virtual_audio.get_playback_clock(sent["audio_id"])
+                    reject_reason = clock.get("reject_reason") if clock else None
+                    browser_fallback = bool(
+                        clock
+                        and reject_reason in {
+                            "service_disabled",
+                            "audio_unavailable",
+                            "queue_full",
+                            "stream_unavailable",
+                            "decode_empty",
+                            "playback_error",
+                        }
+                    )
+                    if browser_fallback and sent.get("fallback_started_at") is None:
+                        inherited_elapsed = max(0.0, float(clock.get("elapsed_sec", 0.0) or 0.0))
+                        sent["fallback_started_at"] = time.monotonic() - inherited_elapsed
+                    terminal = bool(
+                        clock
+                        and (
+                            clock.get("is_interrupted") and not browser_fallback
+                            or clock.get("is_rejected") and not browser_fallback
+                            or clock.get("is_finished")
+                        )
+                    )
+                    # cursor 理论上已由 live.prepare 建立；缺失时清理而不是擅自按 feed_time 抢跑。
+                    terminal = terminal or clock is None
+                if terminal:
+                    with self._sentence_lock:
+                        if self._active_sentences and self._active_sentences[0] is sent:
+                            self._active_sentences.pop(0)
+                        self._active_sentence = self._active_sentences[0] if self._active_sentences else None
+                    continue
+                fallback_started_at = sent.get("fallback_started_at")
+                if fallback_started_at is not None:
+                    elapsed = max(0.0, time.monotonic() - float(fallback_started_at))
+                    frame_index = int(elapsed * self.fps)
                     visemes = sent.get("visemes", [])
-                    if f_idx < len(visemes):
-                        viseme_target = visemes[f_idx]
-                    else:
+                    if frame_index >= len(visemes):
                         with self._sentence_lock:
-                            if self._active_sentence is sent:
-                                self._active_sentence = None
-                        viseme_target = (0.0, 0.0)
+                            if self._active_sentences and self._active_sentences[0] is sent:
+                                self._active_sentences.pop(0)
+                            self._active_sentence = self._active_sentences[0] if self._active_sentences else None
+                        continue
+                    viseme_target = visemes[frame_index]
+                elif not clock.get("has_started"):
+                    viseme_target = (0.0, 0.0)
+                else:
+                    elapsed = max(0.0, float(clock.get("elapsed_sec", 0.0) or 0.0))
+                    frame_index = int(elapsed * self.fps)
+                    visemes = sent.get("visemes", [])
+                    viseme_target = visemes[frame_index] if frame_index < len(visemes) else (0.0, 0.0)
+                break
 
-            # 若从共享时钟句子获得目标则直接采纳；否则消费旧 mouth_open_queue 保持兼容
+            # 共享时钟句子存在时绝不消费兼容 queue；终态清理后也不会二次回放。
             if viseme_target is not None:
                 m_open, m_form = viseme_target
                 self.target_mouth_open = m_open
@@ -414,7 +494,14 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         """Compose once, then fan the same publish frame out to camera and JPEG."""
         publish_frame = compose_scene_overlays(frame_rgb, global_scene_overlay_state.snapshot())
         if global_virtual_cam.is_active:
+            # 单参数调用保持第三方/测试替身兼容；VirtualCameraService 默认赋予最低优先级。
             global_virtual_cam.send_frame(publish_frame)
+        try:
+            from server.core.media.rtmp_streamer import global_rtmp_streamer
+            if global_rtmp_streamer.is_streaming:
+                global_rtmp_streamer.send_video_frame(publish_frame)
+        except Exception:
+            pass
         ok, buf = cv2.imencode(
             ".jpg",
             cv2.cvtColor(publish_frame, cv2.COLOR_RGB2BGR),
@@ -424,9 +511,25 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             self.latest_jpeg_frame = buf.tobytes()
 
     def _synthesize_frame(self, t: float, mouth_open: float, mouth_form: float = 0.0) -> "np.ndarray":
-        """合成单帧 (委托共享渲染器：呼吸/泊松眨眼/Viseme 口型/运镜/光影/真人动作切片)"""
+        """合成单帧 (真人微动态底池羽化融合 / 共享程序化兜底渲染)"""
         if self.base_portrait is None:
             return np.zeros((self.height, self.width, 3), dtype=np.uint8)
+
+        # 优先接入低配真人微动态与下唇自适应羽化融合引擎
+        if self.avatar_source_path and _os.path.exists(self.avatar_source_path):
+            try:
+                from server.core.media.real_avatar_lite import global_real_avatar_lite
+                real_frame = global_real_avatar_lite.render_frame(
+                    t,
+                    mouth_open=mouth_open,
+                    mouth_form=mouth_form,
+                    is_blinking=self.micro_expr.is_blinking(t),
+                )
+                if real_frame is not None:
+                    return real_frame
+            except Exception:
+                pass
+
         from server.core.media.procedural_renderer import synth_frame
         return synth_frame(
             self.base_portrait, self.width, self.height, t, mouth_open,
@@ -442,7 +545,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
     def get_capabilities(self) -> dict:
         """机器可读能力清单上报 (ADR-16 / 规划 §4.2 如实声明契约，绝不虚报)"""
         from server.core.media.virtual_audio import global_virtual_audio
-        shared_clock = bool(global_virtual_audio.available)
+        audio_status = global_virtual_audio.get_status()
         return {
             "driver": "procedural_avatar",
             "capabilities": {
@@ -452,7 +555,10 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 "alignment_mode": "heuristic_uniform",
                 "phoneme_source": "pypinyin_or_builtin",
                 "forced_alignment": False,
-                "shared_playback_clock": shared_clock,
+                "shared_playback_clock": bool(audio_status.get("shared_playback_clock")),
+                "hardware_dac_clock": bool(audio_status.get("hardware_dac_clock")),
+                "clock_source": audio_status.get("clock_source"),
+                "clock_precision": audio_status.get("clock_precision", "none"),
                 "expressions": True,
                 "head_motion": True,
                 "remote_rendering": False,
@@ -502,6 +608,11 @@ class Live2DDriver(BaseMediaDriver):
                 "neural_lipsync": False,
                 "viseme_lipsync": False,
                 "g2p_aligned": False,
+                "alignment_mode": "none",
+                "shared_playback_clock": False,
+                "hardware_dac_clock": False,
+                "clock_source": None,
+                "clock_precision": "none",
                 "expressions": False,
                 "head_motion": False,
                 "remote_rendering": False,
@@ -539,6 +650,11 @@ class NeuralLipSyncDriver(BaseMediaDriver):
                 "neural_lipsync": False,
                 "viseme_lipsync": False,
                 "g2p_aligned": False,
+                "alignment_mode": "none",
+                "shared_playback_clock": False,
+                "hardware_dac_clock": False,
+                "clock_source": None,
+                "clock_precision": "none",
                 "expressions": False,
                 "head_motion": False,
                 "remote_rendering": False,

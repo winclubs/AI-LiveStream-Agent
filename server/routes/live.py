@@ -1,18 +1,20 @@
 import asyncio
 import uuid
 import base64
+import io
 import json
 import os
 import re
 import time
 import logging
 import inspect
+import wave
 import psutil
 from collections import deque
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Any, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 from server.database.db import get_db
@@ -35,6 +37,93 @@ from server.adapters.obs.obs_client import global_obs_client
 logger = logging.getLogger("LiveAgent.LiveController")
 router = APIRouter(prefix="/live", tags=["直播控场与调度"])
 
+OBS_SETTING_HOST = "obs_websocket_host"
+OBS_SETTING_PORT = "obs_websocket_port"
+OBS_SETTING_PASSWORD = "obs_websocket_password"
+OBS_SETTING_AUTO_CONNECT = "obs_auto_connect"
+
+
+def _pcm_s16le_to_wav(pcm: bytes, sample_rate: int, channels: int) -> bytes:
+    """将裸 PCM16 封装为浏览器可独立播放的完整 WAV 容器。"""
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav_file:
+        wav_file.setnchannels(int(channels))
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(int(sample_rate))
+        wav_file.writeframes(pcm)
+    return output.getvalue()
+
+
+async def _save_obs_settings(
+    db: AsyncSession,
+    *,
+    host: str,
+    port: int,
+    password: str,
+    auto_connect: bool,
+) -> None:
+    """使用现有 AppSetting 表原子保存 OBS 配置；密码始终加密。"""
+    from server.config import encrypt_secret
+
+    values = {
+        OBS_SETTING_HOST: host,
+        OBS_SETTING_PORT: str(port),
+        OBS_SETTING_PASSWORD: encrypt_secret(password) if password else "",
+        OBS_SETTING_AUTO_CONNECT: "1" if auto_connect else "0",
+    }
+    result = await db.execute(select(AppSetting).where(AppSetting.key.in_(values)))
+    existing: dict[str, AppSetting] = {str(row.key): row for row in result.scalars().all()}
+    for key, value in values.items():
+        row = existing.get(key)
+        if row:
+            setattr(row, "value", value)
+        else:
+            db.add(AppSetting(key=key, value=value))
+    await db.commit()
+
+
+async def _set_obs_auto_connect(db: AsyncSession, enabled: bool) -> None:
+    """仅更新用户自动连接意图，不改写已保存的连接参数。"""
+    result = await db.execute(select(AppSetting).where(AppSetting.key == OBS_SETTING_AUTO_CONNECT))
+    row = result.scalar_one_or_none()
+    value: str = "1" if enabled else "0"
+    if row:
+        setattr(row, "value", value)
+    else:
+        db.add(AppSetting(key=OBS_SETTING_AUTO_CONNECT, value=value))
+    await db.commit()
+
+
+async def restore_obs_connection(db: AsyncSession) -> bool:
+    """数据库初始化后恢复 OBS 配置；仅持久化 intent=true 时尝试连接。"""
+    from server.config import decrypt_secret
+
+    keys = (
+        OBS_SETTING_HOST,
+        OBS_SETTING_PORT,
+        OBS_SETTING_PASSWORD,
+        OBS_SETTING_AUTO_CONNECT,
+    )
+    result = await db.execute(select(AppSetting).where(AppSetting.key.in_(keys)))
+    values: dict[str, str] = {str(row.key): str(row.value or "") for row in result.scalars().all()}
+    if values.get(OBS_SETTING_AUTO_CONNECT) != "1":
+        return False
+
+    host = values.get(OBS_SETTING_HOST) or "127.0.0.1"
+    try:
+        port = int(values.get(OBS_SETTING_PORT) or 4455)
+    except (TypeError, ValueError):
+        port = 4455
+    encrypted_password = values.get(OBS_SETTING_PASSWORD, "")
+    password = decrypt_secret(encrypted_password) if encrypted_password else ""
+    global_obs_client.host = host
+    global_obs_client.port = port
+    global_obs_client.password = password
+    connected = await global_obs_client.connect()
+    if not connected:
+        logger.warning("启动时恢复 OBS 自动连接失败: %s:%s", host, port)
+    return connected
+
 
 def _supported_metadata(callable_obj, metadata: dict) -> dict:
     """仅向声明支持的 callable 传元数据，兼容旧 driver 与测试替身。"""
@@ -54,8 +143,28 @@ async def _call_async_compat(callable_obj, *args, **metadata):
 def _call_sync_compat(callable_obj, *args, **metadata):
     return callable_obj(*args, **_supported_metadata(callable_obj, metadata))
 
+
+def _safe_media_status(component: str, getter, default: Optional[dict] = None) -> dict:
+    """单个媒体组件故障不能让诊断端点整体不可用。"""
+    try:
+        value = getter()
+        if not isinstance(value, dict):
+            raise TypeError("status getter 未返回 dict")
+        return value
+    except Exception as exc:
+        logger.warning("读取 %s 状态失败: %s", component, exc)
+        return {
+            **(default or {}),
+            "available": False,
+            "component_up": False,
+            "stale": True,
+            "error": str(exc),
+        }
+
 # 全局直播运行控制器
 class LiveSessionController:
+    MAX_TTS_SENTENCE_BYTES = 32 * 1024 * 1024
+
     def __init__(self):
         self.is_live = False
         self.session_id: Optional[str] = None
@@ -67,42 +176,79 @@ class LiveSessionController:
         self.worker_task: Optional[asyncio.Task] = None
         self.viewer_task: Optional[asyncio.Task] = None
         self.vision_task: Optional[asyncio.Task] = None
-        self.live_context = {"products": []}
+        self.live_context: dict[str, Any] = {"products": []}
         self._background_tasks = set()
         self._session_generation = 0
         self._audio_generation = 0
         self._lifecycle_lock: Optional[asyncio.Lock] = None
         self.tts_driver = EdgeTTSMediaDriver()
         self.vram_watchdog = VRAMWatchdog(on_alert=self._on_vram_alert)
-        self.obs_owner_session_id: Optional[str] = None
+        self._obs_owner_session_id: Optional[str] = None
+        self.obs_owner_connection_epoch: Optional[int] = None
         self.demo_mode: bool = False
         self.current_tts_task: Optional[asyncio.Task] = None
         self.cleanup_errors: list = []
         # 直播大屏运营统计 (需求 8)
-        self.stats = {
+        self.stats: dict[str, Any] = {
             "start_ts": None,
             "viewer_count": 0,
             "peak_viewer_count": 0,
             "gift_income_yuan": 0.0,
             "gmv_yuan": 0.0,
             "orders_count": 0,
+            # 兼容字段：仅统计成功进入调度队列的真实业务事件。
             "danmaku_count": 0,
             "gift_count": 0,
+            "events_received_total": 0,
+            "events_accepted_total": 0,
+            "events_dropped_total": 0,
+            "danmaku_received_total": 0,
+            "danmaku_accepted_total": 0,
+            "danmaku_dropped_total": 0,
+            "gift_received_total": 0,
+            "gift_accepted_total": 0,
+            "gift_dropped_total": 0,
             "guardrail_hits": 0,
             "flash_sales": 0
         }
 
     @property
+    def obs_owner_session_id(self) -> Optional[str]:
+        return self._obs_owner_session_id
+
+    @obs_owner_session_id.setter
+    def obs_owner_session_id(self, session_id: Optional[str]) -> None:
+        """兼容旧调用：直接认领 owner 时同步记录当前 OBS epoch。"""
+        self._obs_owner_session_id = session_id
+        if session_id is None:
+            self.obs_owner_connection_epoch = None
+        elif self.obs_owner_connection_epoch is None:
+            current_epoch = getattr(global_obs_client, "connection_epoch", None)
+            self.obs_owner_connection_epoch = current_epoch if isinstance(current_epoch, int) else 0
+
+    @property
     def obs_stream_started_by_agent(self) -> bool:
-        """推流所有权严格绑定当前会话 session_id，跨场次自动失效"""
-        return bool(self.obs_owner_session_id and self.session_id and self.obs_owner_session_id == self.session_id)
+        """推流所有权严格绑定当前会话和 OBS 连接 epoch。"""
+        current_epoch = getattr(global_obs_client, "connection_epoch", None)
+        if not isinstance(current_epoch, int):
+            current_epoch = self.obs_owner_connection_epoch
+        return bool(
+            self.obs_owner_session_id
+            and self.session_id
+            and self.obs_owner_session_id == self.session_id
+            and self.obs_owner_connection_epoch is not None
+            and self.obs_owner_connection_epoch == current_epoch
+        )
 
     @obs_stream_started_by_agent.setter
     def obs_stream_started_by_agent(self, val: bool):
-        if val:
-            self.obs_owner_session_id = self.session_id or "active_session"
+        if val and self.session_id:
+            self.obs_owner_session_id = self.session_id
+            current_epoch = getattr(global_obs_client, "connection_epoch", None)
+            self.obs_owner_connection_epoch = current_epoch if isinstance(current_epoch, int) else 0
         else:
             self.obs_owner_session_id = None
+            self.obs_owner_connection_epoch = None
 
     @property
     def lifecycle_lock(self) -> asyncio.Lock:
@@ -125,8 +271,18 @@ class LiveSessionController:
             "gift_income_yuan": 0.0,
             "gmv_yuan": 0.0,
             "orders_count": 0,
+            # 兼容字段：仅统计成功进入调度队列的真实业务事件。
             "danmaku_count": 0,
             "gift_count": 0,
+            "events_received_total": 0,
+            "events_accepted_total": 0,
+            "events_dropped_total": 0,
+            "danmaku_received_total": 0,
+            "danmaku_accepted_total": 0,
+            "danmaku_dropped_total": 0,
+            "gift_received_total": 0,
+            "gift_accepted_total": 0,
+            "gift_dropped_total": 0,
             "guardrail_hits": 0,
             "flash_sales": 0
         })
@@ -203,6 +359,11 @@ class LiveSessionController:
                             global_role_manager.register_or_update_from_db(role_db, activate=True)
             except Exception:
                 logger.exception("热重载当前角色配置失败")
+        if section in ("all", "settings"):
+            try:
+                await self._configure_neural_sidecar()
+            except Exception:
+                logger.exception("热重载远端 Avatar Provider 失败，继续使用程序化 shadow")
 
     async def _on_barge_in(self, reason: str):
         self._audio_generation += 1
@@ -303,7 +464,7 @@ class LiveSessionController:
                 extra = json.loads(remote_cfg.extra_params_json or "{}")
             except Exception:
                 pass
-            token = extra.get("auth_token") or (decrypt_secret(remote_cfg.encrypted_api_key) if remote_cfg.encrypted_api_key else "")
+            token = extra.get("auth_token") or (decrypt_secret(str(remote_cfg.encrypted_api_key)) if remote_cfg.encrypted_api_key else "")
             driver = RemoteGPUMediaDriver(node_url=remote_cfg.base_url, auth_token=token)
             await driver.start()
             if driver.is_connected:
@@ -331,7 +492,7 @@ class LiveSessionController:
                 extra = json.loads(tts_cfg.extra_params_json or "{}")
             except Exception:
                 pass
-            key = decrypt_secret(tts_cfg.encrypted_api_key) if tts_cfg.encrypted_api_key else ""
+            key = decrypt_secret(str(tts_cfg.encrypted_api_key)) if tts_cfg.encrypted_api_key else ""
             driver = MinimaxTTSMediaDriver(
                 api_base=tts_cfg.base_url or "https://api.minimax.chat/v1",
                 api_key=key,
@@ -356,6 +517,80 @@ class LiveSessionController:
         if active_voice:
             await driver.apply_volume_gain(getattr(active_voice, "volume_gain", 1.0) or 1.0)
         return driver
+
+    async def _configure_neural_sidecar(self) -> None:
+        """加载全部 enabled renderer-only v3 Provider；不可用不影响开播。"""
+        from server.adapters.media.avatar_orchestrator import (
+            AvatarProviderEntry,
+            AvatarProviderOrchestrator,
+        )
+        from server.adapters.media.avatar_provider_registry import create_avatar_provider
+        from server.config import decrypt_secret
+        from server.database.db import AsyncSessionLocal
+        from server.database.models import ApiProviderConfig
+
+        previous_orchestrator = global_media_router.avatar_orchestrator
+        if previous_orchestrator is not None:
+            try:
+                await asyncio.wait_for(previous_orchestrator.stop(), timeout=4.0)
+            except Exception:
+                logger.exception(
+                    "旧 Avatar Provider 编排器未确认停止；中止热替换并保持程序化 shadow"
+                )
+                return
+            global_media_router.detach_avatar_orchestrator()
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(ApiProviderConfig)
+                .where(
+                    ApiProviderConfig.config_group == "neural_renderer",
+                    ApiProviderConfig.is_active == 1,
+                )
+                .order_by(ApiProviderConfig.id.asc())
+            )
+            configs = list(result.scalars().all())
+
+        entries = []
+        preview_driver = None
+        for config in configs:
+            if not config.base_url:
+                logger.warning("跳过无 base_url 的 Avatar Provider 配置 id=%s", config.id)
+                continue
+            try:
+                extra = json.loads(config.extra_params_json or "{}")
+                if not isinstance(extra, dict):
+                    raise ValueError("extra_params 必须是 object")
+                token = (
+                    decrypt_secret(str(config.encrypted_api_key))
+                    if config.encrypted_api_key
+                    else ""
+                )
+                provider, policy = create_avatar_provider(
+                    provider_instance_id=config.id,
+                    display_name=config.provider_name or f"Avatar Provider {config.id}",
+                    base_url=config.base_url,
+                    credential=token,
+                    model_name=config.model_name,
+                    extra_params=extra,
+                )
+                entries.append(AvatarProviderEntry(provider=provider, policy=policy))
+                if preview_driver is None:
+                    preview_driver = provider
+            except Exception as exc:
+                logger.warning("跳过无效 Avatar Provider 配置 id=%s: %s", config.id, exc)
+
+        if not entries:
+            global_media_router.detach_avatar_orchestrator()
+            return
+        orchestrator = AvatarProviderOrchestrator(entries)
+        global_media_router.attach_avatar_orchestrator(
+            orchestrator,
+            preview_driver=preview_driver,
+        )
+        # 热加载发生在本地 renderer 已运行之后，新编排器需立即启动；首次开播由 Router.start 负责。
+        if global_media_router.is_running:
+            await orchestrator.start()
 
     def _track_task(self, coroutine):
         """跟踪短生命周期后台任务，停播时统一收敛，避免跨场执行。"""
@@ -410,6 +645,13 @@ class LiveSessionController:
             global_media_router.attach_remote(self.tts_driver)
         else:
             global_media_router.detach_remote()
+
+        # renderer-only sidecar 使用独立 neural_renderer 配置组；配置或握手失败不阻断本地开播。
+        try:
+            await self._configure_neural_sidecar()
+        except Exception:
+            logger.exception("加载神经渲染 sidecar 配置失败，继续使用本地 renderer")
+            global_media_router.detach_sidecar()
 
         # 启动数字人渲染引擎与音画帧管道 (根据模式、主播底图与人脸关键点)
         global_media_router.select_driver(mode=mode, avatar_path=avatar_path, landmarks_path=landmarks_path)
@@ -569,9 +811,11 @@ class LiveSessionController:
             self._background_tasks.clear()
 
             # 4. 停止音频和 TTS
-            if self.current_tts_task and not self.current_tts_task.done():
-                self.current_tts_task.cancel()
-                self.current_tts_task = None
+            current_tts_task = self.current_tts_task
+            self.current_tts_task = None
+            if current_tts_task and not current_tts_task.done():
+                current_tts_task.cancel()
+                await asyncio.gather(current_tts_task, return_exceptions=True)
             if hasattr(self, "tts_driver") and self.tts_driver:
                 await self._safe_close("tts_driver", self.tts_driver.stop, timeout=3.0)
             await self._safe_close(
@@ -583,6 +827,7 @@ class LiveSessionController:
             # 5. 停止远程 GPU 和本地媒体
             await self._safe_close("detach_remote", global_media_router.detach_remote, timeout=2.0)
             await self._safe_close("media_router", global_media_router.stop, timeout=3.0)
+            await self._safe_close("detach_sidecar", global_media_router.detach_sidecar, timeout=2.0)
 
             # 6. 停止摄像头、声卡和视觉感知设备
             await self._safe_close("vision", global_vision.close, timeout=2.0)
@@ -598,6 +843,7 @@ class LiveSessionController:
             self.is_live = False
             self.session_id = None
             self.obs_owner_session_id = None
+            self.obs_owner_connection_epoch = None
             self.live_context = {"products": []}
             self.fetcher = None
             self.worker_task = self.viewer_task = self.vision_task = None
@@ -624,15 +870,14 @@ class LiveSessionController:
         is_mock_event = bool(is_mock or payload.get("_is_mock") or payload.get("_is_fallback") or source == "mock")
         payload["_source"] = source
         payload["_is_mock"] = is_mock_event
+        metric_kind = "danmaku" if event_type in ("danmaku", "chat") else event_type
 
-        # 仅真实事件计入正式运营大屏指标，严禁仿真事件污染
+        # 正式入口指标只统计真实事件；瀑布流仍展示 received（包括 Mock）。
         if not is_mock_event:
-            if event_type == "gift":
-                total_coin = payload.get("total_coin", 0) or 0
-                self.stats["gift_income_yuan"] = round(self.stats["gift_income_yuan"] + total_coin / 1000.0, 2)
-                self.stats["gift_count"] += 1
-            elif event_type in ("danmaku", "chat"):
-                self.stats["danmaku_count"] += 1
+            self.stats["events_received_total"] = int(self.stats.get("events_received_total") or 0) + 1
+            if metric_kind in ("danmaku", "gift"):
+                key_recv = f"{metric_kind}_received_total"
+                self.stats[key_recv] = int(self.stats.get(key_recv) or 0) + 1
 
         # 实时广播大屏瀑布流
         from server.routes.ws_live import ws_manager
@@ -660,6 +905,36 @@ class LiveSessionController:
             priority=priority,
             as_result=True,
         )
+        if not is_mock_event:
+            if res.accepted:
+                self.stats["events_accepted_total"] = int(self.stats.get("events_accepted_total") or 0) + 1
+                if metric_kind in ("danmaku", "gift"):
+                    key_acc = f"{metric_kind}_accepted_total"
+                    self.stats[key_acc] = int(self.stats.get(key_acc) or 0) + 1
+                # 运营兼容指标与收入只累计成功受理的真实事件。
+                if metric_kind == "gift":
+                    total_coin = payload.get("total_coin", 0) or 0
+                    self.stats["gift_income_yuan"] = round(
+                        float(self.stats.get("gift_income_yuan") or 0.0) + total_coin / 1000.0,
+                        2,
+                    )
+                    self.stats["gift_count"] = int(self.stats.get("gift_count") or 0) + 1
+                elif metric_kind == "danmaku":
+                    self.stats["danmaku_count"] = int(self.stats.get("danmaku_count") or 0) + 1
+            else:
+                self.stats["events_dropped_total"] = int(self.stats.get("events_dropped_total") or 0) + 1
+                if metric_kind in ("danmaku", "gift"):
+                    key_drop = f"{metric_kind}_dropped_total"
+                    self.stats[key_drop] = int(self.stats.get(key_drop) or 0) + 1
+
+        # accepted 新事件可能驱逐旧事件；dropped 必须按被驱逐项自身的来源和类型归属。
+        if res.accepted and res.dropped_event_id and res.dropped_is_mock is False:
+            dropped_kind = "danmaku" if res.dropped_event_type in ("danmaku", "chat") else res.dropped_event_type
+            self.stats["events_dropped_total"] = int(self.stats.get("events_dropped_total") or 0) + 1
+            if dropped_kind in ("danmaku", "gift"):
+                key_evict = f"{dropped_kind}_dropped_total"
+                self.stats[key_evict] = int(self.stats.get(key_evict) or 0) + 1
+
         return {
             "accepted": bool(res),
             "event_id": event_id,
@@ -760,12 +1035,16 @@ class LiveSessionController:
                 text_buffer = ""
                 full_reply = ""
                 try:
-                    # 获取主播大模型流式思考切片 (携带多轮对话历史)
-                    stream = active_role.process_event(
+                    stream_or_coro = active_role.process_event(
                         event.event_type,
                         event.user_name,
                         event.payload,
                         self.live_context
+                    )
+                    stream: Any = (
+                        await stream_or_coro
+                        if inspect.iscoroutine(stream_or_coro)
+                        else stream_or_coro
                     )
 
                     async for raw_chunk in stream:
@@ -864,18 +1143,30 @@ class LiveSessionController:
         speak_text = humanize_text(sanitized_sentence, active_role.role_type)
         return speak_text, False, hits
 
-    async def _collect_tts_sentence(self, driver, text: str) -> bytes:
-        """完整收集一句音频；异常或提前取消时显式关闭上游异步生成器。"""
+    async def _collect_tts_sentence(self, driver, text: str, pcm_transaction=None) -> bytes:
+        """完整收集一句音频；PCM provider 同时增量帧化，但仅在成功后提交。"""
         chunks = []
+        total_bytes = 0
+        completed = False
         stream = driver.synthesize_stream(text)
         try:
             async for chunk in stream:
                 if self.event_queue.is_cancelled():
                     return b""
                 if chunk:
+                    total_bytes += len(chunk)
+                    if total_bytes > self.MAX_TTS_SENTENCE_BYTES:
+                        raise RuntimeError(
+                            f"TTS 整句编码音频超过 {self.MAX_TTS_SENTENCE_BYTES} bytes"
+                        )
+                    if pcm_transaction is not None:
+                        pcm_transaction.append(chunk)
                     chunks.append(chunk)
+            completed = True
             return b"".join(chunks)
         finally:
+            if pcm_transaction is not None and not completed:
+                pcm_transaction.abort("source_incomplete")
             close_stream = getattr(stream, "aclose", None)
             if close_stream is not None:
                 await close_stream()
@@ -911,8 +1202,36 @@ class LiveSessionController:
 
         driver = self.tts_driver
         video_request_id = None
+        audio_id = f"{self.session_id or 'local'}_{audio_generation}_{uuid.uuid4().hex[:8]}"
+        staged_pcm_frames = None
+        from server.core.media.incremental_audio import global_incremental_audio_pipeline
+
+        def open_pcm_transaction(target_driver):
+            try:
+                parameters = inspect.signature(self._collect_tts_sentence).parameters
+            except (TypeError, ValueError):
+                return None
+            if "pcm_transaction" not in parameters:
+                return None
+            target_codec = str(getattr(target_driver, "audio_codec", "mp3") or "").lower()
+            if target_codec not in {"pcm_s16le", "pcm16", "s16le"}:
+                return None
+            return global_incremental_audio_pipeline.open_transaction(
+                sample_rate=int(getattr(target_driver, "audio_sample_rate", 24000)),
+                channels=int(getattr(target_driver, "audio_channels", 1)),
+                audio_id=audio_id,
+                audio_generation=audio_generation,
+                session_generation=session_generation,
+                text=speak_text,
+            )
+
+        def create_collect_task(target_driver, pcm_transaction):
+            kwargs = {"pcm_transaction": pcm_transaction} if pcm_transaction is not None else {}
+            return asyncio.create_task(self._collect_tts_sentence(target_driver, speak_text, **kwargs))
+
         # 创建独立的短生命周期 Task，绝不拿主循环自身 Worker 充当 current_tts_task
-        synth_task = asyncio.create_task(self._collect_tts_sentence(driver, speak_text))
+        pcm_transaction = open_pcm_transaction(driver)
+        synth_task = create_collect_task(driver, pcm_transaction)
         self.current_tts_task = synth_task
         fallback_task = None
         try:
@@ -920,9 +1239,13 @@ class LiveSessionController:
             # 紧邻生成器耗尽读取事务 ID，中间不 await，避免其他请求覆盖兼容游标。
             video_request_id = getattr(driver, "last_completed_request_id", None)
             if not is_current():
+                if pcm_transaction is not None:
+                    pcm_transaction.abort("generation_changed")
                 return
             if not full_audio or len(full_audio) == 0:
                 raise RuntimeError("TTS 返回空音频数据 (0 bytes)")
+            if pcm_transaction is not None:
+                staged_pcm_frames = pcm_transaction.finish()
         except asyncio.CancelledError:
             logger.info("单句 TTS 生成任务已被 P0 抢占打断取消")
             return
@@ -937,7 +1260,9 @@ class LiveSessionController:
                 driver = await self._switch_to_edge_tts()
                 if not is_current():
                     return
-                fallback_task = asyncio.create_task(self._collect_tts_sentence(driver, speak_text))
+                staged_pcm_frames = None
+                pcm_transaction = open_pcm_transaction(driver)
+                fallback_task = create_collect_task(driver, pcm_transaction)
                 self.current_tts_task = fallback_task
                 try:
                     full_audio = await fallback_task
@@ -947,12 +1272,16 @@ class LiveSessionController:
                 video_request_id = getattr(driver, "last_completed_request_id", None)
                 if not is_current() or not full_audio or len(full_audio) == 0:
                     return
+                if pcm_transaction is not None:
+                    staged_pcm_frames = pcm_transaction.finish()
             except Exception:
                 logger.exception("Edge-TTS 运行期降级失败")
                 return
         finally:
             if self.current_tts_task in (synth_task, fallback_task):
                 self.current_tts_task = None
+            if pcm_transaction is not None and pcm_transaction.state == "open":
+                pcm_transaction.abort("controller_exit")
 
         global_av_sync.measure(synth_started)
         if not full_audio or len(full_audio) == 0 or not is_current():
@@ -962,7 +1291,6 @@ class LiveSessionController:
         mime_type = getattr(driver, "audio_mime_type", "audio/mpeg")
         sample_rate = int(getattr(driver, "audio_sample_rate", 24000))
         channels = int(getattr(driver, "audio_channels", 1))
-        audio_id = f"{self.session_id or 'local'}_{audio_generation}_{uuid.uuid4().hex[:8]}"
         pts_ms = int(time.monotonic() * 1000)
         metadata = {
             "codec": codec,
@@ -973,45 +1301,125 @@ class LiveSessionController:
             "audio_id": audio_id,
         }
 
-        # 口型 driver 可能执行异步解码；恢复后必须再次拒绝已失效代际。
-        await _call_async_compat(
-            global_media_driver.feed_audio_chunk,
-            full_audio,
-            speak_text,
-            **metadata,
-        )
+        # 第一阶段保留整句事务屏障，成功后统一解码为有界 PCM 帧。解码不可用、
+        # 测试替身或旧驱动仍走原字节路径，不改变 partial 丢弃和浏览器兼容契约。
+        from server.core.media.audio_pipeline import FramedAudio, global_audio_frame_pipeline
+        if staged_pcm_frames is not None:
+            framed_audio = FramedAudio(
+                frames=staged_pcm_frames,
+                format=staged_pcm_frames[0].format,
+                source_codec=codec,
+                decode_ms=0.0,
+            )
+        else:
+            framed_audio = await global_audio_frame_pipeline.frame_transaction(
+                full_audio,
+                source_codec=codec,
+                sample_rate=sample_rate,
+                channels=channels,
+                audio_id=audio_id,
+                audio_generation=audio_generation,
+                session_generation=session_generation,
+                text=speak_text,
+            )
         if not is_current():
             return
+        playback_sample_rate = framed_audio.format.sample_rate if framed_audio else sample_rate
 
-        _call_sync_compat(
-            global_virtual_audio.play_chunk,
-            full_audio,
-            fallback_sample_rate=sample_rate,
-            **metadata,
-        )
+        # 原子事务：先注册不播放的 cursor，再建立口型，最后在 generation fence 后提交音频。
+        # 旧服务/测试替身没有 prepare/frame API 时保持原有兼容路径。
+        prepare_playback = getattr(global_virtual_audio, "prepare_playback", None)
+        if prepare_playback is None:
+            prepare_playback = getattr(global_virtual_audio, "register_playback", None)
+        cursor_prepared = False
+        audio_commit_resolved = False
+        if prepare_playback is not None:
+            prepare_metadata = {key: value for key, value in metadata.items() if key != "audio_id"}
+            prepare_result = _call_sync_compat(
+                prepare_playback,
+                audio_id,
+                fallback_sample_rate=playback_sample_rate,
+                **prepare_metadata,
+            )
+            # 旧 API 返回 None 继续视为成功；新 API 的 False 表示 cursor 已明确拒绝。
+            cursor_prepared = prepare_result is not False
+            if prepare_result is False:
+                logger.info("播放 cursor 拒绝事务 audio_id=%s，停止媒体提交", audio_id)
+                return
         if not is_current():
+            reject_playback = getattr(global_virtual_audio, "reject_playback", None)
+            if cursor_prepared and reject_playback is not None:
+                _call_sync_compat(reject_playback, audio_id, reason="generation_changed_before_feed")
             return
 
-        # 远程视频在整句音频确认成功并进入播放队列后才开始发布，禁止合成阶段提前直出。
+        try:
+            feed_frames = getattr(global_media_driver, "feed_audio_frames", None)
+            if framed_audio is not None and feed_frames is not None:
+                await _call_async_compat(feed_frames, framed_audio.frames)
+            else:
+                # 兼容驱动可能执行异步完整容器解码；它看到 audio_id 时 cursor 已存在且尚未开始。
+                await _call_async_compat(
+                    global_media_driver.feed_audio_chunk,
+                    full_audio,
+                    speak_text,
+                    **metadata,
+                )
+            if not is_current():
+                return
+
+            play_frames = getattr(global_virtual_audio, "play_frames", None)
+            if framed_audio is not None and play_frames is not None:
+                play_result = _call_sync_compat(play_frames, framed_audio.frames)
+            else:
+                play_result = _call_sync_compat(
+                    global_virtual_audio.play_chunk,
+                    full_audio,
+                    fallback_sample_rate=sample_rate,
+                    **metadata,
+                )
+            # 返回 False 的新 API 已自行把 cursor 标为 rejected；浏览器通道仍作为显式软降级。
+            # 旧 API 返回 None 继续视为已处理，保持替身兼容。
+            audio_commit_resolved = True
+            if play_result is False:
+                logger.info("本地音频提交被拒绝，保留浏览器降级 audio_id=%s", audio_id)
+            if not is_current():
+                return
+        finally:
+            if cursor_prepared and not audio_commit_resolved:
+                reject_playback = getattr(global_virtual_audio, "reject_playback", None)
+                if reject_playback is not None:
+                    _call_sync_compat(reject_playback, audio_id, reason="commit_aborted")
+
+        # 远程视频绑定同一 audio_id；commit 本身只启动异步时间线，不阻塞事件循环。
         commit_video = getattr(driver, "commit_video_frames", None)
         if commit_video is not None:
             commit_kwargs = {
                 "codec": codec,
                 "sample_rate": sample_rate,
                 "channels": channels,
+                "audio_id": audio_id,
             }
             if video_request_id:
                 commit_kwargs["request_id"] = video_request_id
-            await commit_video(full_audio, **commit_kwargs)
+            await _call_async_compat(commit_video, full_audio, **commit_kwargs)
             if not is_current():
                 return
 
+        browser_audio = full_audio
+        browser_codec = codec
+        browser_mime_type = mime_type
+        if str(codec).lower() in {"pcm_s16le", "pcm16", "s16le"}:
+            browser_audio = _pcm_s16le_to_wav(full_audio, sample_rate, channels)
+            browser_codec = "wav"
+            browser_mime_type = "audio/wav"
+
         await ws_manager.broadcast("AUDIO_CHUNK", {
-            "audio_base64": base64.b64encode(full_audio).decode("utf-8"),
+            "audio_base64": base64.b64encode(browser_audio).decode("utf-8"),
             "text": speak_text,
             "speaker": active_role.role_name,
-            "codec": codec,
-            "mime_type": mime_type,
+            "codec": browser_codec,
+            "source_codec": codec,
+            "mime_type": browser_mime_type,
             "sample_rate": sample_rate,
             "channels": channels,
             "audio_id": audio_id,
@@ -1070,13 +1478,25 @@ global_live_controller = LiveSessionController()
 
 def _on_obs_external_state_change(active: bool, state: str, epoch: Optional[int] = None):
     if not active:
-        # 当 OBS 外部停流或断开连接时，若事件来自于当前活跃 epoch，主动释放 Agent 的推流所有权，杜绝跨场残留
-        if epoch is not None and epoch != global_obs_client.connection_epoch:
-            logger.debug("忽略来自过时 OBS 连接的停流事件 (epoch=%d < current=%d)", epoch, global_obs_client.connection_epoch)
+        current_epoch = global_obs_client.connection_epoch
+        owner_epoch = getattr(global_live_controller, "obs_owner_connection_epoch", None)
+        # 仅当前连接代际可以释放同代际所有权；旧连接事件不能触碰新场次。
+        if epoch is not None and epoch != current_epoch:
+            logger.debug("忽略来自过时 OBS 连接的停流事件 (epoch=%d, current=%d)", epoch, current_epoch)
             return
-        if getattr(global_live_controller, "obs_owner_session_id", None):
-            logger.info("OBS 外部推流已停止或连接中断 (%s, epoch=%s)，释放 Agent 推流所有权 (session=%s)", state, epoch, global_live_controller.obs_owner_session_id)
+        event_epoch = current_epoch if epoch is None else epoch
+        if (
+            getattr(global_live_controller, "obs_owner_session_id", None)
+            and owner_epoch == current_epoch == event_epoch
+        ):
+            logger.info(
+                "OBS 外部推流已停止或连接中断 (%s, epoch=%s)，释放 Agent 推流所有权 (session=%s)",
+                state,
+                epoch,
+                global_live_controller.obs_owner_session_id,
+            )
             global_live_controller.obs_owner_session_id = None
+            global_live_controller.obs_owner_connection_epoch = None
 
 global_obs_client.add_stream_state_listener(_on_obs_external_state_change)
 
@@ -1150,7 +1570,7 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         if not role_row:
             raise HTTPException(status_code=400, detail=f"指定的主播角色不存在: {req.role_id}")
         await db.execute(update(AnchorRole).values(is_active=0))
-        role_row.is_active = 1
+        setattr(role_row, "is_active", 1)
         global_role_manager.register_or_update_from_db(role_row, activate=True)
     active_role = global_role_manager.get_active_role()
 
@@ -1160,7 +1580,7 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         if not anchor_row:
             raise HTTPException(status_code=400, detail=f"指定的主播不存在: {req.anchor_id}")
 
-    target_voice_id = req.voice_id or (anchor_row.voice_id if anchor_row else None)
+    target_voice_id: Optional[str] = req.voice_id or (str(anchor_row.voice_id) if anchor_row and anchor_row.voice_id else None)
     if target_voice_id and not await db.get(VoiceProfile, target_voice_id):
         raise HTTPException(status_code=400, detail=f"指定的音色不存在: {target_voice_id}")
 
@@ -1184,7 +1604,7 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
 
     live_mode = await _get_setting(db, SETTING_KEY_LIVE_MODE) or "B"
     live_theme = await _get_setting(db, "live_theme") or ""
-    avatar_path = anchor_row.photo_portrait if anchor_row and anchor_row.photo_portrait else ""
+    avatar_path: str = str(anchor_row.photo_portrait) if anchor_row and anchor_row.photo_portrait else ""
     landmarks_path = await asyncio.to_thread(_resolve_landmarks_for_avatar, avatar_path) if avatar_path else ""
 
     session_record = LiveSessionRecord(
@@ -1208,7 +1628,7 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
             voice_id=target_voice_id, avatar_path=avatar_path, mode=live_mode,
             landmarks_path=landmarks_path, demo_mode=is_demo
         )
-        session_record.status = "live"
+        setattr(session_record, "status", "live")
         await db.commit()
 
         # 若配置了 OBS 联动自动开播，且 OBS 已连接，触发 OBS 推流并记录所有权
@@ -1227,6 +1647,7 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
                         obs_linked = True
                         if not res.get("already_streaming"):
                             global_live_controller.obs_owner_session_id = session_id
+                            global_live_controller.obs_owner_connection_epoch = global_obs_client.connection_epoch
                         else:
                             logger.info("OBS 此前已在推流中，保持现有推流所有权不变，停播时不主动切断")
                     else:
@@ -1241,8 +1662,8 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         await db.rollback()
         record = await db.get(LiveSessionRecord, session_id)
         if record:
-            record.status = "failed"
-            record.end_time = utc_now()
+            setattr(record, "status", "failed")
+            setattr(record, "end_time", utc_now())
             await db.commit()
         raise HTTPException(status_code=500, detail=f"直播资源启动失败: {exc}") from exc
 
@@ -1279,9 +1700,17 @@ async def _stop_live_unlocked(db: AsyncSession):
         return {"code": 0, "is_live": False, "message": "直播已停止"}
     stats = global_live_controller.stats.copy()
 
-    # 提前在会话未销毁前判定推流所有权，防止 controller.stop() 清空 session 后丢失所有权事实
+    # 在会话销毁前冻结所有权 token；停 OBS 前还会复核连接 epoch。
+    owner_session_id = global_live_controller.obs_owner_session_id
+    owner_epoch = global_live_controller.obs_owner_connection_epoch
+    current_epoch = getattr(global_obs_client, "connection_epoch", None)
+    if not isinstance(current_epoch, int):
+        current_epoch = owner_epoch
     should_stop_obs = bool(
-        getattr(global_live_controller, "obs_stream_started_by_agent", False)
+        owner_session_id
+        and owner_session_id == sid
+        and owner_epoch is not None
+        and owner_epoch == current_epoch
         and global_obs_client.is_connected
         and global_obs_client.is_streaming
     )
@@ -1293,9 +1722,19 @@ async def _stop_live_unlocked(db: AsyncSession):
         logger.error("控制器 stop() 抛出未捕获异常: %s", exc, exc_info=True)
         cleanup_errors.append(str(exc))
     finally:
-        # 联动 OBS：仅当本场直播由 Agent 启动推流时才停止 OBS，防止误关用户手动推流
+        # 联动 OBS：仅当 session 和 connection epoch 所有权仍匹配时停止 OBS。
         try:
-            if should_stop_obs:
+            stop_epoch = getattr(global_obs_client, "connection_epoch", None)
+            if not isinstance(stop_epoch, int):
+                stop_epoch = owner_epoch
+            owner_still_current = bool(
+                should_stop_obs
+                and owner_session_id == sid
+                and owner_epoch == stop_epoch
+                and global_obs_client.is_connected
+                and global_obs_client.is_streaming
+            )
+            if owner_still_current:
                 try:
                     res = await global_obs_client.stop_stream()
                     if not res.get("result") and not res.get("already_stopped"):
@@ -1306,27 +1745,36 @@ async def _stop_live_unlocked(db: AsyncSession):
                     logger.warning("联动 OBS 停止推流异常: %s", e)
                     cleanup_errors.append(f"obs_stop_failed: {e}")
         finally:
-            # 无论 OBS 处于何种连接/推流状态，场次结束时必须无条件复位所有权，防止跨场残留
+            # 场次结束无条件清空完整所有权 token，防止跨场残留。
             global_live_controller.obs_stream_started_by_agent = False
             global_live_controller.obs_owner_session_id = None
+            global_live_controller.obs_owner_connection_epoch = None
+
+            # 联动停止内置 RTMP 直推引擎 (如果处于推流中)
+            try:
+                from server.core.media.rtmp_streamer import global_rtmp_streamer
+                if global_rtmp_streamer.is_streaming:
+                    global_rtmp_streamer.stop()
+            except Exception as e:
+                logger.warning("联动停止 RTMP 直推异常: %s", e)
 
         if sid:
             try:
                 record = await db.get(LiveSessionRecord, sid)
                 if record:
-                    record.end_time = utc_now()
-                    record.status = "stopped" if not cleanup_errors else "stopped_with_errors"
-                    record.danmaku_count = stats.get("danmaku_count", 0)
-                    record.peak_viewers = stats.get("peak_viewer_count", 0)
-                    record.gift_income = stats.get("gift_income_yuan", 0.0)
+                    setattr(record, "end_time", utc_now())
+                    setattr(record, "status", "stopped" if not cleanup_errors else "stopped_with_errors")
+                    setattr(record, "danmaku_count", stats.get("danmaku_count", 0))
+                    setattr(record, "peak_viewers", stats.get("peak_viewer_count", 0))
+                    setattr(record, "gift_income", stats.get("gift_income_yuan", 0.0))
                     # 订单汇总以数据库为权威源，取消/退款订单不会计入成交。
                     aggregate = await db.execute(
                         select(func.coalesce(func.sum(Order.amount), 0.0), func.count(Order.id))
                         .where(Order.session_id == sid, Order.status == "completed")
                     )
                     total_gmv, orders_count = aggregate.one()
-                    record.total_gmv = float(total_gmv or 0.0)
-                    record.orders_count = int(orders_count or 0)
+                    setattr(record, "total_gmv", float(total_gmv or 0.0))
+                    setattr(record, "orders_count", int(orders_count or 0))
                     await db.commit()
             except Exception as db_err:
                 logger.error("停播持久化场次指标失败: %s", db_err, exc_info=True)
@@ -1354,12 +1802,20 @@ async def stop_live(db: AsyncSession = Depends(get_db)):
 # ------------------------------------------------------------------
 @router.get("/obs/status")
 async def get_obs_status():
-    """获取当前 OBS-WebSocket 连接与推流状态"""
+    """获取当前 OBS-WebSocket 状态；刷新失败时保留最后可信状态并显式标 stale。"""
+    refresh_error = None
     if global_obs_client.is_connected:
-        await global_obs_client.refresh_stream_status()
+        try:
+            refreshed = await global_obs_client.refresh_stream_status()
+            refresh_error = refreshed.get("error") if refreshed else "OBS 状态刷新返回为空"
+        except Exception as exc:
+            refresh_error = str(exc)
+        global_obs_client.is_stale = bool(refresh_error)
+        global_obs_client.last_error = refresh_error
     return {
-        "code": 0,
-        "data": global_obs_client.get_summary()
+        "code": 1 if refresh_error else 0,
+        "message": f"刷新 OBS 推流状态失败: {refresh_error}" if refresh_error else None,
+        "data": global_obs_client.get_summary(),
     }
 
 
@@ -1370,23 +1826,38 @@ class ObsConnectRequest(BaseModel):
 
 
 @router.post("/obs/connect")
-async def connect_obs(req: ObsConnectRequest):
-    """连接到本地或局域网 OBS Studio (WebSocket v5)"""
-    global_obs_client.host = req.host or "127.0.0.1"
-    global_obs_client.port = int(req.port or 4455)
-    global_obs_client.password = req.password or ""
+async def connect_obs(req: ObsConnectRequest, db: AsyncSession = Depends(get_db)):
+    """保存用户 OBS 自动连接意图后立即尝试连接；失败时后台继续退避恢复。"""
+    host = req.host or "127.0.0.1"
+    port = int(req.port or 4455)
+    password = req.password or ""
+    await _save_obs_settings(
+        db,
+        host=host,
+        port=port,
+        password=password,
+        auto_connect=True,
+    )
+    global_obs_client.host = host
+    global_obs_client.port = port
+    global_obs_client.password = password
     success = await global_obs_client.connect()
     return {
         "code": 0 if success else 1,
         "connected": success,
-        "message": "OBS 连接成功" if success else "连接 OBS 失败，请检查 OBS 是否开启 WebSocket 且端口密码正确",
+        "message": (
+            "OBS 连接成功"
+            if success
+            else "当前连接 OBS 失败，配置与自动连接意图已保存，后台将继续退避重试"
+        ),
         "data": global_obs_client.get_summary()
     }
 
 
 @router.post("/obs/disconnect")
-async def disconnect_obs():
-    """断开 OBS 连接"""
+async def disconnect_obs(db: AsyncSession = Depends(get_db)):
+    """先可靠持久化用户禁用意图，再改变当前进程 OBS 运行态。"""
+    await _set_obs_auto_connect(db, False)
     await global_obs_client.disconnect()
     return {"code": 0, "message": "OBS 连接已断开"}
 
@@ -1434,14 +1905,31 @@ async def live_stream_preview():
 
 @router.get("/media/status")
 async def get_media_status():
-    """获取当前数字人媒体驱动渲染指标、虚拟摄像头、视觉感知与音画同步状态"""
-    data = global_media_router.get_preview_status()
-    data["vision"] = global_vision.get_status()
-    data["vision"]["active_frame"] = bool(global_live_controller.live_context.get("vision_image_b64"))
-    data["av_sync"] = global_av_sync.get_status()
+    """获取媒体状态；任一子组件故障时保留其余诊断信息。"""
+    from server.core.media.audio_pipeline import global_audio_frame_pipeline
+    from server.core.media.incremental_audio import global_incremental_audio_pipeline
+
+    data = _safe_media_status(
+        "media_router",
+        global_media_router.get_preview_status,
+        {"driver_type": "unknown", "is_running": False},
+    )
+    data["audio_pipeline"] = _safe_media_status(
+        "audio_pipeline", global_audio_frame_pipeline.get_status
+    )
+    data["incremental_audio"] = _safe_media_status(
+        "incremental_audio", global_incremental_audio_pipeline.get_status
+    )
+    data["virtual_audio"] = _safe_media_status(
+        "virtual_audio", global_virtual_audio.get_status
+    )
+    vision = _safe_media_status("vision", global_vision.get_status)
+    vision["active_frame"] = bool(global_live_controller.live_context.get("vision_image_b64"))
+    data["vision"] = vision
+    data["av_sync"] = _safe_media_status("av_sync", global_av_sync.get_status)
     return {
         "code": 0,
-        "data": data
+        "data": data,
     }
 
 @router.post("/danmaku-webhook")
@@ -1536,13 +2024,13 @@ _NVIDIA_SMI_CANDIDATES = [
 ]
 
 # 探测结果缓存：torch 只尝试导入一次，WMI 只查询一次 (避免 5s 轮询开销)
-_GPU_PROBE_CACHE = {
+_GPU_PROBE_CACHE: Dict[str, Any] = {
     "torch_checked": False, "torch": None,
     "wmi_checked": False, "wmi_info": None,
 }
 
 
-def _get_torch():
+def _get_torch() -> Any:
     """惰性导入 torch (未安装时快速失败且不重复尝试)"""
     if not _GPU_PROBE_CACHE["torch_checked"]:
         _GPU_PROBE_CACHE["torch_checked"] = True
@@ -1567,10 +2055,12 @@ def _find_nvidia_smi() -> Optional[str]:
 
 def _wmi_gpu_probe() -> dict:
     """WMI 兜底探测显卡 (仅查询一次并缓存)：过滤虚拟显卡，取显存最大的真实物理显卡"""
+    default_info = {"gpu_name": None, "vram_total_gb": 0.0}
     if _GPU_PROBE_CACHE["wmi_checked"]:
-        return _GPU_PROBE_CACHE["wmi_info"]
+        cached = _GPU_PROBE_CACHE.get("wmi_info")
+        return cached if isinstance(cached, dict) else default_info
     _GPU_PROBE_CACHE["wmi_checked"] = True
-    _GPU_PROBE_CACHE["wmi_info"] = {"gpu_name": None, "vram_total_gb": 0.0}
+    _GPU_PROBE_CACHE["wmi_info"] = dict(default_info)
     try:
         ps_cmd = "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion | ConvertTo-Json"
         out = subprocess.run(
@@ -1598,7 +2088,8 @@ def _wmi_gpu_probe() -> dict:
                 _GPU_PROBE_CACHE["wmi_info"] = info
     except Exception:
         pass
-    return _GPU_PROBE_CACHE["wmi_info"]
+    cached = _GPU_PROBE_CACHE.get("wmi_info")
+    return cached if isinstance(cached, dict) else default_info
 
 
 
@@ -1609,7 +2100,7 @@ def _probe_gpu() -> dict:
       2. nvidia-smi (自动搜索常见安装路径，实时显存)
       3. WMI Win32_VideoController (兜底识别物理显卡型号)
     """
-    info = {"gpu_name": None, "vram_total_gb": 0.0, "vram_used_gb": 0.0, "cuda_available": False}
+    info: Dict[str, Any] = {"gpu_name": None, "vram_total_gb": 0.0, "vram_used_gb": 0.0, "cuda_available": False}
 
     # 1. PyTorch CUDA
     torch = _get_torch()
@@ -1699,16 +2190,18 @@ def _recommend_tier(gpu_info: dict) -> str:
     return "Tier D (轻量免显卡模式)"
 
 # 硬件负载 TTL 缓存 (避免多客户端 5s 轮询反复 spawn nvidia-smi/WMI 子进程)
-_HW_PAYLOAD_CACHE = {"ts": 0.0, "data": None}
+_HW_PAYLOAD_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
 _HW_CACHE_TTL_SEC = 3.0
 
 
 async def _hardware_payload() -> dict:
     import platform
     now = time.time()
-    if _HW_PAYLOAD_CACHE["data"] is not None and now - _HW_PAYLOAD_CACHE["ts"] < _HW_CACHE_TTL_SEC:
+    cached_data = _HW_PAYLOAD_CACHE.get("data")
+    last_ts = float(_HW_PAYLOAD_CACHE.get("ts") or 0.0)
+    if isinstance(cached_data, dict) and now - last_ts < _HW_CACHE_TTL_SEC:
         # 动态指标 (CPU/内存占用) 实时更新，静态探测 (GPU/型号) 走缓存
-        cached = dict(_HW_PAYLOAD_CACHE["data"])
+        cached = dict(cached_data)
         cpu_percent = psutil.cpu_percent(interval=None)
         memory = psutil.virtual_memory()
         cached.update(
@@ -1771,16 +2264,17 @@ def _order_payload(order) -> dict:
     }
 
 
-async def _refresh_order_stats(db: AsyncSession, session_id: str) -> tuple[float, int]:
+async def _refresh_order_stats(db: AsyncSession, session_id: Any) -> tuple[float, int]:
     from server.database.models import Order
+    sid = str(session_id or "")
     result = await db.execute(
         select(func.coalesce(func.sum(Order.amount), 0.0), func.count(Order.id)).where(
-            Order.session_id == session_id, Order.status == "completed"
+            Order.session_id == sid, Order.status == "completed"
         )
     )
     gmv, count = result.one()
     aggregate = (round(float(gmv or 0.0), 2), int(count or 0))
-    if session_id == global_live_controller.session_id:
+    if sid == global_live_controller.session_id:
         global_live_controller.stats["gmv_yuan"] = aggregate[0]
         global_live_controller.stats["orders_count"] = aggregate[1]
     return aggregate
@@ -1797,7 +2291,7 @@ async def register_order(req: OrderRequest, db: AsyncSession = Depends(get_db)):
     external_id = (req.external_id or f"manual-{uuid.uuid4().hex}").strip()
     existing = (await db.execute(select(Order).where(Order.external_id == external_id))).scalar_one_or_none()
     if existing:
-        gmv_yuan, orders_count = await _refresh_order_stats(db, existing.session_id)
+        gmv_yuan, orders_count = await _refresh_order_stats(db, str(existing.session_id))
         product = await db.get(Product, existing.product_id) if existing.product_id else None
         return {
             "code": 0,
@@ -1821,7 +2315,7 @@ async def register_order(req: OrderRequest, db: AsyncSession = Depends(get_db)):
         .where(Product.id == product.id, Product.current_stock >= req.quantity)
         .values(current_stock=Product.current_stock - req.quantity)
     )
-    if result.rowcount != 1:
+    if getattr(result, "rowcount", 0) != 1:
         await db.rollback()
         raise HTTPException(status_code=409, detail="商品库存不足")
 
@@ -1851,7 +2345,7 @@ async def register_order(req: OrderRequest, db: AsyncSession = Depends(get_db)):
     ))
     await db.commit()
     await db.refresh(product)
-    gmv_yuan, orders_count = await _refresh_order_stats(db, order.session_id)
+    gmv_yuan, orders_count = await _refresh_order_stats(db, str(order.session_id))
     return {
         "code": 0,
         "message": f"成交已登记并持久化：+{req.amount} 元",
@@ -1886,7 +2380,7 @@ async def cancel_order(order_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         update(Order).where(Order.id == order_id, Order.status == "completed").values(status="cancelled")
     )
-    if result.rowcount != 1:
+    if getattr(result, "rowcount", 0) != 1:
         await db.rollback()
         raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
     await db.execute(
@@ -1898,7 +2392,7 @@ async def cancel_order(order_id: str, db: AsyncSession = Depends(get_db)):
     ))
     await db.commit()
     await db.refresh(order)
-    await _refresh_order_stats(db, order.session_id)
+    await _refresh_order_stats(db, str(order.session_id))
     return {"code": 0, "message": "订单已取消并回补库存", "data": _order_payload(order)}
 
 
@@ -1919,7 +2413,7 @@ async def refund_order(order_id: str, req: RefundRequest, db: AsyncSession = Dep
         .values(status="refunded", refund_amount=refund_amount)
         .execution_options(synchronize_session=False)
     )
-    if result.rowcount != 1:
+    if getattr(result, "rowcount", 0) != 1:
         await db.rollback()
         raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
     await db.execute(
@@ -1931,7 +2425,7 @@ async def refund_order(order_id: str, req: RefundRequest, db: AsyncSession = Dep
     ))
     await db.commit()
     await db.refresh(order)
-    await _refresh_order_stats(db, order.session_id)
+    await _refresh_order_stats(db, str(order.session_id))
     return {"code": 0, "message": "订单已退款并回补库存", "data": _order_payload(order)}
 
 
@@ -2005,10 +2499,21 @@ async def get_live_stats(db: AsyncSession = Depends(get_db)):
             "viewer_count": stats["viewer_count"] if is_live else 0,
             "peak_viewer_count": stats["peak_viewer_count"] if is_live else 0,
             "gift_income_yuan": stats["gift_income_yuan"] if is_live else 0.0,
+            # 兼容字段：均表示被调度队列 accepted 的真实事件。
             "gift_count": stats["gift_count"] if is_live else 0,
             "gmv_yuan": stats["gmv_yuan"] if is_live else 0.0,
             "orders_count": stats["orders_count"] if is_live else 0,
             "danmaku_count": stats["danmaku_count"] if is_live else 0,
+            "events_received_total": stats["events_received_total"] if is_live else 0,
+            "events_accepted_total": stats["events_accepted_total"] if is_live else 0,
+            "events_dropped_total": stats["events_dropped_total"] if is_live else 0,
+            "danmaku_received_total": stats["danmaku_received_total"] if is_live else 0,
+            "danmaku_accepted_total": stats["danmaku_accepted_total"] if is_live else 0,
+            "danmaku_dropped_total": stats["danmaku_dropped_total"] if is_live else 0,
+            "gift_received_total": stats["gift_received_total"] if is_live else 0,
+            "gift_accepted_total": stats["gift_accepted_total"] if is_live else 0,
+            "gift_dropped_total": stats["gift_dropped_total"] if is_live else 0,
+            "queue_metrics": global_live_controller.event_queue.get_stats(),
             "guardrail_hits": stats["guardrail_hits"] if is_live else 0,
             "flash_sales": stats["flash_sales"] if is_live else 0,
             "network": {
@@ -2049,7 +2554,7 @@ def _pf(status: str, key: str, title: str, message: str, fix_hint: str = "", act
     }
 
 
-async def _pf_ping(url: str, headers: dict = None, timeout: float = 4.0):
+async def _pf_ping(url: str, headers: Optional[dict] = None, timeout: float = 4.0) -> Optional[int]:
     """轻量连通性探测，返回 HTTP 状态码或 None(不可达)"""
     import httpx
     try:
@@ -2140,11 +2645,139 @@ def _pf_obs_check() -> dict:
                "免费下载安装 OBS Studio: obsproject.com", None)
 
 
+def _pf_avatar_check(configs: list) -> dict:
+    """校验本地 Avatar 能力、远端配置与现有运行态；不在 GET 中启动远端连接。"""
+    from server.adapters.media.avatar_provider_registry import (
+        AvatarProviderAvailability,
+        get_avatar_provider_descriptor,
+        normalize_avatar_provider_config,
+    )
+
+    try:
+        media_status = global_media_router.get_preview_status()
+    except Exception as exc:
+        logger.warning("Avatar preflight 状态读取失败: %s", exc)
+        media_status = {}
+    local_available = media_status.get("cv_available") is True
+
+    if not configs:
+        if local_available:
+            return _pf(
+                "pass", "avatar", "数字人画面与云渲染",
+                "本地程序化 Avatar 可用；未启用远端 Provider，远端渲染为可选增强",
+            )
+        return _pf(
+            "warn", "avatar", "数字人画面与云渲染",
+            "本地 OpenCV 程序化 Avatar 不可用，当前只能使用 mock 画面；未启用远端 Provider",
+            "安装 OpenCV 运行依赖，或在【开播向导】配置可用的 Avatar Provider", "wizard",
+        )
+
+    valid_configs = []
+    invalid_configs = []
+    for config in configs:
+        try:
+            extra = json.loads(config.extra_params_json or "{}")
+            if not isinstance(extra, dict):
+                raise ValueError("extra_params 必须是 object")
+            adapter_id = str(extra.get("adapter") or "").strip().lower()
+            descriptor = get_avatar_provider_descriptor(adapter_id)
+            if descriptor.availability is AvatarProviderAvailability.PLANNED:
+                raise ValueError(f"{descriptor.display_name} 仍为计划支持，尚未交付或验收")
+            canonical = normalize_avatar_provider_config(
+                extra,
+                base_url=config.base_url,
+                credential_present=bool(config.encrypted_api_key),
+            )
+            valid_configs.append((config, descriptor, canonical))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            invalid_configs.append(f"{config.id}: {exc}")
+
+    if invalid_configs:
+        detail = "；".join(invalid_configs[:3])
+        return _pf(
+            "fail", "avatar", "数字人画面与云渲染",
+            f"启用的远端 Avatar 配置无效：{detail}。本地程序化 shadow 仍保留，但该配置不会被冒充为可用节点",
+            "在【云端模型】修复或停用无效的 Avatar Provider 实例", "settings",
+        )
+
+    provider_summary = media_status.get("avatar_provider") or {}
+    provider_states = {
+        state.get("provider_id"): state
+        for state in (media_status.get("avatar_providers") or [])
+        if isinstance(state, dict) and state.get("provider_id")
+    }
+    orchestrator_running = provider_summary.get("running") is True
+    healthy_ids = []
+    unverified_ids = []
+    unavailable_ids = []
+
+    for config, descriptor, _canonical in valid_configs:
+        provider_id = f"neural_renderer:{config.id}"
+        state = provider_states.get(provider_id)
+        if descriptor.availability is AvatarProviderAvailability.EXPERIMENTAL:
+            unverified_ids.append(config.id)
+            continue
+        if state is None:
+            unavailable_ids.append(config.id)
+            continue
+        capabilities = state.get("capabilities") or {}
+        adapter = state.get("adapter") or {}
+        verified = (
+            capabilities.get("verification") == "verified"
+            and capabilities.get("eligible_for_auto") is True
+        )
+        healthy = bool(
+            orchestrator_running
+            and state.get("up") is True
+            and state.get("ready") is True
+            and verified
+            and state.get("circuit_state") != "open"
+            and adapter.get("remote_ready") is True
+            and adapter.get("degraded") is not True
+        )
+        if healthy:
+            healthy_ids.append(config.id)
+        elif not verified:
+            unverified_ids.append(config.id)
+        else:
+            unavailable_ids.append(config.id)
+
+    local_note = "本地程序化 shadow 可用" if local_available else "本地程序化画面当前不可用"
+    if healthy_ids:
+        if not local_available:
+            return _pf(
+                "warn", "avatar", "数字人画面与云渲染",
+                f"{len(healthy_ids)} 个远端 renderer-only Provider 已通过当前运行时握手，但本地程序化 shadow 不可用；远端故障时只能降级为 mock 画面",
+                "安装本地 OpenCV 运行依赖以恢复热 shadow；外部平台画面仍需单独验收", "wizard",
+            )
+        return _pf(
+            "pass", "avatar", "数字人画面与云渲染",
+            f"{local_note}；{len(healthy_ids)} 个远端 renderer-only Provider 已通过当前运行时握手与能力门禁。外部平台画面仍需单独验收",
+        )
+    if unverified_ids:
+        return _pf(
+            "warn", "avatar", "数字人画面与云渲染",
+            f"{local_note}；{len(unverified_ids)} 个远端 Provider 仍为 experimental/unverified，不进入自动渲染池，也不能视为已验收",
+            "仅在沙箱完成音频、完成、中断、视频轨和时间戳验收后，才能升级 Provider 状态", "wizard",
+        )
+    if not orchestrator_running:
+        return _pf(
+            "warn", "avatar", "数字人画面与云渲染",
+            f"{local_note}；{len(valid_configs)} 个远端 Provider 配置有效，但尚未开播或编排器未启动，需在运行时握手后确认",
+            "可先使用本地程序化画面开播；远端节点状态将在运行后重新检查", "wizard",
+        )
+    return _pf(
+        "warn", "avatar", "数字人画面与云渲染",
+        f"{local_note}；远端 Provider 当前未就绪或已降级，未将其标记为通过",
+        "检查 Provider 运行状态、鉴权、网络、熔断与额度；本地 shadow 可继续承接画面", "settings",
+    )
+
+
 @router.get("/preflight")
 async def preflight_check(db: AsyncSession = Depends(get_db)):
     """
-    开播前真实检查 (v1.1.3)：
-    模式/角色/大模型连通/TTS连通/OBS/带货商品/娱乐主题/硬件匹配/违禁词库
+    开播前真实检查：
+    模式/角色/大模型/TTS/Avatar/OBS/商品或主题/硬件/违禁词库
     全部基于真实状态探测，检查未通过时给出可执行的修复指引
     """
     from sqlalchemy import func
@@ -2166,7 +2799,7 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             "provider_name": row.provider_name,
             "base_url": row.base_url or "",
             "model_name": row.model_name or "",
-            "api_key": decrypt_secret(row.encrypted_api_key) if row.encrypted_api_key else "",
+            "api_key": decrypt_secret(str(row.encrypted_api_key)) if row.encrypted_api_key else "",
         }
     res = await db.execute(
         select(ApiProviderConfig).where(ApiProviderConfig.config_group == "tts", ApiProviderConfig.is_active == 1)
@@ -2178,6 +2811,16 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             "base_url": row.base_url or "",
             "model_name": row.model_name or "",
         }
+
+    res = await db.execute(
+        select(ApiProviderConfig)
+        .where(
+            ApiProviderConfig.config_group == "neural_renderer",
+            ApiProviderConfig.is_active == 1,
+        )
+        .order_by(ApiProviderConfig.id.asc())
+    )
+    avatar_configs = list(res.scalars().all())
 
     role = global_role_manager.get_active_role()
 
@@ -2206,7 +2849,10 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
     checks.append(llm_check)
     checks.append(tts_check)
 
-    # 5. OBS 仅探测本机组件，不代表平台已收流
+    # 5. Avatar：本地能力、远端配置与已存在运行态分层检查，不主动建连。
+    checks.append(_pf_avatar_check(avatar_configs))
+
+    # 6. OBS 仅探测本机组件，不代表平台已收流
     checks.append(_pf_obs_check())
     checks.append(_pf(
         "warn", "external_publish", "外部平台发布验收",
@@ -2230,7 +2876,7 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
         else:
             checks.append(_pf("warn", "theme", "今日直播主题",
                               "尚未设置今日直播主题，冷场时 AI 缺少话题锚点",
-                              "在【开播向导】第三步填写今日主题", "wizard"))
+                              "在【开播向导】第四步填写今日主题", "wizard"))
 
     # 8. 硬件与所选模式匹配度
     gpu = await asyncio.to_thread(_probe_gpu)
@@ -2271,3 +2917,44 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             "checks": checks
         }
     }
+
+
+class RtmpStartRequest(BaseModel):
+    rtmp_url: str = Field(..., description="RTMP 服务器地址 (例如 rtmp://live-push.bilivideo.com/live-bvc/)")
+    stream_key: Optional[str] = Field("", description="直播码 / 推流密钥")
+    width: Optional[int] = Field(720, ge=320, le=3840)
+    height: Optional[int] = Field(960, ge=240, le=3840)
+    fps: Optional[int] = Field(25, ge=15, le=60)
+    bitrate_kbps: Optional[int] = Field(2500, ge=500, le=12000)
+
+
+@router.post("/rtmp/start", summary="启动内置 RTMP 直推引擎")
+async def start_rtmp_streaming(req: RtmpStartRequest):
+    """启动内置 RTMP 直推引擎，直接将数字人音画推向直播平台"""
+    from server.core.media.rtmp_streamer import global_rtmp_streamer
+    success, msg = global_rtmp_streamer.start(
+        rtmp_url=req.rtmp_url,
+        stream_key=req.stream_key or "",
+        width=req.width or 720,
+        height=req.height or 960,
+        fps=req.fps or 25,
+        bitrate_kbps=req.bitrate_kbps or 2500,
+    )
+    if not success:
+        return {"code": 400, "message": msg, "data": global_rtmp_streamer.get_status()}
+    return {"code": 0, "message": msg, "data": global_rtmp_streamer.get_status()}
+
+
+@router.post("/rtmp/stop", summary="停止内置 RTMP 直推引擎")
+async def stop_rtmp_streaming():
+    """停止内置 RTMP 直推引擎并释放资源"""
+    from server.core.media.rtmp_streamer import global_rtmp_streamer
+    global_rtmp_streamer.stop()
+    return {"code": 0, "message": "推流已安全停止", "data": global_rtmp_streamer.get_status()}
+
+
+@router.get("/rtmp/status", summary="查询内置 RTMP 直推状态与运行指标")
+async def get_rtmp_status():
+    """获取内置 RTMP 直推状态、时长与码率统计"""
+    from server.core.media.rtmp_streamer import global_rtmp_streamer
+    return {"code": 0, "message": "success", "data": global_rtmp_streamer.get_status()}

@@ -84,7 +84,7 @@ VALID_ROLE_TYPES = tuple(ROLE_SUGGESTIONS.keys())
 MODE_TIPS = {
     "A": "当前为全本地离线模式：请在 API 配置中启用本地 Ollama（大脑）与本地 CosyVoice（声音），全程断网可播。",
     "B": "当前为主流端云混合模式：请在 API 配置中填入云端大模型 API Key，语音可选免费 Edge-TTS 或本地克隆音色。",
-    "C": "当前为端云分离架构：请在 API 配置中启用远程 GPU 节点（云端 4090 渲染），本地仅跑调度中枢与知识库。",
+    "C": "当前为端云分离架构：本地程序化 Avatar 保持热 shadow；大模型、TTS 与 renderer-only Avatar Provider 独立配置，远端节点需完成运行时握手后才会接管。",
     "D": "当前为轻量免显卡模式：请启用云端 API 与 Edge-TTS 免费语音，无需任何独立显卡。"
 }
 

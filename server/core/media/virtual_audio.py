@@ -14,6 +14,7 @@ import time
 from typing import List, Dict, Any, Optional
 
 from server.core.media.audio_decode import decode_audio_to_float32
+from server.core.media.audio_frame import validate_audio_frame_batch
 
 logger = logging.getLogger("LiveAgent.VirtualAudio")
 
@@ -24,8 +25,10 @@ except Exception:  # pragma: no cover
     sd = None
     SD_AVAILABLE = False
 
-# 待播队列上限：超出时丢弃最新切片，防止打断失效后旧音频堆积
+# 待播队列同时限制事务数和 PCM/容器总字节，避免压缩炸弹或长句堆积耗尽内存。
 MAX_PENDING_CHUNKS = 64
+MAX_AUDIO_TRANSACTION_BYTES = 32 * 1024 * 1024
+MAX_PENDING_AUDIO_BYTES = 64 * 1024 * 1024
 
 
 class VirtualAudioService:
@@ -38,7 +41,12 @@ class VirtualAudioService:
         self.last_error: str = ""
         self.total_chunks_played: int = 0
         self.dropped_chunks: int = 0
+        self.frame_batches_submitted: int = 0
+        self.frames_submitted: int = 0
+        self.frame_pcm_bytes_submitted: int = 0
         self._queue: "queue.Queue[tuple]" = queue.Queue(maxsize=MAX_PENDING_CHUNKS)
+        self._pending_bytes = 0
+        self._pending_bytes_lock = threading.Lock()
         self._stream = None
         self._stream_sr: Optional[int] = None
         self._stream_gen_used: int = -1
@@ -107,7 +115,7 @@ class VirtualAudioService:
         logger.info(f"已设置音频输出设备索引: {self.device_index}")
 
     def get_status(self) -> Dict[str, Any]:
-        """获取当前虚拟声卡/物理音频服务运行状态"""
+        """获取输出服务状态及可供媒体驱动使用的真实时钟能力。"""
         active_device_name = "系统默认设备"
         if SD_AVAILABLE and sd is not None and self.device_index is not None:
             try:
@@ -116,6 +124,7 @@ class VirtualAudioService:
             except Exception:
                 active_device_name = f"未知设备({self.device_index})"
 
+        shared_clock = bool(self.is_enabled and self.available and sd is not None)
         return {
             "available": self.available,
             "is_enabled": self.is_enabled,
@@ -124,8 +133,114 @@ class VirtualAudioService:
             "total_chunks_played": self.total_chunks_played,
             "dropped_chunks": self.dropped_chunks,
             "pending_chunks": self._queue.qsize(),
-            "last_error": self.last_error
+            "pending_audio_bytes": self._pending_bytes,
+            "max_pending_audio_bytes": MAX_PENDING_AUDIO_BYTES,
+            "max_audio_transaction_bytes": MAX_AUDIO_TRANSACTION_BYTES,
+            "frame_batches_submitted": self.frame_batches_submitted,
+            "frames_submitted": self.frames_submitted,
+            "frame_pcm_bytes_submitted": self.frame_pcm_bytes_submitted,
+            # 第一阶段按批次入队，worker 内仍以约 50ms 切片写声卡；不得虚报为 TTS 真流式。
+            "audio_frame_input": True,
+            "frame_batch_mode": "coalesced_transaction",
+            "last_error": self.last_error,
+            "shared_playback_clock": shared_clock,
+            # blocking OutputStream 没有 callback outputBufferDacTime，不能宣称硬件 DAC 时钟。
+            "hardware_dac_clock": False,
+            "clock_source": "portaudio_latency_estimate" if shared_clock else None,
+            "clock_precision": "estimated" if shared_clock else "none",
         }
+
+    def _reject_cursor(self, audio_id: Optional[str], reason: str) -> None:
+        if not audio_id:
+            return
+        with self._cursor_lock:
+            cursor = self._cursors.get(audio_id)
+            if cursor is not None:
+                cursor["status"] = "rejected"
+                cursor["is_rejected"] = True
+                cursor["is_interrupted"] = True
+                cursor["reject_reason"] = reason
+                cursor["last_update_at"] = time.monotonic()
+
+    def prepare_playback(
+        self,
+        audio_id: str,
+        fallback_sample_rate: int = 24000,
+        *,
+        audio_generation: Optional[int] = None,
+        session_generation: Optional[int] = None,
+    ) -> bool:
+        """原子预注册播放游标但不入队，使口型可观察明确的 prepared 状态。"""
+        if not audio_id:
+            return False
+        now = time.monotonic()
+        # 与 stop 保持 generation -> cursor 的统一锁序，避免 fence 推进后插入孤儿 prepared cursor。
+        with self._generation_lock:
+            generation_current = (
+                (audio_generation is None or audio_generation >= self._accepted_audio_generation)
+                and (session_generation is None or session_generation >= self._accepted_session_generation)
+            )
+            with self._cursor_lock:
+                existing = self._cursors.get(audio_id)
+                if existing is not None:
+                    return not existing.get("is_rejected", False)
+                if len(self._cursors) > 128:
+                    finished = [
+                        key
+                        for key, value in self._cursors.items()
+                        if value.get("is_finished") or value.get("is_interrupted")
+                    ]
+                    for old_key in finished[:64]:
+                        self._cursors.pop(old_key, None)
+                self._cursors[audio_id] = {
+                    "audio_id": audio_id,
+                    "total_samples": 0,
+                    "submitted_samples": 0,
+                    "samples_played": 0,
+                    "sample_rate": int(fallback_sample_rate),
+                    "started_at": None,
+                    "last_update_at": now,
+                    "playback_anchor_at": None,
+                    "playback_anchor_samples": 0,
+                    "latency_sec": 0.0,
+                    "status": "prepared" if generation_current else "rejected",
+                    "is_finished": False,
+                    "is_interrupted": not generation_current,
+                    "is_rejected": not generation_current,
+                    "reject_reason": None if generation_current else "stale_generation",
+                    "clock_source": "host_write_estimate",
+                    "precision": "estimated",
+                }
+        return generation_current
+
+    # 兼容采用 register 命名的调用方。
+    register_playback = prepare_playback
+
+    def reject_playback(self, audio_id: str, reason: str = "commit_aborted") -> None:
+        """终止尚未成功提交的预备事务；已播放/已终止 cursor 不被覆盖。"""
+        with self._cursor_lock:
+            cursor = self._cursors.get(audio_id)
+            if cursor is None or cursor.get("status") not in {"prepared", "queued"}:
+                return
+            cursor["status"] = "rejected"
+            cursor["is_rejected"] = True
+            cursor["is_interrupted"] = True
+            cursor["reject_reason"] = reason
+            cursor["last_update_at"] = time.monotonic()
+
+    def _reserve_pending_bytes(self, size: int) -> bool:
+        if size <= 0 or size > MAX_AUDIO_TRANSACTION_BYTES:
+            return False
+        with self._pending_bytes_lock:
+            if self._pending_bytes + size > MAX_PENDING_AUDIO_BYTES:
+                return False
+            self._pending_bytes += size
+        return True
+
+    def _release_pending_packet(self, packet: tuple) -> None:
+        size = len(packet[0]) if packet and isinstance(packet[0], bytes) else 0
+        with self._pending_bytes_lock:
+            self._pending_bytes = max(0, self._pending_bytes - size)
 
     def play_chunk(
         self,
@@ -138,43 +253,41 @@ class VirtualAudioService:
         session_generation: Optional[int] = None,
         allow_raw_pcm: bool = False,
         audio_id: Optional[str] = None,
-    ):
-        """非阻塞入队；每个 packet 都携带格式、audio/session generation 以及时钟跟踪 audio_id。"""
+    ) -> bool:
+        """提交已准备的游标并非阻塞入队；现有 cursor 只更新，绝不覆盖。"""
+        if audio_id and audio_id not in self._cursors:
+            self.prepare_playback(
+                audio_id,
+                fallback_sample_rate,
+                audio_generation=audio_generation,
+                session_generation=session_generation,
+            )
         if not self.is_enabled or not self.available or sd is None or not audio_bytes:
-            return
+            self._reject_cursor(audio_id, "service_disabled" if not self.is_enabled else "audio_unavailable")
+            return False
         with self._generation_lock:
             if audio_generation is not None:
                 if audio_generation < self._accepted_audio_generation:
                     self.dropped_chunks += 1
-                    return
-                self._accepted_audio_generation = max(
-                    self._accepted_audio_generation, int(audio_generation)
-                )
+                    self._reject_cursor(audio_id, "stale_audio_generation")
+                    return False
+                self._accepted_audio_generation = max(self._accepted_audio_generation, int(audio_generation))
             if session_generation is not None:
                 if session_generation < self._accepted_session_generation:
                     self.dropped_chunks += 1
-                    return
-                self._accepted_session_generation = max(
-                    self._accepted_session_generation, int(session_generation)
-                )
+                    self._reject_cursor(audio_id, "stale_session_generation")
+                    return False
+                self._accepted_session_generation = max(self._accepted_session_generation, int(session_generation))
 
         if audio_id:
             with self._cursor_lock:
-                if len(self._cursors) > 128:
-                    for old_k in list(self._cursors.keys())[:64]:
-                        self._cursors.pop(old_k, None)
-                self._cursors[audio_id] = {
-                    "audio_id": audio_id,
-                    "total_samples": 0,
-                    "samples_played": 0,
-                    "sample_rate": fallback_sample_rate,
-                    "started_at": None,
-                    "last_update_at": None,
-                    "is_finished": False,
-                    "is_interrupted": False,
-                }
+                cursor = self._cursors.get(audio_id)
+                if cursor is None or cursor.get("is_rejected") or cursor.get("status") != "prepared":
+                    return False
+                cursor["status"] = "queued"
+                cursor["sample_rate"] = int(fallback_sample_rate)
+                cursor["last_update_at"] = time.monotonic()
 
-        self._ensure_worker()
         packet = (
             audio_bytes,
             int(fallback_sample_rate),
@@ -185,31 +298,98 @@ class VirtualAudioService:
             bool(allow_raw_pcm),
             audio_id,
         )
+        if not self._reserve_pending_bytes(len(audio_bytes)):
+            self.dropped_chunks += 1
+            self._reject_cursor(audio_id, "audio_capacity_exceeded")
+            return False
         try:
             self._queue.put_nowait(packet)
         except queue.Full:
+            self._release_pending_packet(packet)
             self.dropped_chunks += 1
+            self._reject_cursor(audio_id, "queue_full")
+            return False
+        self._ensure_worker()
+        return True
+
+    def play_frames(self, frames) -> bool:
+        """提交标准 PCM 帧批次；兼容阶段合并为一个有界播放事务。
+
+        PortAudio worker 仍以 ``WRITE_SLICE_SAMPLES`` 细粒度写入。合并只发生在
+        已受 AudioFramePipeline 时长上限保护的单句内，避免改变现有 cursor 和
+        打断线程所有权语义。
+        """
+        try:
+            frame_list = validate_audio_frame_batch(
+                frames,
+                max_total_bytes=MAX_AUDIO_TRANSACTION_BYTES,
+            )
+        except ValueError:
+            candidate_frames = tuple(frames or ())
+            if candidate_frames:
+                self._reject_cursor(candidate_frames[0].audio_id, "invalid_frame_batch")
+            return False
+        first = frame_list[0]
+        accepted = self.play_chunk(
+            b"".join(frame.data for frame in frame_list),
+            fallback_sample_rate=first.format.sample_rate,
+            codec=first.format.codec,
+            channels=first.format.channels,
+            audio_generation=first.audio_generation,
+            session_generation=first.session_generation,
+            allow_raw_pcm=True,
+            audio_id=first.audio_id,
+        )
+        if accepted:
+            self.frame_batches_submitted += 1
+            self.frames_submitted += len(frame_list)
+            self.frame_pcm_bytes_submitted += sum(len(frame.data) for frame in frame_list)
+        return accepted
 
     def get_playback_clock(self, audio_id: str) -> Optional[Dict[str, Any]]:
-        """获取指定 audio_id 的真实物理 DAC 播放进度 (供数字人口型绝对音画同步)"""
+        """返回动态估算的物理播放头；阻塞 write 仅代表提交，绝不虚报为 DAC 已播。"""
         with self._cursor_lock:
-            c = self._cursors.get(audio_id)
-            if not c:
+            cursor = self._cursors.get(audio_id)
+            if not cursor:
                 return None
-            started = c["started_at"] is not None
-            elapsed_sec = 0.0
-            if started and c["sample_rate"] > 0:
-                elapsed_sec = float(c["samples_played"]) / float(c["sample_rate"])
+            c = dict(cursor)
+            sample_rate = int(c.get("sample_rate") or 0)
+            submitted = int(c.get("submitted_samples", c.get("samples_played", 0)) or 0)
+            played = int(c.get("samples_played", 0) or 0)
+            anchor_at = c.get("playback_anchor_at")
+            playback_failed = c.get("reject_reason") == "playback_error"
+            if anchor_at is not None and sample_rate > 0 and (
+                not c.get("is_interrupted") or playback_failed
+            ):
+                advance_until = float(c.get("last_update_at") or time.monotonic()) if playback_failed else time.monotonic()
+                advanced = max(0.0, advance_until - float(anchor_at))
+                played = min(submitted, int(c.get("playback_anchor_samples", 0) + advanced * sample_rate))
+            # 保留旧测试/诊断直接设置 samples_played 的兼容语义。
+            played = max(played, int(c.get("samples_played", 0) or 0))
+            finished = bool(c.get("is_finished"))
+            if c.get("status") == "draining" and played >= int(c.get("total_samples", 0) or 0):
+                finished = True
+                cursor["is_finished"] = True
+                cursor["status"] = "finished"
+                cursor["samples_played"] = played
+            status = cursor.get("status", "prepared")
             return {
                 "audio_id": audio_id,
-                "has_started": started,
-                "started_at": c["started_at"],
-                "samples_played": c["samples_played"],
-                "total_samples": c["total_samples"],
-                "sample_rate": c["sample_rate"],
-                "elapsed_sec": elapsed_sec,
-                "is_finished": c["is_finished"],
-                "is_interrupted": c["is_interrupted"],
+                "has_started": bool(c.get("started_at") is not None and time.monotonic() >= float(c["started_at"])),
+                "started_at": c.get("started_at"),
+                "submitted_samples": submitted,
+                "samples_played": played,
+                "total_samples": int(c.get("total_samples", 0) or 0),
+                "sample_rate": sample_rate,
+                "elapsed_sec": float(played) / float(sample_rate) if sample_rate > 0 else 0.0,
+                "latency_sec": float(c.get("latency_sec", 0.0) or 0.0),
+                "clock_source": c.get("clock_source", "host_write_estimate"),
+                "precision": c.get("precision", "estimated"),
+                "status": status,
+                "is_finished": finished,
+                "is_interrupted": bool(c.get("is_interrupted")),
+                "is_rejected": bool(c.get("is_rejected")),
+                "reject_reason": c.get("reject_reason"),
             }
 
     def _packet_is_current(self, audio_generation, session_generation) -> bool:
@@ -264,6 +444,7 @@ class VirtualAudioService:
                         audio_id = None
                 except queue.Empty:
                     continue
+                self._release_pending_packet(packet_item)
                 try:
                     if not self._packet_is_current(audio_generation, session_generation):
                         self.dropped_chunks += 1
@@ -272,6 +453,7 @@ class VirtualAudioService:
                                 c = self._cursors.get(audio_id)
                                 if c:
                                     c["is_interrupted"] = True
+                                    c["status"] = "interrupted"
                         continue
                     samples, sr = decode_audio_to_float32(
                         audio_bytes,
@@ -281,6 +463,7 @@ class VirtualAudioService:
                         allow_raw_pcm=allow_raw_pcm,
                     )
                     if samples is None or len(samples) == 0:
+                        self._reject_cursor(audio_id, "decode_empty")
                         continue
                     if not self._packet_is_current(audio_generation, session_generation):
                         self.dropped_chunks += 1
@@ -289,22 +472,49 @@ class VirtualAudioService:
                                 c = self._cursors.get(audio_id)
                                 if c:
                                     c["is_interrupted"] = True
+                                    c["status"] = "interrupted"
                         continue
                     gen = self._stream_gen
                     stream = self._get_stream(sr, gen)
                     if stream is None:
+                        try:
+                            from server.core.media.rtmp_streamer import global_rtmp_streamer
+                            if global_rtmp_streamer.is_streaming:
+                                int16_bytes = (samples.clip(-1.0, 1.0) * 32767.0).astype("int16").tobytes()
+                                global_rtmp_streamer.send_audio_pcm(int16_bytes)
+                                time.sleep(len(samples) / float(sr))
+                        except Exception:
+                            pass
                         self.dropped_chunks += 1
+                        self._reject_cursor(audio_id, "stream_unavailable")
                         continue
 
-                    # 物理声卡开始写入发声：标记时钟启动时间戳与总采样数
+                    # blocking write 只表示提交给 PortAudio。以其输出 latency 建立诚实的估算播放头，
+                    # 直到预计排空前保持 draining；callback DAC time 不可得，因此不宣称硬件精度。
+                    try:
+                        raw_latency = getattr(stream, "latency", 0.0)
+                        if isinstance(raw_latency, (tuple, list)):
+                            raw_latency = raw_latency[-1] if raw_latency else 0.0
+                        output_latency = max(0.0, float(raw_latency or 0.0))
+                    except (TypeError, ValueError):
+                        output_latency = 0.0
                     if audio_id:
+                        now = time.monotonic()
                         with self._cursor_lock:
                             c = self._cursors.get(audio_id)
                             if c:
                                 c["total_samples"] = len(samples)
                                 c["sample_rate"] = sr
-                                c["started_at"] = time.monotonic()
-                                c["last_update_at"] = time.monotonic()
+                                c["started_at"] = now + output_latency
+                                c["last_update_at"] = now
+                                c["playback_anchor_at"] = now + output_latency
+                                c["playback_anchor_samples"] = 0
+                                c["latency_sec"] = output_latency
+                                c["clock_source"] = (
+                                    "portaudio_latency_estimate" if output_latency > 0.0 else "host_write_estimate"
+                                )
+                                c["precision"] = "estimated"
+                                c["status"] = "playing"
 
                     for start in range(0, len(samples), self.WRITE_SLICE_SAMPLES):
                         if (
@@ -317,14 +527,22 @@ class VirtualAudioService:
                                     c = self._cursors.get(audio_id)
                                     if c:
                                         c["is_interrupted"] = True
+                                    c["status"] = "interrupted"
                             break
                         piece = samples[start:start + self.WRITE_SLICE_SAMPLES]
                         stream.write(piece.reshape(-1, 1))
+                        try:
+                            from server.core.media.rtmp_streamer import global_rtmp_streamer
+                            if global_rtmp_streamer.is_streaming:
+                                int16_bytes = (piece.clip(-1.0, 1.0) * 32767.0).astype("int16").tobytes()
+                                global_rtmp_streamer.send_audio_pcm(int16_bytes)
+                        except Exception:
+                            pass
                         if audio_id:
                             with self._cursor_lock:
                                 c = self._cursors.get(audio_id)
                                 if c:
-                                    c["samples_played"] += len(piece)
+                                    c["submitted_samples"] += len(piece)
                                     c["last_update_at"] = time.monotonic()
 
                     packet_current = self._packet_is_current(audio_generation, session_generation)
@@ -337,6 +555,7 @@ class VirtualAudioService:
                                 c = self._cursors.get(audio_id)
                                 if c:
                                     c["is_interrupted"] = True
+                                    c["status"] = "interrupted"
                     else:
                         self.total_chunks_played += 1
                         self.last_error = ""
@@ -344,7 +563,8 @@ class VirtualAudioService:
                             with self._cursor_lock:
                                 c = self._cursors.get(audio_id)
                                 if c:
-                                    c["is_finished"] = True
+                                    c["status"] = "draining"
+                                    c["last_update_at"] = time.monotonic()
                 except Exception as e:
                     self.last_error = str(e)
                     self.dropped_chunks += 1
@@ -353,8 +573,13 @@ class VirtualAudioService:
                             c = self._cursors.get(audio_id)
                             if c:
                                 c["is_interrupted"] = True
+                                c["status"] = "interrupted"
+                                c["reject_reason"] = "playback_error"
+                                c["last_update_at"] = time.monotonic()
                     self._discard_stream_locked(abort=True)
                     logger.debug(f"物理音频设备播放片段失败 (软降级忽略): {e}")
+                finally:
+                    self._queue.task_done()
         finally:
             self._discard_stream_locked(abort=True)
 
@@ -417,13 +642,18 @@ class VirtualAudioService:
             self._stream_gen += 1
         while True:
             try:
-                self._queue.get_nowait()
+                packet = self._queue.get_nowait()
+                self._release_pending_packet(packet)
+                self._queue.task_done()
             except queue.Empty:
                 break
         with self._cursor_lock:
             for c in self._cursors.values():
                 if not c.get("is_finished"):
                     c["is_interrupted"] = True
+                    c["status"] = "interrupted"
+                    c["reject_reason"] = "stopped"
+                    c["last_update_at"] = time.monotonic()
         self._stream_refresh_event.set()
 
     def shutdown(self, timeout: float = 2.0):

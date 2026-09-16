@@ -116,10 +116,10 @@ def test_circuit_breaker_underlying_error_and_half_open_clean():
         await cb.start()
         assert cb.state == CircuitBreakerDanmakuFetcher.STATE_CLOSED
 
-        # 模拟底层连续 3 次网络错误
-        flaky.simulate_packet_error("连接断开 1")
-        flaky.simulate_packet_error("连接断开 2")
-        flaky.simulate_packet_error("连接断开 3")
+        # 模拟 3 个连接代际各发生一次网络错误；同一代际的重复错误应被去重
+        for index in range(1, 4):
+            flaky.on_connection_opened()
+            flaky.simulate_packet_error(f"连接断开 {index}")
 
         # 应该进入 OPEN 状态
         assert cb.state == CircuitBreakerDanmakuFetcher.STATE_OPEN

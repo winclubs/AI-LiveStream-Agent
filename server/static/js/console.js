@@ -103,6 +103,8 @@ document.addEventListener("DOMContentLoaded", () => {
     loadLiveStats();
     checkLiveStatus();
     loadKnowledgeList();
+    if (typeof loadGpuAvatarProviders === "function") loadGpuAvatarProviders();
+    if (typeof loadWizardAvatarProviders === "function") loadWizardAvatarProviders();
 
     // 绑定直播必备软件重新检测按钮
     const recheckPrereqBtn = document.getElementById("btn-recheck-prereqs");
@@ -251,22 +253,53 @@ function initNavigation() {
             item.classList.add("active");
 
             const tab = item.getAttribute("data-tab");
+            try { localStorage.setItem("active_admin_tab", tab); } catch (e) {}
             document.querySelectorAll(".tab-content").forEach(tc => tc.classList.remove("active"));
             const target = document.getElementById(`tab-${tab}`);
             if (target) target.classList.add("active");
 
             // 切入云端模型页时重新读取最新直播模式 (避免向导完成后模式显示滞后)
             if (tab === "settings") { loadSettings(); loadVisionConfig(); }
+            if (tab === "gpu") { loadGpuAvatarProviders(); }
+            if (tab === "wizard") { loadWizardAvatarProviders(); }
             if (tab === "knowledge") { loadKnowledgeList(); loadKnowledgeStatus(); }
+            if (tab === "voices") {
+                loadAudioDevices();
+                loadVoiceTable();
+                if (typeof loadSettings === 'function') {
+                    loadSettings();
+                } else {
+                    if (typeof renderTTSEcosystemGrid === 'function') {
+                        renderTTSEcosystemGrid(typeof currentSelectedTTSProvider !== 'undefined' ? currentSelectedTTSProvider : 'edge_tts');
+                    }
+                    if (typeof renderConfiguredTTS === 'function' && typeof cachedAllConfigs !== 'undefined') {
+                        renderConfiguredTTS(cachedAllConfigs);
+                    }
+                }
+                if (typeof ensureTTSKeyAndUrlFilled === 'function') {
+                    ensureTTSKeyAndUrlFilled(typeof currentSelectedTTSProvider !== 'undefined' ? currentSelectedTTSProvider : 'cosyvoice');
+                }
+            }
         });
     });
+
+    // 页面刷新后自动恢复用户之前停留的 Tab (如 voices 面板)，绝不强制回退到向导
+    try {
+        const lastTab = localStorage.getItem("active_admin_tab");
+        if (lastTab && lastTab !== "wizard") {
+            const lastItem = document.querySelector(`.nav-item[data-tab="${lastTab}"]`);
+            if (lastItem) {
+                setTimeout(() => lastItem.click(), 50);
+            }
+        }
+    } catch (e) {}
 }
 
 // 2. 全双工 WebSocket 连接
 function initWebSocket() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws/live_control`;
-    
+
     const statusDot = document.getElementById("ws-status-dot");
     const statusText = document.getElementById("ws-status-text");
 
@@ -674,6 +707,40 @@ async function startLiveDirect() {
             }
             logDanmaku("系统通知", `本地直播源已启动！${roomId ? `正在监听【${platform}】房间事件: ${roomId}` : '已启动仿真互动'}；[${obsText}]`, false);
             showToast(`本地直播源已启动 (${obsText})`, json.degraded ? "warning" : "success", 5000);
+
+            // 检查是否开启了内置 RTMP 直推联动
+            const rtmpCheck = document.getElementById("rtmp-auto-link-check");
+            if (rtmpCheck && rtmpCheck.checked) {
+                const savedUrl = localStorage.getItem(RTMP_STORAGE_KEY_URL);
+                const savedKey = localStorage.getItem(RTMP_STORAGE_KEY_KEY) || "";
+                if (savedUrl) {
+                    try {
+                        const rtmpRes = await fetch(`${API_BASE}/live/rtmp/start`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                rtmp_url: savedUrl,
+                                stream_key: savedKey,
+                                width: 720,
+                                height: 960,
+                                fps: 25,
+                                bitrate_kbps: 2500
+                            })
+                        });
+                        const rtmpJson = await rtmpRes.json();
+                        if (rtmpJson.code === 0) {
+                            showToast("内置 RTMP 直推引擎已联动启动！", "success", 4000);
+                        } else {
+                            showToast("RTMP 直推联动提示: " + (rtmpJson.message || rtmpJson.detail), "warning", 5000);
+                        }
+                        refreshRtmpStatus();
+                    } catch (err) {
+                        console.warn("RTMP 联动启动异常:", err);
+                    }
+                } else {
+                    showToast("已开启内置直推，但未填写推流地址，请点击【直推设置】配置", "warn", 5000);
+                }
+            }
         } else {
             alert("开播失败: " + (json.message || json.detail || "未知错误"));
         }
@@ -693,6 +760,7 @@ async function stopLiveDirect() {
             stopAllAudioPlayback();
             logDanmaku("系统通知", "本地直播源已停止", false);
             updateObsStatusUI();
+            refreshRtmpStatus();
         }
     } catch (e) {
         alert("操作异常: " + e);
@@ -1627,8 +1695,14 @@ async function cloneVoice(voiceId, name) {
 // 在线试听：页内浮动播放器 (不新开标签页，即点即听)
 let previewAudioEl = null;
 function previewVoice(voiceId) {
+    if (window._ttsPreviewController && typeof window._ttsPreviewController.stopAll === "function") {
+        window._ttsPreviewController.stopAll();
+    }
     if (previewAudioEl) { try { previewAudioEl.pause(); } catch (e) { /* 忽略 */ } }
     previewAudioEl = new Audio(`${API_BASE}/voices/${voiceId}/preview`);
+    if (window._ttsPreviewController) {
+        window._ttsPreviewController.audio = previewAudioEl;
+    }
     previewAudioEl.play().then(() => {
         showToast("正在播放声音样本...", "info", 2000);
     }).catch(() => {
@@ -1796,11 +1870,12 @@ const BUILTIN_LLM_ECOSYSTEM = [
         name: "Qwen 通义",
         tagline: "直播电商霸主 · 极速指令遵循",
         brandColor: "#0070F3",
-        logoSvg: "/static/svg/model_qwen.svg",
-        defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        logoSvg: "https://img.alicdn.com/imgextra/i2/O1CN01TOFMg022PLymzwaSX_!!6000000007112-55-tps-40-40.svg",
+        defaultBaseUrl: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
         recommendedModels: ["qwen-plus", "qwen-turbo", "qwen-max", "qwen2.5-72b-instruct"],
         desc: "阿里系模型适合电商直播话术生成，支持促销表达与商品解读，并可与 CosyVoice 配置组合使用。",
         urlPills: [
+            { text: "☁️ 我的百炼专属节点 (北京)", val: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/compatible-mode/v1" },
             { text: "阿里云 DashScope (官方兼容)", val: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
             { text: "本地 Ollama Qwen2.5", val: "http://127.0.0.1:11434/v1" }
         ],
@@ -2305,7 +2380,7 @@ async function fetchAndRenderModels(baseUrl, apiKey, provider, configId, preferM
             // 第五行：完整渲染所有多个可用模型药丸，用户点击任意药丸可自由切换！
             if (container) {
                 container.innerHTML = modelList.map(m => `
-                    <div class="fetched-model-pill ${m === selectedModel ? 'selected' : ''}" 
+                    <div class="fetched-model-pill ${m === selectedModel ? 'selected' : ''}"
                          data-model="${escapeHtml(m)}"
                          title="点击切换使用模型为: ${escapeHtml(m)}"
                          onclick="selectFetchedModel('${escapeHtml(m)}')">
@@ -2695,7 +2770,6 @@ async function handleDeleteConfig(configId) {
         alert("删除请求异常: " + e);
     }
 }
-
 // ============================================================================
 // 语音合成与远程算力 (TTS 声音枢纽) 生态选型与多引擎管理体系
 // ============================================================================
@@ -2730,27 +2804,39 @@ const BUILTIN_TTS_ECOSYSTEM = [
     {
         id: "cosyvoice",
         name: "CosyVoice",
-        tagline: "阿里零样本复刻 · 5秒声纹克隆",
-        officialUrl: "https://bailian.console.aliyun.com/",
-        officialAction: "前往百炼开通并获取Key ↗",
+        tagline: "官方大模型原生端点 · 极速流式 WebSocket",
+        officialUrl: "https://bailian.console.aliyun.com/cn-beijing/model/experience/voice/sound-cloning",
+        officialAction: "百炼声音复刻中心 ↗",
         getKeyUrl: "https://bailian.console.aliyun.com/",
-        cardDocTitle: "前往阿里云百炼官方控制台 (开通账号、充值并获取 API Key 与 Base URL)",
+        cardDocTitle: "前往阿里云百炼声音复刻中心 (在线录制/上传音频复刻并获取专属 Voice-ID)",
         brandColor: "#EA580C",
-        logoSvg: "/static/svg/tts_cosyvoice.svg",
-        defaultBaseUrl: "",
+        logoSvg: "https://img.alicdn.com/imgextra/i2/O1CN01TOFMg022PLymzwaSX_!!6000000007112-55-tps-40-40.svg",
+        defaultBaseUrl: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1",
         placeholderUrl: "选择云端商用 API (填Key即用) 或 本地自建推理端口 (如 http://127.0.0.1:9233)",
-        needKey: false,
+        needKey: true,
         needUrl: true,
         recommendedVoices: [
-            { text: "中文女 (自然亲切)", val: "chinese_female" },
-            { text: "中文男 (专业沉稳)", val: "chinese_male" },
-            { text: "日语女 (二次元甜美)", val: "japanese_female" },
-            { text: "粤语女 (地道广府风)", val: "cantonese_female" },
-            { text: "克隆声纹 (需上传参考音)", val: "custom_clone_1" }
+            { text: "龙小春 (知性女声 · 电商带货推荐)", val: "longxiaochun" },
+            { text: "龙老铁 (东北老铁 · 互动爆款)", val: "longlaotie" },
+            { text: "Stella (自然解说 · 品质女主播)", val: "loongstella" },
+            { text: "Bella (温柔知性 · 服饰带货)", val: "loongbella" },
+            { text: "龙安然 (燃播带货 · 激情促单)", val: "longanran" },
+            { text: "龙安萱 (亲和带货 · 美妆日用)", val: "longanxuan" },
+            { text: "龙安冲 (活力带货 · 食品零食)", val: "longanchong" },
+            { text: "龙安平 (科技沉稳 · 数码家电)", val: "longanping" },
+            { text: "龙硕 (质感男声 · 品牌带货)", val: "longshuo" },
+            { text: "杰力豆 (活泼童声 · 母婴玩具)", val: "longjielidou" },
+            { text: "龙婉 (温和对话 · 亲切邻家)", val: "longwan" },
+            { text: "龙橙 (阳光朝气 · 青春男声)", val: "longcheng" },
+            { text: "龙华 (成熟稳重 · 商务男声)", val: "longhua" },
+            { text: "龙书 (磁性叙事 · 情感故事)", val: "longshu" },
+            { text: "龙小白 (清澈邻家 · 少女女声)", val: "longxiaobai" },
+            { text: "龙静 (文雅解说 · 舒缓女声)", val: "longjing" }
         ],
-        desc: "阿里通义开源大模型语音合成。商业云端调用推荐使用【阿里云百炼平台】开通账号并创建 API Key（Base URL 为 https://dashscope.aliyuncs.com/api/v1），亦支持本地或局域网私有化 GPU 部署（免费用）。",
+        desc: "阿里通义开源大模型语音合成。商业云端调用推荐使用【阿里云百炼平台】开通账号并创建 API Key（Base URL 为 https://dashscope.aliyuncs.com/api/v1 或您的百炼专属服务端点），亦支持本地或局域网私有化 GPU 部署。",
         urlPills: [
-            { text: "☁️ 阿里云百炼 (官方商业API)", val: "https://dashscope.aliyuncs.com/api/v1", needKey: true },
+            { text: "☁️ 我的百炼专属节点 (北京)", val: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1", needKey: true },
+            { text: "☁️ 阿里云百炼 (官方默认API)", val: "https://dashscope.aliyuncs.com/api/v1", needKey: true },
             { text: "☁️ 硅基流动 (云端免显卡直连)", val: "https://api.siliconflow.cn/v1", needKey: true },
             { text: "🖥️ 本机私有部署 (127.0.0.1:9233)", val: "http://127.0.0.1:9233", needKey: false },
             { text: "🖥️ 局域网 GPU 算力机", val: "http://192.168.1.100:9233", needKey: false }
@@ -2863,7 +2949,6 @@ const BUILTIN_TTS_ECOSYSTEM = [
 
 let currentSelectedTTSProvider = "edge_tts";
 
-// 初始化 6 大主流语音合成引擎卡片网格
 function renderTTSEcosystemGrid(selectedId = "edge_tts") {
     const grid = document.getElementById("tts-ecosystem-grid");
     if (!grid) return;
@@ -2875,18 +2960,19 @@ function renderTTSEcosystemGrid(selectedId = "edge_tts") {
         card.setAttribute("data-provider", item.id);
         card.onclick = () => selectTTSProvider(item.id);
 
+        const logoSrc = (item.logoSvg || "").startsWith("http") ? item.logoSvg : (item.logoSvg + "?v=2.0.4");
         card.innerHTML = `
-            <a href="${item.officialUrl}" target="_blank" rel="noopener noreferrer" class="tts-card-official-link" title="${item.cardDocTitle}" onclick="event.stopPropagation();">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <line x1="10" y1="14" x2="21" y2="3"></line>
-                </svg>
-            </a>
-            <img src="${item.logoSvg}?v=1.9.2" class="tts-provider-logo" alt="${item.name}">
-            <div class="tts-provider-name" title="${item.name}">${item.name}</div>
-            <div class="tts-provider-tagline" title="${item.tagline}">${item.tagline}</div>
-        `;
+                <a href="${item.officialUrl}" target="_blank" rel="noopener noreferrer" class="tts-card-official-link" title="${item.cardDocTitle}" onclick="event.stopPropagation();">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <line x1="10" y1="14" x2="21" y2="3"></line>
+                    </svg>
+                </a>
+                <img src="${logoSrc}" class="tts-provider-logo" alt="${item.name}">
+                <div class="tts-provider-name" title="${item.name}">${item.name}</div>
+                <div class="tts-provider-tagline" title="${item.tagline}">${item.tagline}</div>
+            `;
         grid.appendChild(card);
     });
 }
@@ -2980,16 +3066,24 @@ function syncTTSKeyStatusByUrl(url, explicitNeedKey = null) {
 }
 
 // 切换当前配置的语音引擎品牌
-function selectTTSProvider(providerId, existingConfig = null) {
+async function selectTTSProvider(providerId, existingConfig = null) {
     const meta = resolveTTSProviderMeta(providerId, existingConfig);
     currentSelectedTTSProvider = meta.id;
 
     if (!existingConfig && cachedAllConfigs && cachedAllConfigs.length > 0) {
-        const found = cachedAllConfigs.find(c => {
+        // 优先匹配当前已激活的该引擎配置
+        let found = cachedAllConfigs.find(c => {
             if (c.config_group !== "tts") return false;
             const cMeta = resolveTTSProviderMeta(c.provider_name, c);
-            return cMeta.id === meta.id;
+            return cMeta.id === meta.id && Boolean(c.is_active);
         });
+        if (!found) {
+            found = cachedAllConfigs.find(c => {
+                if (c.config_group !== "tts") return false;
+                const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+                return cMeta.id === meta.id;
+            });
+        }
         if (found) existingConfig = found;
     }
 
@@ -3008,10 +3102,10 @@ function selectTTSProvider(providerId, existingConfig = null) {
 
     const officialLinkEl = document.getElementById("tts-editor-official-link");
 
-    if (logoEl) logoEl.src = meta.logoSvg + "?v=1.9.2";
-    if (titleEl) titleEl.innerText = existingConfig ? `编辑已保存的语音配置: ${existingConfig.model_name || meta.name}` : `配置 ${meta.name}`;
-    if (badgeEl) badgeEl.innerText = meta.tagline.split("·")[0].trim();
-    if (descEl) descEl.innerText = meta.desc;
+    if (logoEl) logoEl.src = (meta.logoSvg || "").startsWith("http") ? meta.logoSvg : (meta.logoSvg + "?v=2.0.4");
+    if (titleEl) titleEl.innerText = `配置 ${meta.name}`;
+    if (badgeEl) badgeEl.innerText = (meta.tagline || "").includes("·") ? meta.tagline.split("·")[0].trim() : (meta.tagline || "官方推荐");
+    if (descEl) descEl.innerText = meta.desc || "";
     if (providerInput) providerInput.value = meta.id;
     if (configIdInput) configIdInput.value = existingConfig ? existingConfig.id : "";
     if (officialLinkEl && meta.officialUrl) {
@@ -3025,9 +3119,9 @@ function selectTTSProvider(providerId, existingConfig = null) {
 
     // 第一行 Base URL (双通道支持)
     const urlInput = document.getElementById("tts-input-url");
-    const currentBaseUrl = existingConfig ? (existingConfig.base_url || "") : meta.defaultBaseUrl;
+    const currentBaseUrl = existingConfig ? (existingConfig.base_url || meta.defaultBaseUrl) : meta.defaultBaseUrl;
     if (urlInput) {
-        urlInput.value = currentBaseUrl;
+        urlInput.value = currentBaseUrl || "";
         urlInput.placeholder = meta.placeholderUrl || (meta.needUrl ? "请输入服务 Base URL 地址" : "云端直接调用，无需填写 Base URL");
         urlInput.oninput = () => syncTTSKeyStatusByUrl(urlInput.value);
     }
@@ -3040,100 +3134,975 @@ function selectTTSProvider(providerId, existingConfig = null) {
         `;
     }
 
-    // 第二行 API Key（根据 URL 和引擎类型智能联动）
+    // 第二行 API Key：切换引擎时立即重置输入框，严格隔离各引擎密钥，杜绝跨引擎混入
+    const keyInput = document.getElementById("tts-input-key");
+    if (keyInput) {
+        keyInput.value = "";
+        keyInput.type = "password";
+    }
     syncTTSKeyStatusByUrl(currentBaseUrl, meta.needKey);
-    if (existingConfig && existingConfig.id) {
-        autoFillRealTTSKeyIfConfigured(existingConfig.id, existingConfig);
-    } else {
-        const keyInput = document.getElementById("tts-input-key");
-        if (keyInput) {
-            keyInput.value = "";
-            keyInput.type = "password";
+    await autoFillRealTTSKeyIfConfigured(existingConfig ? existingConfig.id : null, existingConfig, meta);
+
+    // 专属开通指引提示卡（如阿里云百炼 CosyVoice / Edge-TTS 等）
+    const guideBox = document.getElementById("tts-provider-guide-box");
+    if (guideBox) {
+        if (meta.id === "cosyvoice") {
+            guideBox.innerHTML = `
+                <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(234, 88, 12, 0.35); border-radius: 8px; padding: 12px 15px; font-size: 12.5px; color: #cbd5e1; line-height: 1.85;">
+                    <div style="font-weight: 700; color: #fb923c; margin-bottom: 8px; display: flex; align-items: center; gap: 7px;">
+                        <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #fb923c; fill: none; stroke-width: 2.2;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        阿里云百炼 · CosyVoice 快速开通与发声指南：
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 5px; padding-left: 2px;">
+                        <div>1. 打开 <a href="https://bailian.console.aliyun.com/cn-beijing/model/experience/voice/sound-cloning" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">阿里云百炼声音复刻中心 ↗</a>；</div>
+                        <div>2. 上传或录制 10~20 秒清晰人声，生成您的专属 <strong>Voice-ID</strong>；</div>
+                        <div>3. 点击左侧 <strong>API-Key</strong> 创建并复制您的百炼 API Key 和 OpenAI 兼容地址（Base URL）；</div>
+                        <div>4. 回到中控台填写并登记 Voice-ID，系统将通过官方 WebSocket 协议由大模型实时发声！</div>
+                    </div>
+                </div>
+            `;
+            guideBox.style.display = "block";
+        } else if (meta.id === "edge_tts") {
+            guideBox.innerHTML = `
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; font-size: 12.5px; color: #cbd5e1; line-height: 1.7;">
+                    <div style="font-weight: 600; color: #10b981; display: flex; align-items: center; gap: 6px;">
+                        <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #10b981; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        Edge-TTS 微软超自然云语音已内置直连协议，完全免填 API 密钥，开箱即用！
+                    </div>
+                </div>
+            `;
+            guideBox.style.display = "block";
+        } else {
+            guideBox.innerHTML = "";
+            guideBox.style.display = "none";
         }
     }
 
-    // 第五行：初始化具体音色与选定状态（真实数据优先填充，未配置时严格为空）
+    // 第五行：初始化具体音色与选定状态（自动拉取专属克隆音色与引擎推荐音色，克隆置顶）
     const voiceInput = document.getElementById("tts-input-voice");
-    const container = document.getElementById("tts-fetched-voices-container");
-    const countStatusEl = document.getElementById("tts-voices-count-status");
     const pingStatusEl = document.getElementById("tts-ping-latency-status");
     if (pingStatusEl) pingStatusEl.innerHTML = `握手测试: 未测试`;
 
-    if (existingConfig && existingConfig.id && existingConfig.model_name) {
-        // 已真实配置过：回填真实保存的音色代号，并渲染所有可用药丸同时高亮已选
-        if (voiceInput) voiceInput.value = existingConfig.model_name;
-        if (countStatusEl) {
-            countStatusEl.innerHTML = `
-                <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
-                    <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981;"></span>
-                    已配置真实发音音色: <strong>${escapeHtml(existingConfig.model_name)}</strong>
-                </span>
-            `;
-        }
-        renderTTSVoicePills(meta, existingConfig.model_name);
-    } else {
-        // 未配置状态：严格保持空白，等待用户点击获取音色或自行选定，绝不虚假填充
-        if (voiceInput) voiceInput.value = "";
-        if (countStatusEl) {
-            countStatusEl.innerHTML = `<span>获取状态: 尚未获取/选定音色（请点击上方「获取音色」）</span>`;
-        }
-        if (container) {
-            container.innerHTML = `<div style="color: var(--text-muted); font-size: 12px;">暂未获取音色。请点击上方「获取音色」实时加载可用发音声线，选定后即可保存。</div>`;
-        }
-    }
+    const selectedVoiceVal = (existingConfig && existingConfig.model_name) ? existingConfig.model_name : "";
+    if (voiceInput && selectedVoiceVal) voiceInput.value = selectedVoiceVal;
+
+    // 自动拉取克隆音色库与引擎预设音色并即时呈现
+    fetchAndRenderTTSVoices(meta, selectedVoiceVal);
 
     const testResultBox = document.getElementById("tts-test-result");
     if (testResultBox) testResultBox.style.display = "none";
+
+    // 自动通过 API 探测/拉取第三方服务商底层生效模型与协议
+    const cachedKey = existingConfig ? (cachedDecryptedKeys[existingConfig.id] || "") : "";
+    fetchAndRenderTTSThirdpartyModelInfo(currentBaseUrl, cachedKey, meta.id, existingConfig ? existingConfig.id : "");
+
+    // 联动更新专属声音克隆定制工作台
+    updateTTSCloneWorkbenchUI(meta.id);
+
+    // 强化保障：无论如何自动确保 Base URL 与解密 API Key 填入输入框
+    await ensureTTSKeyAndUrlFilled(meta.id, existingConfig);
 }
 
-// 渲染音色候选药丸
-function renderTTSVoicePills(meta, selectedVoiceVal) {
-    const container = document.getElementById("tts-fetched-voices-container");
-    if (!container) return;
+// 确保输入框自动填入端点与解密后的 API Key
+async function ensureTTSKeyAndUrlFilled(providerId, existingConfig = null) {
+    const meta = resolveTTSProviderMeta(providerId, existingConfig);
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
 
-    if (!meta.recommendedVoices || meta.recommendedVoices.length === 0) {
-        container.innerHTML = `<div style="color: var(--text-muted); font-size: 12px;">暂无预设音色，请点击「获取音色」加载。</div>`;
+    // 1. 自动填入 Base URL
+    let targetUrl = (existingConfig && existingConfig.base_url) ? existingConfig.base_url : meta.defaultBaseUrl;
+    if (!targetUrl && meta.id === "cosyvoice") {
+        targetUrl = "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1";
+    }
+    if (urlInput && targetUrl) {
+        urlInput.value = targetUrl;
+        syncTTSKeyStatusByUrl(targetUrl, meta.needKey);
+    }
+
+    // 2. 自动填入真实解密后的 API Key
+    if (keyInput) {
+        await autoFillRealTTSKeyIfConfigured(existingConfig ? existingConfig.id : null, existingConfig, meta);
+    }
+}
+
+// 切换声音克隆工作台的 Tab (上传克隆 vs 登记ID)
+function switchTTSCloneTab(tab) {
+    const tabUploadBtn = document.getElementById("btn-clone-tab-upload");
+    const tabBindBtn = document.getElementById("btn-clone-tab-bind");
+    const panelUpload = document.getElementById("tts-clone-panel-upload");
+    const panelBind = document.getElementById("tts-clone-panel-bind");
+
+    if (tab === "bind") {
+        if (tabUploadBtn) tabUploadBtn.classList.remove("active");
+        if (tabBindBtn) tabBindBtn.classList.add("active");
+        if (panelUpload) panelUpload.style.display = "none";
+        if (panelBind) panelBind.style.display = "block";
+    } else {
+        if (tabUploadBtn) tabUploadBtn.classList.add("active");
+        if (tabBindBtn) tabBindBtn.classList.remove("active");
+        if (panelUpload) panelUpload.style.display = "block";
+        if (panelBind) panelBind.style.display = "none";
+    }
+}
+
+// 依据当前选中的 TTS 引擎更新克隆工作台状态
+function updateTTSCloneWorkbenchUI(providerId) {
+    const pId = (providerId || currentSelectedTTSProvider || "edge_tts").toLowerCase();
+    const targetNameEl = document.getElementById("tts-clone-target-engine-name");
+    const badgeEl = document.getElementById("tts-clone-engine-badge");
+    const noticeEl = document.getElementById("tts-clone-unsupported-notice");
+    const panelUpload = document.getElementById("tts-clone-panel-upload");
+    const panelBind = document.getElementById("tts-clone-panel-bind");
+    const tipEl = document.getElementById("tts-clone-upload-tip");
+    const tabUploadBtn = document.getElementById("btn-clone-tab-upload");
+    const tabBindBtn = document.getElementById("btn-clone-tab-bind");
+
+    const meta = resolveTTSProviderMeta(pId);
+    if (targetNameEl && meta) targetNameEl.innerText = meta.name;
+
+    if (pId === "edge_tts") {
+        if (badgeEl) {
+            badgeEl.className = "brand-badge amber";
+            badgeEl.innerText = "固定预置库 · 不支持克隆";
+        }
+        if (noticeEl) noticeEl.style.display = "block";
+        if (panelUpload) panelUpload.style.display = "none";
+        if (panelBind) panelBind.style.display = "none";
+        if (tabUploadBtn) tabUploadBtn.style.display = "none";
+        if (tabBindBtn) tabBindBtn.style.display = "none";
+    } else {
+        if (badgeEl) {
+            badgeEl.className = "brand-badge green";
+            badgeEl.innerText = "支持专属声音克隆";
+        }
+        if (noticeEl) noticeEl.style.display = "none";
+        if (tabUploadBtn) tabUploadBtn.style.display = "inline-block";
+        if (tabBindBtn) tabBindBtn.style.display = "inline-block";
+
+        const isBindActive = tabBindBtn && tabBindBtn.classList.contains("active");
+        if (panelUpload) panelUpload.style.display = isBindActive ? "none" : "block";
+        if (panelBind) panelBind.style.display = isBindActive ? "block" : "none";
+
+        if (tipEl) {
+            if (pId.includes("cosy")) {
+                tipEl.innerText = "⚡ 上传 120秒内清晰音频，系统将针对阿里云 CosyVoice (cosyvoice-v3.5-flash) 创建专属克隆声线";
+            } else if (pId.includes("eleven")) {
+                tipEl.innerText = "⚡ 上传音频将通过 ElevenLabs Instant Voice Cloning 官方接口创建电影级克隆音色";
+            } else if (pId.includes("sovits")) {
+                tipEl.innerText = "⚡ 上传音频将自动作为少样本声学特征基准样本注入 GPT-SoVITS 引擎";
+            } else {
+                tipEl.innerText = "⚡ 点击克隆后将自动生成声纹档案，并即刻加入上方音色栏供试听与开播";
+            }
+        }
+    }
+}
+
+// 执行本地音频一键克隆
+async function handleExecuteTTSClone() {
+    const btn = document.getElementById("btn-execute-clone");
+    const nameInput = document.getElementById("tts-clone-voice-name");
+    const fileInput = document.getElementById("tts-clone-voice-file");
+    const speedInput = document.getElementById("tts-clone-speed");
+
+    const voiceName = nameInput ? nameInput.value.trim() : "";
+    if (!voiceName) {
+        if (typeof showToast === "function") showToast("请输入克隆音色名称", "warning");
+        if (nameInput) nameInput.focus();
         return;
     }
 
-    container.innerHTML = meta.recommendedVoices.map(v => `
-        <div class="fetched-model-pill ${v.val === selectedVoiceVal ? 'selected' : ''}"
-             data-voice="${escapeHtml(v.val)}"
-             title="点击使用音色: ${escapeHtml(v.text)}"
-             onclick="selectFetchedTTSVoice('${escapeHtml(v.val)}', '${escapeHtml(v.text)}')">
-            ${escapeHtml(v.text)}
-        </div>
-    `).join("");
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        if (typeof showToast === "function") showToast("请选择一段 120秒内清晰人声 WAV/MP3 音频文件", "warning");
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const speed = speedInput ? parseFloat(speedInput.value) || 1.0 : 1.0;
+
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
+    const providerInput = document.getElementById("tts-editor-provider");
+    const activeModelEl = document.getElementById("tts-thirdparty-active-model");
+
+    const baseUrl = urlInput ? urlInput.value.trim() : "";
+    const apiKey = keyInput ? keyInput.value.trim() : "";
+    const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
+    const targetModel = activeModelEl ? activeModelEl.innerText.trim() : "cosyvoice-v3.5-flash";
+
+    const formData = new FormData();
+    formData.append("name", voiceName);
+    formData.append("audio_file", file);
+    formData.append("speed", speed.toString());
+    formData.append("volume", "1.0");
+    formData.append("provider_name", provider);
+    if (apiKey) formData.append("api_key", apiKey);
+    if (baseUrl) formData.append("base_url", baseUrl);
+    if (targetModel) formData.append("target_model", targetModel);
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-sm"></span> 正在提取声纹并克隆中...`;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/voices/clone`, {
+            method: "POST",
+            body: formData
+        });
+        const json = await res.json();
+        if (res.ok && json.code === 0 && json.data) {
+            const voiceId = json.data.voice_code || json.data.id;
+            const displayName = json.data.name || voiceName;
+            const synthReady = json.data.synthesis_status === "ready";
+            const serverMsg = json.message || "";
+
+            // 诚实呈现服务端结论：真复刻成功才报喜，否则原样展示原因与下一步
+            if (typeof showToast === "function") {
+                showToast(
+                    synthReady ? `🎉 专属声音克隆成功: ${displayName}。${serverMsg}` : `⚠️ ${displayName}: ${serverMsg}`,
+                    synthReady ? "success" : "warning",
+                    synthReady ? 3200 : 9000
+                );
+            }
+
+            if (synthReady) {
+                // 仅在真实拿到云端 Voice-ID 且试听已就绪时，注入药丸并自动触发试听
+                injectClonedVoicePill(voiceId, `👑 [专属克隆] ${displayName}`);
+            } else {
+                // 样本已保存但未拿到云端专属 Voice-ID，自动切到登记 Tab 辅助主播完成绑定
+                if (typeof switchTTSCloneTab === "function") {
+                    switchTTSCloneTab("bind");
+                }
+                const bindNameInput = document.getElementById("tts-bind-voice-name");
+                const bindVidInput = document.getElementById("tts-bind-voice-id");
+                if (bindNameInput) bindNameInput.value = displayName;
+                if (bindVidInput) bindVidInput.focus();
+            }
+
+            // 重置上传表单
+            if (nameInput) nameInput.value = "";
+            if (fileInput) fileInput.value = "";
+
+            // 刷新下方资产库
+            if (typeof loadVoiceTable === "function") loadVoiceTable();
+        } else {
+            if (typeof showToast === "function") {
+                showToast(`克隆失败: ${json.detail || json.message || "未知错误"}`, "error");
+            }
+        }
+    } catch (e) {
+        if (typeof showToast === "function") showToast("上传克隆异常: " + e, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                立即一键克隆并加入音色列表
+            `;
+        }
+    }
 }
 
-// 切换选定音色
+
+// 输入 Voice-ID 时智能推导配对模型并实时同步
+function handleVoiceIdInputAdaptModel(val) {
+    if (!val) return;
+    const clean = val.trim().toLowerCase();
+    const hintEl = document.getElementById("tts-bind-model-hint");
+    let matchedModel = "";
+    if (clean.includes("qwen-audio-3.0-tts-plus")) {
+        matchedModel = "qwen-audio-3.0-tts-plus";
+    } else if (clean.includes("qwen-audio-3.0-tts-flash")) {
+        matchedModel = "qwen-audio-3.0-tts-flash";
+    } else if (clean.includes("cosyvoice-v3.5")) {
+        matchedModel = "cosyvoice-v3.5-flash";
+    } else if (clean.includes("cosyvoice-v1")) {
+        matchedModel = "cosyvoice-v1";
+    }
+
+    if (matchedModel) {
+        selectTTSRealModel(matchedModel);
+        if (hintEl) {
+            hintEl.innerHTML = `
+                <span style="color: #34d399; font-weight: 600;">
+                    ✓ 智能识别模型架构: <strong>${matchedModel}</strong> (已自动同步并配对)
+                </span>
+            `;
+        }
+    }
+}
+
+// 探测/同步阿里云百炼当前业务空间已复刻的音色
+async function handleSyncDashscopeVoices() {
+    const btn = document.getElementById("btn-sync-dashscope-voices");
+    const container = document.getElementById("tts-cloud-voices-suggestion");
+    const listEl = document.getElementById("tts-cloud-voices-list");
+    const nameInput = document.getElementById("tts-bind-voice-name");
+    const vidInput = document.getElementById("tts-bind-voice-id");
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-sm"></span> 探测百炼云端中...`;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/voices/dashscope-voices`);
+        const json = await res.json();
+        if (json.code === 0 && Array.isArray(json.data) && json.data.length > 0) {
+            if (container) container.style.display = "block";
+            if (listEl) {
+                listEl.innerHTML = json.data.map(v => {
+                    const vid = v.voice_id || "";
+                    const m = v.target_model || "qwen-audio-3.0-tts-plus";
+                    const shortId = vid.length > 25 ? (vid.substring(0, 10) + '...' + vid.substring(vid.length - 8)) : vid;
+                    return `
+                        <div class="quick-pill" style="cursor: pointer; border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); color: #38bdf8; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 11px;"
+                             title="点击自动填入 Voice-ID: ${escapeHtml(vid)}"
+                             onclick="selectCloudDetectedVoice('${escapeHtml(vid)}', '${escapeHtml(m)}')">
+                            <span>✨ ${escapeHtml(shortId)}</span>
+                            <span style="opacity: 0.7; font-size: 10px;">(${escapeHtml(m)})</span>
+                        </div>
+                    `;
+                }).join("");
+            }
+            if (typeof showToast === "function") {
+                showToast(`已从阿里云百炼探测到 ${json.data.length} 个就绪克隆音色！`, "success");
+            }
+            // 若只有一个且输入框为空，自动贴心地帮用户预填
+            if (json.data.length === 1 && vidInput && !vidInput.value.trim()) {
+                selectCloudDetectedVoice(json.data[0].voice_id, json.data[0].target_model);
+            }
+        } else {
+            if (container) container.style.display = "none";
+            const msg = json.message || "未在百炼空间中探测到有效克隆音色";
+            if (typeof showToast === "function") showToast(`百炼云端探测: ${msg}`, "info");
+        }
+    } catch (e) {
+        console.warn("探测百炼云端音色异常:", e);
+        if (typeof showToast === "function") showToast("探测云端音色异常: " + e, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: #34d399; fill: none; stroke-width: 2;"><path d="M21.5 15a4.5 4.5 0 0 0-4-6.5h-.5A7 7 0 0 0 3.5 11 5 5 0 0 0 2 15a5 5 0 0 0 5 5h14.5a4.5 4.5 0 0 0 0-9z"/></svg>
+                ☁️ 探测/同步云端已复刻音色
+            `;
+        }
+    }
+}
+
+// 选中云端探测到的音色
+function selectCloudDetectedVoice(vid, targetModel) {
+    const vidInput = document.getElementById("tts-bind-voice-id");
+    const nameInput = document.getElementById("tts-bind-voice-name");
+    if (vidInput) vidInput.value = vid;
+    if (nameInput && !nameInput.value.trim()) {
+        nameInput.value = "专属克隆音色";
+    }
+    handleVoiceIdInputAdaptModel(vid);
+    if (targetModel) {
+        selectTTSRealModel(targetModel);
+    }
+}
+
+async function handleRegisterExternalVoiceId() {
+    const btn = document.getElementById("btn-bind-voice");
+    const nameInput = document.getElementById("tts-bind-voice-name");
+    const vidInput = document.getElementById("tts-bind-voice-id");
+
+    const voiceName = (nameInput ? nameInput.value.trim() : "") || "主播专属声线";
+    const voiceId = vidInput ? vidInput.value.trim() : "";
+
+    if (!voiceName) {
+        if (typeof showToast === "function") showToast("请输入音色名称", "warning");
+        if (nameInput) nameInput.focus();
+        return;
+    }
+    if (!voiceId) {
+        if (typeof showToast === "function") showToast("请输入在第三方平台生成的专属 Voice ID", "warning");
+        if (vidInput) vidInput.focus();
+        return;
+    }
+
+    const providerInput = document.getElementById("tts-editor-provider");
+    const activeModelEl = document.getElementById("tts-thirdparty-active-model");
+    const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
+
+    // 智能推导模型：优先以 Voice-ID 前缀特征推导
+    let targetModel = activeModelEl ? activeModelEl.innerText.trim() : "cosyvoice-v3.5-flash";
+    const cleanVid = voiceId.toLowerCase();
+    if (cleanVid.includes("qwen-audio-3.0-tts-plus")) {
+        targetModel = "qwen-audio-3.0-tts-plus";
+    } else if (cleanVid.includes("qwen-audio-3.0-tts-flash")) {
+        targetModel = "qwen-audio-3.0-tts-flash";
+    } else if (cleanVid.includes("cosyvoice-v3.5")) {
+        targetModel = "cosyvoice-v3.5-flash";
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-sm"></span> 官方实测发声校验中...`;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/voices/bind-id`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: voiceName,
+                voice_id: voiceId,
+                provider_name: provider,
+                target_model: targetModel,
+                speech_speed: 1.0,
+                volume_gain: 1.0
+            })
+        });
+        const json = await res.json();
+        if (res.ok && json.code === 0 && json.data) {
+            if (typeof showToast === "function") {
+                showToast(`🎉 已成功实测发声并绑定专属 Voice-ID: ${voiceId}`, "success");
+            }
+
+            // 注入上方音色药丸并选定试听
+            injectClonedVoicePill(voiceId, `👑 [专属绑定] ${voiceName}`);
+
+            if (nameInput) nameInput.value = "";
+            if (vidInput) vidInput.value = "";
+            if (typeof loadVoiceTable === "function") loadVoiceTable();
+            // 重新刷新上方音色药丸池，确保专属克隆持久置顶
+            const curMeta = resolveTTSProviderMeta(currentSelectedTTSProvider);
+            if (curMeta) fetchAndRenderTTSVoices(curMeta, voiceId);
+        } else {
+            const errDetail = json.detail || json.message || "服务商校验拒绝";
+            if (typeof showToast === "function") {
+                showToast(`登记失败: ${errDetail}`, "error", 8000);
+            }
+        }
+    } catch (e) {
+        if (typeof showToast === "function") showToast("绑定异常: " + e, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                一键绑定并 WebSocket 生成试听
+            `;
+        }
+    }
+}
+
+// 动态将新克隆的音色注入上方药丸容器首位并立即激活
+function injectClonedVoicePill(voiceVal, displayLabel) {
+    const container = document.getElementById("tts-fetched-voices-container");
+    if (!container) return;
+
+    // 清除容器中旧的“暂无音色”占位提示
+    const emptyNotice = container.querySelector("div");
+    if (emptyNotice && emptyNotice.innerText.includes("暂未获取音色")) {
+        container.innerHTML = "";
+    }
+
+    // 检查是否已存在相同 voiceVal 的药丸
+    let pill = container.querySelector(`[data-voice="${voiceVal}"]`);
+    if (!pill) {
+        pill = document.createElement("div");
+        pill.className = "fetched-model-pill";
+        pill.setAttribute("data-voice", voiceVal);
+        pill.setAttribute("title", `点击试听并选定专属克隆音色: ${displayLabel}`);
+        pill.style.borderColor = "#f59e0b";
+        pill.style.color = "#fbbf24";
+        pill.style.background = "rgba(245, 158, 11, 0.12)";
+        pill.style.fontWeight = "600";
+        pill.innerHTML = `
+            <svg class="pill-play-icon" viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: #fbbf24; fill: #fbbf24;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span class="pill-voice-name">${escapeHtml(displayLabel)}</span>
+        `;
+        pill.onclick = () => selectFetchedTTSVoice(voiceVal, displayLabel);
+        container.insertBefore(pill, container.firstChild);
+    }
+
+    // 彻底单选并选定该专属克隆音色！
+    selectFetchedTTSVoice(voiceVal, displayLabel);
+}
+
+// 选用第三方生效模型
+function selectTTSRealModel(modelName) {
+    if (!modelName) return;
+    const modelEl = document.getElementById("tts-thirdparty-active-model");
+    if (modelEl) {
+        modelEl.innerHTML = `<strong>${escapeHtml(modelName)}</strong>`;
+    }
+    document.querySelectorAll("#tts-thirdparty-models-pills .quick-pill").forEach(p => {
+        const isMatch = p.getAttribute("data-model") === modelName;
+        p.style.borderColor = isMatch ? "#38bdf8" : "";
+        p.style.background = isMatch ? "rgba(56, 189, 248, 0.2)" : "";
+        p.style.color = isMatch ? "#38bdf8" : "";
+    });
+    if (typeof showToast === "function") {
+        showToast(`已选用第三方底层生效模型: ${modelName}`, "info");
+    }
+}
+
+// 实时通过 API 获取并渲染第三方服务商真实模型与通道协议
+async function fetchAndRenderTTSThirdpartyModelInfo(baseUrl, apiKey, provider, configId) {
+    const modelEl = document.getElementById("tts-thirdparty-active-model");
+    const protoEl = document.getElementById("tts-thirdparty-protocol");
+    const badgeEl = document.getElementById("tts-thirdparty-status-badge");
+    const pillsContainer = document.getElementById("tts-thirdparty-models-pills");
+    const pillsRow = document.getElementById("tts-thirdparty-models-pills-row");
+    if (!modelEl) return;
+
+    const curProvider = (provider || currentSelectedTTSProvider || "edge_tts").toLowerCase();
+    const isCosy = curProvider.includes("cosy") || (baseUrl && (baseUrl.includes("aliyuncs") || baseUrl.includes("dashscope")));
+    const defaultModel = isCosy ? "cosyvoice-v3.5-flash" : (curProvider.includes("edge") ? "Microsoft Azure Neural Cloud TTS" : "tts-1");
+    const defaultProto = isCosy ? "阿里云百炼 DashScope 语音通道" : (curProvider.includes("edge") ? "微软 Edge 云端通道 (免Key)" : "标准语音通道协议");
+
+    modelEl.innerHTML = `<strong>${escapeHtml(defaultModel)}</strong>`;
+    if (protoEl) protoEl.innerText = defaultProto;
+    if (badgeEl) {
+        badgeEl.className = "brand-badge green";
+        badgeEl.innerText = apiKey ? "通道已就绪" : "预置模型就绪 · 免Key试听模式";
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/settings/tts/models`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                base_url: baseUrl || null,
+                api_key: apiKey || null,
+                provider_name: curProvider,
+                config_id: configId || null
+            })
+        });
+        const json = await res.json();
+
+        const activeModel = json.active_model || defaultModel;
+        modelEl.innerHTML = `<strong>${escapeHtml(activeModel)}</strong>`;
+        if (json.protocol && protoEl) protoEl.innerText = json.protocol;
+        if (badgeEl && json.status_text) badgeEl.innerText = json.status_text;
+
+        const modelsList = Array.isArray(json.models) && json.models.length > 0
+            ? json.models
+            : [activeModel];
+
+        if (pillsContainer && pillsRow) {
+            pillsRow.style.display = "flex";
+            pillsContainer.innerHTML = modelsList.map(m => `
+                <span class="quick-pill" data-model="${escapeHtml(m)}"
+                      style="cursor: pointer; ${m === activeModel ? 'border-color: #38bdf8; background: rgba(56, 189, 248, 0.2); color: #38bdf8;' : ''}"
+                      onclick="selectTTSRealModel('${escapeHtml(m)}')">
+                    ${escapeHtml(m)}
+                </span>
+            `).join("");
+        }
+    } catch (e) {
+        console.warn("探测第三方模型信息异常:", e);
+    }
+}
+
+// 全局试听音频与网络请求单例控制器（彻底杜绝并发竞争导致多个声音同时播放）
+window._ttsPreviewController = window._ttsPreviewController || {
+    audio: null,
+    abortController: null,
+    sessionId: 0,
+    stopAll() {
+        this.sessionId++;
+        if (this.abortController) {
+            try { this.abortController.abort(); } catch (e) { }
+            this.abortController = null;
+        }
+        if (this.audio) {
+            try {
+                this.audio.pause();
+                this.audio.currentTime = 0;
+                this.audio.src = "";
+            } catch (e) { }
+            this.audio = null;
+        }
+        if (typeof previewAudioEl !== "undefined" && previewAudioEl) {
+            try { previewAudioEl.pause(); previewAudioEl = null; } catch (e) { }
+        }
+        document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+    }
+};
+
+// 即时播放指定音色的专属试听音频
+async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
+    if (!voiceVal) return;
+
+    // 1. 强力终止任何正在播放的音频与仍在进行的异步网络请求
+    window._ttsPreviewController.stopAll();
+    const currentSession = window._ttsPreviewController.sessionId;
+    const abortCtrl = new AbortController();
+    window._ttsPreviewController.abortController = abortCtrl;
+
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
+    const providerInput = document.getElementById("tts-editor-provider");
+    const pingStatusEl = document.getElementById("tts-ping-latency-status");
+
+    const baseUrl = urlInput ? urlInput.value.trim() : "";
+    const apiKey = keyInput ? keyInput.value.trim() : "";
+    const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
+
+    // 标记当前正在播放的音色药丸动效
+    document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
+        el.classList.toggle("playing", el.getAttribute("data-voice") === voiceVal);
+    });
+
+    if (pingStatusEl) {
+        pingStatusEl.innerHTML = `
+            <span style="color: #38BDF8; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #38BDF8; box-shadow: 0 0 6px #38BDF8;"></span>
+                🔊 正在试听: <strong>${escapeHtml(voiceLabel || voiceVal)}</strong>...
+            </span>
+        `;
+    }
+
+    try {
+        const activeModelEl = document.getElementById("tts-thirdparty-active-model");
+        const currentActiveModel = activeModelEl ? activeModelEl.innerText.trim() : "";
+
+        const previewRes = await fetch(`${API_BASE}/settings/tts/preview`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: abortCtrl.signal,
+            body: JSON.stringify({
+                provider_name: provider,
+                model_name: currentActiveModel || null,
+                voice_name: voiceVal,
+                base_url: baseUrl || null,
+                api_key: apiKey || null
+            })
+        });
+
+        // 若网络返回时发现已经发起了新的试听请求，立即丢弃，绝不播放！
+        if (window._ttsPreviewController.sessionId !== currentSession) return;
+
+        if (previewRes.ok) {
+            const blob = await previewRes.blob();
+            if (window._ttsPreviewController.sessionId !== currentSession) return;
+
+            const audioUrl = URL.createObjectURL(blob);
+            const audio = new Audio(audioUrl);
+            window._ttsPreviewController.audio = audio;
+
+            audio.onended = () => {
+                document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+                if (pingStatusEl) {
+                    pingStatusEl.innerHTML = `
+                        <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981;"></span>
+                            试听完成 · 当前已选定: <strong>${escapeHtml(voiceLabel || voiceVal)}</strong>
+                        </span>
+                    `;
+                }
+            };
+
+            await audio.play();
+        } else {
+            const errJson = await previewRes.json().catch(() => ({}));
+            document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+            if (pingStatusEl) {
+                pingStatusEl.innerHTML = `
+                    <span style="color: #ef4444; font-size: 11.5px;">
+                        ⚠️ 试听受阻: ${escapeHtml(errJson.detail || "音色服务未响应")}
+                    </span>
+                `;
+            }
+        }
+    } catch (e) {
+        if (e.name === "AbortError") return; // 用户切换快速切换，正常中断
+        console.warn("音色试听播放受阻:", e);
+        document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+    }
+}
+
+// 异步拉取并渲染音色候选药丸（专属克隆音色档案与官方预设音色深度合并，专属克隆置顶展示）
+async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
+    const container = document.getElementById("tts-fetched-voices-container");
+    const countStatusEl = document.getElementById("tts-voices-count-status");
+    const voiceInput = document.getElementById("tts-input-voice");
+    if (!container || !meta) return { clonedVoices: [], recommendedVoices: [], currentSelected: "" };
+
+    // 1. 获取后端已登记/已克隆的所有专属声音档案 (VoiceProfile)
+    let clonedVoices = [];
+    try {
+        const res = await fetch(`${API_BASE}/voices/list`);
+        const json = await res.json();
+        if (json.code === 0 && Array.isArray(json.data)) {
+            // 过滤系统默认兜底项，保留所有真实克隆与绑定的主播专属声线
+            const rawClones = json.data.filter(v => (v.id || "").toLowerCase() !== "voice_default_female");
+            // 按 id 严格去重
+            const seen = new Set();
+            rawClones.forEach(v => {
+                if (!seen.has(v.id)) {
+                    seen.add(v.id);
+                    clonedVoices.push(v);
+                }
+            });
+        }
+    } catch (e) {
+        console.warn("获取克隆声音库列表异常:", e);
+    }
+
+    // 2. 获取该引擎的官方推荐音色
+    const recommendedVoices = meta.recommendedVoices || [];
+
+    // 3. 决定当前选定的音色
+    let currentSelected = selectedVoiceVal || (voiceInput ? voiceInput.value.trim() : "");
+    const isCurrentInClones = clonedVoices.some(v => v.id === currentSelected);
+    const isCurrentInRecs = recommendedVoices.some(v => v.val === currentSelected);
+
+    // 若当前选中的 ID 已失效/已从本地删除（不在克隆列表也不在推荐列表），自动重置选定有效音色
+    if (!currentSelected || (!isCurrentInClones && !isCurrentInRecs)) {
+        if (clonedVoices.length > 0) {
+            currentSelected = clonedVoices[0].id;
+        } else if (recommendedVoices.length > 0) {
+            currentSelected = recommendedVoices[0].val;
+        } else {
+            currentSelected = "";
+        }
+    }
+    if (voiceInput) voiceInput.value = currentSelected;
+
+    // 4. 构建药丸 DOM
+    let pillsHtml = "";
+
+    // 4.1 专属克隆音色（金色尊贵皇冠高亮，置顶显示，永不丢失，支持一键删除无效或重复项，只展示名称不展示超长ID）
+    clonedVoices.forEach(cv => {
+        const isSel = cv.id === currentSelected;
+        pillsHtml += `
+            <div class="fetched-model-pill cloned-voice-pill ${isSel ? 'selected' : ''}"
+                 data-voice="${escapeHtml(cv.id)}"
+                 data-is-clone="true"
+                 title="点击选定并试听专属克隆音色: ${escapeHtml(cv.name)} (ID: ${escapeHtml(cv.id)})"
+                 onclick="selectFetchedTTSVoice('${escapeHtml(cv.id)}', '${escapeHtml(cv.name)} (专属克隆)')"
+                 style="border-color: rgba(245, 158, 11, 0.65); background: ${isSel ? 'rgba(245, 158, 11, 0.28)' : 'rgba(245, 158, 11, 0.12)'}; color: #FBBF24; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px;">
+                <span style="font-size: 13px;">👑</span>
+                <span style="font-weight: 600;">${escapeHtml(cv.name)}</span>
+                <span class="btn-delete-clone-pill"
+                      title="删除此克隆音色档案"
+                      onclick="handleDeleteClonedVoice(event, '${escapeHtml(cv.id)}', '${escapeHtml(cv.name)}')"
+                      style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: rgba(239, 68, 68, 0.25); color: #f87171; margin-left: 4px; cursor: pointer; transition: all 0.2s;"
+                      onmouseover="this.style.background='#ef4444';this.style.color='#ffffff';"
+                      onmouseout="this.style.background='rgba(239, 68, 68, 0.25)';this.style.color='#f87171';">
+                    <svg viewBox="0 0 24 24" style="width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 3;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </span>
+            </div>
+        `;
+    });
+
+    // 4.2 引擎预设官方音色
+    recommendedVoices.forEach(v => {
+        const isSel = v.val === currentSelected;
+        pillsHtml += `
+            <div class="fetched-model-pill ${isSel ? 'selected' : ''}"
+                 data-voice="${escapeHtml(v.val)}"
+                 title="点击试听并选定官方音色: ${escapeHtml(v.text)}"
+                 onclick="selectFetchedTTSVoice('${escapeHtml(v.val)}', '${escapeHtml(v.text)}')">
+                ${escapeHtml(v.text)}
+            </div>
+        `;
+    });
+
+    if (!pillsHtml) {
+        container.innerHTML = `<div style="color: var(--text-muted); font-size: 12px;">暂无可用的发音音色，请点击上方「获取音色与模型」。</div>`;
+    } else {
+        container.innerHTML = pillsHtml;
+    }
+
+    // 5. 更新状态与计数
+    if (countStatusEl) {
+        const total = clonedVoices.length + recommendedVoices.length;
+        const selectedMatch = clonedVoices.find(v => v.id === currentSelected);
+        const selectedRec = recommendedVoices.find(v => v.val === currentSelected);
+        let displaySelectedName = "";
+        if (selectedMatch) {
+            displaySelectedName = `${selectedMatch.name} (专属克隆)`;
+        } else if (selectedRec) {
+            displaySelectedName = selectedRec.text;
+        } else {
+            displaySelectedName = currentSelected ? "已选定音色" : "未选定 (请点击下方音色)";
+        }
+
+        countStatusEl.innerHTML = `
+            <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
+                共 ${total} 款可用音色 ${clonedVoices.length > 0 ? `(含 <strong style="color:#FBBF24;">${clonedVoices.length} 款专属克隆</strong>)` : ''} · 当前选定: <strong>${escapeHtml(displaySelectedName)}</strong>
+            </span>
+        `;
+    }
+
+    return { clonedVoices, recommendedVoices, currentSelected };
+}
+
+// 兼容既有直接调用的音色药丸渲染入口
+function renderTTSVoicePills(meta, selectedVoiceVal) {
+    fetchAndRenderTTSVoices(meta, selectedVoiceVal);
+}
+
+// 删除指定专属克隆音色（阻止冒泡、确认提示、后端安全删除并实时刷新）
+async function handleDeleteClonedVoice(event, voiceId, voiceName) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    if (!voiceId) return;
+
+    if (!confirm(`确认彻底删除专属克隆音色【${voiceName}】吗？\nID: ${voiceId}\n删除后对应的本地音频与云端绑定将一并移除，不可恢复。`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/voices/${voiceId}`, { method: "DELETE" });
+        const json = await res.json();
+        if (json.code === 0) {
+            if (typeof showToast === "function") {
+                showToast(`已成功删除专属克隆音色【${voiceName}】`, "success");
+            }
+            // 若当前输入框选中的正是被删除的音色，清空并切换
+            const voiceInput = document.getElementById("tts-input-voice");
+            if (voiceInput && voiceInput.value === voiceId) {
+                voiceInput.value = "";
+            }
+            // 实时重新拉取与渲染药丸容器
+            const meta = resolveTTSProviderMeta(currentSelectedTTSProvider);
+            await fetchAndRenderTTSVoices(meta);
+            // 联动刷新下方音色资产库表格
+            if (typeof loadVoiceTable === "function") {
+                loadVoiceTable();
+            }
+        } else {
+            alert("删除失败: " + (json.detail || json.message));
+        }
+    } catch (e) {
+        alert("删除音色异常: " + e);
+    }
+}
+
+// 切换选定音色 (点击立即自动发起试听并单选)
 function selectFetchedTTSVoice(voiceVal, voiceLabel = "") {
     if (!voiceVal) return;
     const voiceInput = document.getElementById("tts-input-voice");
     if (voiceInput) voiceInput.value = voiceVal;
 
+    // 清除全容器内所有药丸的 selected，只为当前匹配项保留 selected
+    document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
+        const isMatch = el.getAttribute("data-voice") === voiceVal;
+        el.classList.toggle("selected", isMatch);
+        if (!isMatch) el.classList.remove("playing");
+    });
+
     const countStatusEl = document.getElementById("tts-voices-count-status");
     if (countStatusEl) {
         const total = document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").length;
+        let displayName = voiceLabel;
+        if (!displayName || displayName === voiceVal) {
+            const matchedPill = document.querySelector(`#tts-fetched-voices-container .fetched-model-pill[data-voice="${voiceVal}"]`);
+            if (matchedPill) {
+                const nameSpan = matchedPill.querySelector("span:not(.btn-delete-clone-pill)") || matchedPill;
+                displayName = nameSpan.textContent.trim();
+            } else {
+                displayName = "已选定音色";
+            }
+        }
         countStatusEl.innerHTML = `
             <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
                 <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
-                共 ${total} 款可用音色 (当前选定: <strong>${escapeHtml(voiceLabel || voiceVal)}</strong>)
+                共 ${total} 款可用音色 · 当前选定: <strong>${escapeHtml(displayName)}</strong>
             </span>
         `;
     }
 
-    document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
-        el.classList.toggle("selected", el.getAttribute("data-voice") === voiceVal);
-    });
+    // 用户切换到任意音色时，立即通过单例控制器触发该音色专属声线的即时试听
+    playTTSVoicePreview(voiceVal, voiceLabel);
 }
 
 // 自动解密填入已配置过的 TTS 密钥并默认脱敏
-async function autoFillRealTTSKeyIfConfigured(configId, existingConfig = null) {
+async function autoFillRealTTSKeyIfConfigured(configId = null, existingConfig = null, meta = null) {
     const keyInput = document.getElementById("tts-input-key");
     const eyeBtn = document.getElementById("btn-toggle-tts-key-eye");
     const hintEl = document.getElementById("tts-key-status-hint");
-    if (!keyInput || !configId) return;
+    const curIdInput = document.getElementById("tts-editor-config-id");
+    if (!keyInput) return "";
+
+    const curProvider = (meta && meta.id) ? meta.id : currentSelectedTTSProvider;
+    const isEdge = curProvider === "edge_tts";
+
+    // 若当前为免 Key 引擎（如 Edge-TTS），无需填充密钥
+    if (isEdge) {
+        keyInput.value = "";
+        keyInput.placeholder = "此引擎完全免 API 密钥，直接开箱即用";
+        if (hintEl) hintEl.innerText = "微软云端直连免密钥";
+        return "";
+    }
+
+    // 1. 尝试确定 configId
+    let targetConfigId = configId || (curIdInput ? curIdInput.value.trim() : "");
+    if (!targetConfigId && existingConfig && existingConfig.id) {
+        targetConfigId = existingConfig.id;
+    }
+
+    // 2. 若仍未拿到 configId，从 cachedAllConfigs 中定位当前引擎的配置（激活项优先）
+    if (!targetConfigId && typeof cachedAllConfigs !== "undefined" && Array.isArray(cachedAllConfigs) && cachedAllConfigs.length > 0) {
+        const foundActive = cachedAllConfigs.find(c => {
+            if (c.config_group !== "tts") return false;
+            const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+            return cMeta.id === curProvider && Boolean(c.is_active);
+        });
+        const foundAny = foundActive || cachedAllConfigs.find(c => {
+            if (c.config_group !== "tts") return false;
+            const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+            return cMeta.id === curProvider;
+        });
+        if (foundAny) {
+            targetConfigId = foundAny.id;
+        }
+    }
+
+    // 3. 若 cachedAllConfigs 此时为空，主动通过 API 异步拉取一次所有配置以防网络时序竞态
+    if (!targetConfigId) {
+        try {
+            const resConfigs = await fetch(`${API_BASE}/settings/configs`);
+            const jsonConfigs = await resConfigs.json();
+            if (jsonConfigs.code === 0 && Array.isArray(jsonConfigs.data)) {
+                if (typeof cachedAllConfigs !== "undefined") {
+                    cachedAllConfigs = jsonConfigs.data;
+                }
+                const hit = jsonConfigs.data.find(c => {
+                    if (c.config_group !== "tts") return false;
+                    const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+                    return cMeta.id === curProvider && Boolean(c.is_active);
+                }) || jsonConfigs.data.find(c => {
+                    if (c.config_group !== "tts") return false;
+                    const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+                    return cMeta.id === curProvider;
+                });
+                if (hit) {
+                    targetConfigId = hit.id;
+                }
+            }
+        } catch (e) {
+            console.warn("自动补拉 TTS 配置列表异常:", e);
+        }
+    }
+
+    // 4. 若当前引擎尚未配置过，严格清空 Key 输入框并重置状态，绝不允许混入其他引擎的 Key
+    if (!targetConfigId) {
+        if (curIdInput) curIdInput.value = "";
+        keyInput.value = "";
+        keyInput.type = "password";
+        if (hintEl) {
+            hintEl.innerText = (meta && meta.needKey) ? "云端商用托管 (需硬件安全加密密钥)" : "此引擎免密钥";
+        }
+        return "";
+    }
+
+    if (curIdInput) {
+        curIdInput.value = targetConfigId;
+    }
 
     keyInput.type = "password";
     if (eyeBtn) {
@@ -3142,26 +4111,44 @@ async function autoFillRealTTSKeyIfConfigured(configId, existingConfig = null) {
         eyeBtn.style.color = "";
     }
 
-    let realKey = cachedDecryptedKeys[configId] || "";
-    if (!realKey) {
-        try {
-            const res = await fetch(`${API_BASE}/settings/configs/${configId}/raw-key`);
-            const json = await res.json();
-            if (json.code === 0 && json.raw_key) {
-                cachedDecryptedKeys[configId] = json.raw_key;
-                realKey = json.raw_key;
-            }
-        } catch (e) {
-            console.warn("自动获取 TTS API Key 异常:", e);
-        }
+    // 5. 检查属于当前引擎 configId 的专属内存缓存
+    let realKey = (typeof cachedDecryptedKeys !== "undefined") ? (cachedDecryptedKeys[targetConfigId] || "") : "";
+    if (realKey) {
+        keyInput.value = realKey;
+        if (hintEl) hintEl.innerText = "已载入硬件加密密钥 (默认脱敏)";
+        return realKey;
     }
 
-    const curIdInput = document.getElementById("tts-editor-config-id");
-    if (curIdInput && curIdInput.value === configId && realKey) {
-        keyInput.value = realKey;
-        keyInput.type = "password";
-        if (hintEl) hintEl.innerText = "已载入硬件加密密钥 (默认脱敏)";
+    // 6. 调用后端硬件级 AES 解密接口，拉取属于当前引擎自身的真实密钥
+    try {
+        const res = await fetch(`${API_BASE}/settings/configs/${targetConfigId}/raw-key`);
+        const json = await res.json();
+        if (json.code === 0 && json.raw_key) {
+            realKey = json.raw_key;
+            if (typeof cachedDecryptedKeys !== "undefined") {
+                cachedDecryptedKeys[targetConfigId] = realKey;
+            }
+            keyInput.value = realKey;
+            keyInput.type = "password";
+            if (hintEl) hintEl.innerText = "已载入硬件加密密钥 (默认脱敏)";
+
+            // 顺带触发底层模型架构探测
+            const urlInput = document.getElementById("tts-input-url");
+            fetchAndRenderTTSThirdpartyModelInfo(
+                urlInput ? urlInput.value : "",
+                realKey,
+                curProvider,
+                targetConfigId
+            );
+            return realKey;
+        }
+    } catch (e) {
+        console.warn("自动获取 TTS API Key 异常:", e);
     }
+
+    // 若当前引擎有配置 ID 但未解析出 Key，保持输入框为空，严禁混用其他引擎 Key
+    keyInput.value = "";
+    return "";
 }
 
 // 切换 TTS 密钥眼睛图标
@@ -3227,45 +4214,45 @@ async function toggleTTSKeyVisibility() {
     }
 }
 
-// 点击【获取音色】
+// 点击【获取音色与模型】
 async function handleFetchTTSVoices() {
     const btn = document.getElementById("btn-fetch-tts-voices");
     const meta = resolveTTSProviderMeta(currentSelectedTTSProvider);
     const voiceInput = document.getElementById("tts-input-voice");
-    const countStatusEl = document.getElementById("tts-voices-count-status");
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
+    const configIdInput = document.getElementById("tts-editor-config-id");
 
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<span class="spinner-sm"></span> 加载音色中...`;
+        btn.innerHTML = `<span class="spinner-sm"></span> 获取音色与模型中...`;
     }
 
     try {
-        const defaultVoice = (meta.recommendedVoices.length > 0) ? meta.recommendedVoices[0].val : "";
-        const currentSelected = (voiceInput && voiceInput.value) ? voiceInput.value : defaultVoice;
-        if (voiceInput) voiceInput.value = currentSelected;
+        const currentSelected = (voiceInput && voiceInput.value) ? voiceInput.value.trim() : "";
+        const result = await fetchAndRenderTTSVoices(meta, currentSelected);
 
-        renderTTSVoicePills(meta, currentSelected);
-        if (countStatusEl) {
-            countStatusEl.innerHTML = `
-                <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
-                    <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981;"></span>
-                    成功获取到 ${meta.recommendedVoices.length} 款可用音色 (当前选定: <strong>${escapeHtml(currentSelected)}</strong>)
-                </span>
-            `;
-        }
-        showTTSTestResult(true, `已成功加载【${meta.name}】的 ${meta.recommendedVoices.length} 款可用音色！点击下方药丸即可自由切换当前音色。`);
+        const realKey = (keyInput ? keyInput.value.trim() : "") || (configIdInput && cachedDecryptedKeys[configIdInput.value]) || "";
+
+        // 联动发起第三方模型与协议信息探测
+        fetchAndRenderTTSThirdpartyModelInfo(
+            urlInput ? urlInput.value : "",
+            realKey,
+            meta.id,
+            configIdInput ? configIdInput.value : ""
+        );
+
+        const totalCount = (result.clonedVoices?.length || 0) + (result.recommendedVoices?.length || 0);
+        showTTSTestResult(true, `已成功加载【${meta.name}】可用音色（含 ${result.clonedVoices?.length || 0} 款专属克隆，共 ${totalCount} 款），并同步探测第三方底层模型架构！点击下方药丸即可自由试听与选定。`);
     } catch (e) {
         showTTSTestResult(false, "加载音色列表异常: " + e);
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = `<svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 获取音色`;
+            btn.innerHTML = `<svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 获取音色与模型`;
         }
     }
 }
-
-// 全局试听音频控制实例
-let currentTTSPreviewAudio = null;
 
 // 点击【测试连通性与试听】
 async function handleTestTTSConnectivity() {
@@ -3288,7 +4275,7 @@ async function handleTestTTSConnectivity() {
         try {
             currentTTSPreviewAudio.pause();
             currentTTSPreviewAudio = null;
-        } catch (e) {}
+        } catch (e) { }
     }
 
     if (btn) {
@@ -3323,6 +4310,7 @@ async function handleTestTTSConnectivity() {
                         连通正常 · 延迟: ${json.latency_ms || 120}ms
                     </span>
                 `;
+                fetchAndRenderTTSThirdpartyModelInfo(baseUrl, apiKey, provider, configId);
             } else {
                 pingStatusEl.innerHTML = `
                     <span style="color: #EF4444; font-weight: 500; display: inline-flex; align-items: center; gap: 5px;">
@@ -3352,10 +4340,15 @@ async function handleTestTTSConnectivity() {
                 });
 
                 if (previewRes.ok) {
+                    if (window._ttsPreviewController && typeof window._ttsPreviewController.stopAll === "function") {
+                        window._ttsPreviewController.stopAll();
+                    }
                     const blob = await previewRes.blob();
                     const audioUrl = URL.createObjectURL(blob);
                     const audio = new Audio(audioUrl);
-                    currentTTSPreviewAudio = audio;
+                    if (window._ttsPreviewController) {
+                        window._ttsPreviewController.audio = audio;
+                    }
 
                     if (btn) {
                         btn.innerHTML = `🔊 正在试听播报中...`;
@@ -3510,10 +4503,11 @@ function renderConfiguredTTS(configs) {
                  设为默认发音
                </button>`;
 
+        const configuredLogoSrc = (tMeta.logoSvg || "").startsWith("http") ? tMeta.logoSvg : (tMeta.logoSvg + "?v=2.0.4");
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; width: 100%; min-width: 0; box-sizing: border-box;">
                 <div class="configured-llm-info">
-                    <img src="${tMeta.logoSvg}?v=1.8.9" alt="${tMeta.name}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: contain; flex-shrink: 0; background: #090E17; border: 1px solid rgba(16, 185, 129, 0.25); padding: 4px;">
+                    <img src="${configuredLogoSrc}" alt="${tMeta.name}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: contain; flex-shrink: 0; background: #090E17; border: 1px solid rgba(16, 185, 129, 0.25); padding: 4px;">
                     <div style="min-width: 0; flex: 1;">
                         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                             <strong style="font-size: 14px; color: #FFFFFF;">${tMeta.name}</strong>
@@ -3622,8 +4616,6 @@ async function submitNewCustomProvider() {
         alert("提交异常: " + e);
     }
 }
-
-// 统一入口：loadSettings (按模式过滤，渲染大模型体系与非LLM配置)
 async function loadSettings() {
     try {
         // 读取当前直播模式
@@ -3659,16 +4651,19 @@ async function loadSettings() {
             }
 
             // 2. 渲染语音合成生态网格与已配置发音清单
-            renderTTSEcosystemGrid(currentSelectedTTSProvider);
-            renderConfiguredTTS(cachedAllConfigs);
-
-            // 若语音编辑区尚未与激活项绑定过，优先把激活的发音同步到编辑面板
             const activeTTS = cachedAllConfigs.find(c => c.config_group === "tts" && c.is_active);
-            if (activeTTS && !document.getElementById("tts-editor-config-id").value) {
+            if (activeTTS) {
                 const tMeta = resolveTTSProviderMeta(activeTTS.provider_name, activeTTS);
-                selectTTSProvider(tMeta.id, activeTTS);
-            } else if (!document.getElementById("tts-editor-config-id").value) {
-                selectTTSProvider(currentSelectedTTSProvider);
+                currentSelectedTTSProvider = tMeta.id;
+                renderTTSEcosystemGrid(tMeta.id);
+                renderConfiguredTTS(cachedAllConfigs);
+                await selectTTSProvider(tMeta.id, activeTTS);
+            } else {
+                renderTTSEcosystemGrid(currentSelectedTTSProvider);
+                renderConfiguredTTS(cachedAllConfigs);
+                if (!document.getElementById("tts-editor-config-id").value) {
+                    await selectTTSProvider(currentSelectedTTSProvider);
+                }
             }
 
             // 3. 渲染其他高级/扩展服务商卡片（如远程 GPU 渲染节点等）
@@ -4732,12 +5727,12 @@ async function loadKnowledgeList() {
         if (!res.ok) return;
         const json = await res.json();
         const docs = json.data || [];
-        
+
         // 统计更新
         const docCountEl = document.getElementById("kb-doc-count");
         const chunkCountEl = document.getElementById("kb-chunk-count");
         if (docCountEl) docCountEl.innerText = `${docs.length} 篇`;
-        
+
         let totalChunks = 0;
         docs.forEach(d => totalChunks += (d.chunk_count || 0));
         if (chunkCountEl) chunkCountEl.innerText = `${totalChunks} 条`;
@@ -5020,3 +6015,1264 @@ async function saveAudioDeviceSelection() {
     }
 }
 
+/* =========================================================================
+   内置 RTMP 直推引擎前端控制与联动 (脱离 OBS 一键推流)
+   ========================================================================= */
+
+const RTMP_STORAGE_KEY_URL = "ai_live_rtmp_url";
+const RTMP_STORAGE_KEY_KEY = "ai_live_rtmp_key";
+
+function toggleRtmpModal() {
+    const modal = document.getElementById("rtmp-settings-modal");
+    if (!modal) return;
+    const isHidden = modal.style.display === "none" || !modal.style.display;
+    modal.style.display = isHidden ? "flex" : "none";
+    if (isHidden) {
+        const urlInput = document.getElementById("rtmp-input-url");
+        const keyInput = document.getElementById("rtmp-input-key");
+        if (urlInput && !urlInput.value) {
+            urlInput.value = localStorage.getItem(RTMP_STORAGE_KEY_URL) || "rtmp://live-push.bilivideo.com/live-bvc/";
+        }
+        if (keyInput && !keyInput.value) {
+            keyInput.value = localStorage.getItem(RTMP_STORAGE_KEY_KEY) || "";
+        }
+        refreshRtmpStatus();
+    }
+}
+
+function fillRtmpPreset(platform) {
+    const urlInput = document.getElementById("rtmp-input-url");
+    if (!urlInput) return;
+    switch (platform) {
+        case "bilibili":
+            urlInput.value = "rtmp://live-push.bilivideo.com/live-bvc/";
+            break;
+        case "douyin":
+            urlInput.value = "rtmp://live-push.douyincdn.com/live/";
+            break;
+        case "kuaishou":
+            urlInput.value = "rtmp://live-push.kuaishou.com/live/";
+            break;
+        case "channels":
+            urlInput.value = "rtmp://channels.weixin.qq.com/live/";
+            break;
+    }
+    showToast(`已填入 ${platform} 常用推流前缀，请在下方补充直播码`, "info");
+}
+
+async function refreshRtmpStatus() {
+    try {
+        const res = await fetch(`${API_BASE}/live/rtmp/status`);
+        const json = await res.json();
+        if (json.code === 0 && json.data) {
+            updateRtmpUI(json.data);
+        }
+    } catch (e) {
+        console.warn("读取 RTMP 状态失败:", e);
+    }
+}
+
+function updateRtmpUI(status) {
+    const indicator = document.getElementById("rtmp-status-indicator");
+    const badge = document.getElementById("rtmp-stream-badge");
+    const btn = document.getElementById("btn-toggle-rtmp");
+    const durEl = document.getElementById("rtmp-metric-duration");
+    const frameEl = document.getElementById("rtmp-metric-frames");
+    const audioEl = document.getElementById("rtmp-metric-audio");
+    const errBanner = document.getElementById("rtmp-error-banner");
+
+    const isStreaming = Boolean(status.is_streaming);
+
+    if (indicator) {
+        if (isStreaming) {
+            indicator.style.color = "#10B981";
+            indicator.textContent = "● 直推传输中 (25 FPS)";
+        } else if (status.state === "error") {
+            indicator.style.color = "#ef4444";
+            indicator.textContent = "✕ 推流异常";
+        } else {
+            indicator.style.color = "#94a3b8";
+            indicator.textContent = "○ 未启动";
+        }
+    }
+
+    if (badge) {
+        badge.style.display = isStreaming ? "inline-flex" : "none";
+        if (isStreaming) {
+            badge.textContent = `● RTMP直推 (${status.duration_seconds}s)`;
+        }
+    }
+
+    if (btn) {
+        if (isStreaming) {
+            btn.style.background = "#ef4444";
+            btn.style.borderColor = "#ef4444";
+            btn.textContent = "⏹ 停止直推";
+        } else {
+            btn.style.background = "#10B981";
+            btn.style.borderColor = "#10B981";
+            btn.textContent = "▶ 立即开始直推";
+        }
+    }
+
+    if (durEl) {
+        const secs = Math.floor(status.duration_seconds || 0);
+        const h = String(Math.floor(secs / 3600)).padStart(2, "0");
+        const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+        const s = String(secs % 60).padStart(2, "0");
+        durEl.textContent = `${h}:${m}:${s}`;
+    }
+
+    if (frameEl) frameEl.textContent = String(status.frames_sent || 0);
+    if (audioEl) {
+        const kb = Math.round((status.audio_bytes_sent || 0) / 1024);
+        audioEl.textContent = `${kb} KB`;
+    }
+
+    if (errBanner) {
+        if (status.last_error && !isStreaming) {
+            errBanner.style.display = "block";
+            errBanner.textContent = "最后推流提示: " + status.last_error;
+        } else {
+            errBanner.style.display = "none";
+        }
+    }
+}
+
+async function toggleRtmpStreaming() {
+    const btn = document.getElementById("btn-toggle-rtmp");
+    const isStopping = btn && btn.textContent.includes("停止");
+
+    if (isStopping) {
+        try {
+            const res = await fetch(`${API_BASE}/live/rtmp/stop`, { method: "POST" });
+            const json = await res.json();
+            showToast(json.message || "推流已安全停止", "info");
+            refreshRtmpStatus();
+        } catch (e) {
+            showToast("停止推流请求失败: " + e, "error");
+        }
+    } else {
+        const urlInput = document.getElementById("rtmp-input-url");
+        const keyInput = document.getElementById("rtmp-input-key");
+        const rtmpUrl = (urlInput ? urlInput.value : "").trim();
+        const streamKey = (keyInput ? keyInput.value : "").trim();
+
+        if (!rtmpUrl) {
+            showToast("请先填写推流服务器地址 (RTMP URL)", "warn");
+            return;
+        }
+
+        localStorage.setItem(RTMP_STORAGE_KEY_URL, rtmpUrl);
+        localStorage.setItem(RTMP_STORAGE_KEY_KEY, streamKey);
+
+        try {
+            const res = await fetch(`${API_BASE}/live/rtmp/start`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    rtmp_url: rtmpUrl,
+                    stream_key: streamKey,
+                    width: 720,
+                    height: 960,
+                    fps: 25,
+                    bitrate_kbps: 2500
+                })
+            });
+            const json = await res.json();
+            if (json.code === 0) {
+                showToast("内置 RTMP 直推引擎已启动！", "success");
+                refreshRtmpStatus();
+            } else {
+                showToast("启动推流失败: " + (json.message || json.detail), "error");
+                refreshRtmpStatus();
+            }
+        } catch (e) {
+            showToast("请求启动推流异常: " + e, "error");
+        }
+    }
+}
+
+/* =========================================================================
+   GPU配置(2) 与数字人画面选型：一行多卡片与独立多行描述卡片联动
+   ========================================================================= */
+// 兼容性别名脚本：确保历史缓存引用 15_gpu_avatar.js 时安全加载 15_settings_gpu.js
+if (typeof loadGpuAvatarProviders === 'undefined') {
+    const s = document.createElement('script');
+    s.src = '/static/js/modules/15_settings_gpu.js?v=2.0.7';
+    document.head.appendChild(s);
+}
+
+const KNOWN_AVATAR_PROVIDER_INFO = {
+    local_procedural: {
+        title: "选项 1 · 本地轻量卡通形象",
+        logoSvg: "/static/svg/avatar_local_procedural.svg",
+        badges: [
+            { text: "0元完全免费", cls: "green" },
+            { text: "免独立显卡", cls: "green" },
+            { text: "开箱即用", cls: "sky" }
+        ],
+        summary: "由本机直接生成 2D 动效卡通形象，无需任何显卡或云端账号，即开即播。",
+        visual: "2D 灵动卡通主播画面（自然微动态/呼吸/眨眼/口型同步，支持低配真人微动态羽化）",
+        hardware: "无需独立显卡，任意双核以上普通办公电脑/轻薄本畅跑，0元完全免费",
+        audience: "小白新手试播、无独显电脑、追求绝对稳定与 0 成本首选（强烈推荐）",
+        plain: "💡 为什么强烈推荐新手先选这个？它就像开箱即用的“安全驾驶模式”，电脑无需任何昂贵显卡，打开就能直接开播；并且后续就算你换了更高级的真人服务，系统也会把它作为暗中守护的备用画面，一旦网络中断自动顶上，保障直播永不黑屏！"
+    },
+    sidecar_v3: {
+        title: "选项 2 · 自建真人渲染 (Sidecar)",
+        logoSvg: "/static/svg/avatar_sidecar_v3.svg",
+        officialUrl: "https://www.autodl.com",
+        officialLabel: "AutoDL算力 ↗",
+        badges: [
+            { text: "真人高保真", cls: "amber" },
+            { text: "可租云GPU(约1.2元/h)", cls: "green" },
+            { text: "逐帧口型对齐", cls: "sky" }
+        ],
+        summary: "将耗显卡的真人画面外包给独显电脑或租用云GPU(AutoDL等)，让低配电脑也能做高保真真人直播。",
+        visual: "1080P 高清写实真人视频（精确逐帧音素级对齐发音口型）",
+        hardware: "本机配备独立显卡(推荐 RTX 3060 6GB+) 或 按小时租用云端 GPU(约1.2元/小时)",
+        audience: "追求真人主播质感、想用低配轻薄本通过租用云算力实现真人出镜的团队与个人",
+        plain: "💡 什么是“自建云端渲染 / Sidecar”？让AI生成逼真写实的真人视频非常消耗显卡。所谓“Sidecar（外挂伴侣）”，就是把这个非常吃显卡的画面合成计算外包给一台带独显的机器或按小时租用的便宜云GPU（如 AutoDL，约1.2元/小时），计算完成后把高清真人视频实时传回。低配轻薄本花极低成本就能瞬间拥有顶配真人主播！"
+    },
+    liveavatar_lite: {
+        title: "选项 3 · LiveAvatar 开放平台",
+        logoSvg: "/static/svg/avatar_liveavatar.svg",
+        officialUrl: "https://liveavatar.com",
+        officialLabel: "平台官网 ↗",
+        badges: [
+            { text: "商业SaaS", cls: "sky" },
+            { text: "免本地显卡", cls: "green" },
+            { text: "云端直推", cls: "amber" }
+        ],
+        summary: "第三方商业数字人 SaaS 云服务，云端机房生成画面流，本地普通办公电脑即可开播。",
+        visual: "商业级云端真人超写实视频画面（高拟真发丝与表情微动）",
+        hardware: "本地电脑零显卡要求，需官方开通的商业授权 API Key",
+        audience: "拥有商业授权账号、追求大厂现成数字人资产的专业团队",
+        plain: "💡 适合已采购第三方成熟数字人 SaaS 服务的用户，画面由官方机房全权生成推流，本地电脑只需发送互动文字即可驱动，免除自建模型的运维成本。"
+    },
+    aliyun_avatar: {
+        title: "选项 4 · 阿里云万相数字人",
+        logoSvg: "/static/svg/avatar_aliyun.svg",
+        officialUrl: "https://www.aliyun.com/product/ai/avatar",
+        officialLabel: "阿里官网 ↗",
+        badges: [
+            { text: "阿里官方", cls: "sky" },
+            { text: "完全免本地显卡", cls: "green" },
+            { text: "云端直推RTMP", cls: "amber" }
+        ],
+        summary: "阿里云机房直接渲染并支持直推 RTMP 直播流，本地电脑零显卡消耗，超写实真人质感。",
+        visual: "阿里云万相官方超写实逼真真人主播（工业级渲染质感）",
+        hardware: "本地电脑零显卡要求，需阿里云企业商用认证与万相服务权限",
+        audience: "品牌企业官方旗舰店、大厂商用客户",
+        plain: "💡 阿里云企业级解决方案，依托阿里庞大算力机房直接生成推流直播源，适合品牌级企业开播需求。"
+    },
+    tencent_avatar: {
+        title: "选项 5 · 腾讯云智能数智人",
+        logoSvg: "/static/svg/avatar_tencent.svg",
+        officialUrl: "https://cloud.tencent.com/product/ivh",
+        officialLabel: "腾讯官网 ↗",
+        badges: [
+            { text: "腾讯官方数智人", cls: "sky" },
+            { text: "云端渲染免显卡", cls: "green" },
+            { text: "机房直推RTMP", cls: "amber" }
+        ],
+        summary: "腾讯云端机房完成声画实时合成并生成 RTMP 流，不占用本地显卡，在 OBS 拉流即可开播。",
+        visual: "腾讯云 IVH 互动数智人超写实视频（细腻眼神交流与肢体动作）",
+        hardware: "本地电脑零显卡要求，需腾讯云账号开通商用互动数智人权限",
+        audience: "拥有腾讯云数智人商用授权的企业直播间",
+        plain: "💡 腾讯官方数智人云端实时合流方案，支持直接推流至主流平台，画面质量卓越稳定。"
+    },
+    custom_avatar: {
+        title: "选项 6 · 自定义数字人 / 远端流服务",
+        logoSvg: "/static/svg/avatar_custom.svg",
+        officialUrl: "https://github.com/winclubs/AI-LiveStream-Agent",
+        officialLabel: "自定义入口 ↗",
+        badges: [
+            { text: "自定义服务", cls: "sky" },
+            { text: "私有自建", cls: "green" },
+            { text: "灵活扩展", cls: "amber" }
+        ],
+        summary: "自由对接您的自建数字人服务、私有 GPU 云机房、第三方未预置的流媒体服务或自定义 WebSocket 网关。",
+        visual: "视您接入的外部自研服务或私有流媒体画面而定",
+        hardware: "视自建服务器配置而定，本地电脑零显卡负担，支持 SSH 加密隧道",
+        audience: "拥有自研渲染服务、私有机房或需接入私有直播流的进阶开发者与机构",
+        plain: "💡 提供最大化自由度！无论您自研了数字人模型、搭建了私有渲染集群，还是有特殊的 RTMP/WebSocket 直播流地址，均可在此自由配置并受系统统一调度。"
+    }
+};
+
+let globalAvatarCatalog = [];
+let globalAvatarConfigs = [];
+let selectedAvatarProviderId = "local_procedural";
+let currentEditingAvatarConfigId = "";
+let cachedAvatarDecryptedKeys = {};
+
+async function toggleAvatarSecretVisibility(inputId, configId) {
+    const input = document.getElementById(inputId);
+    const eyeBtn = document.getElementById(`${inputId}-eye`);
+    if (!input || !eyeBtn) return;
+    const eyeShowSvg = `<svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    const eyeHideSvg = `<svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
+    if (input.type === "password") {
+        if (configId && (!input.value || input.value.includes("•"))) {
+            if (cachedAvatarDecryptedKeys[configId]) {
+                input.value = cachedAvatarDecryptedKeys[configId];
+            } else {
+                try {
+                    eyeBtn.style.opacity = "0.5";
+                    const res = await fetch(`${API_BASE}/settings/configs/${configId}/raw-key`);
+                    const json = await res.json();
+                    if (json.code === 0) {
+                        const rk = json.raw_key || "";
+                        cachedAvatarDecryptedKeys[configId] = rk;
+                        input.value = rk;
+                    }
+                } catch (e) {
+                    console.warn("拉取数字人密钥明文异常:", e);
+                } finally {
+                    eyeBtn.style.opacity = "1";
+                }
+            }
+        }
+        input.type = "text";
+        eyeBtn.innerHTML = eyeHideSvg;
+        eyeBtn.title = "点击隐藏密码";
+        eyeBtn.style.color = "#10B981";
+    } else {
+        input.type = "password";
+        eyeBtn.innerHTML = eyeShowSvg;
+        eyeBtn.title = "点击显示明文";
+        eyeBtn.style.color = "#94a3b8";
+    }
+}
+
+async function fetchAvatarRegistryAndConfigs() {
+    let registryJson = { code: 0, data: [] };
+    let configsJson = { code: 0, data: [] };
+
+    try {
+        const [registryRes, configsRes] = await Promise.all([
+            fetch(`${API_BASE}/settings/avatar/providers`),
+            fetch(`${API_BASE}/settings/configs`)
+        ]);
+        if (registryRes.ok) registryJson = await registryRes.json();
+        if (configsRes.ok) configsJson = await configsRes.json();
+    } catch (err) {
+        console.warn("拉取数字人注册表网络响应受阻，启用系统预置方案兜底:", err);
+    }
+
+    const order = { local_procedural: 0, sidecar_v3: 1, liveavatar_lite: 2, aliyun_avatar: 3, tencent_avatar: 4, custom_avatar: 5 };
+    let catalog = Array.isArray(registryJson.data) && registryJson.data.length > 0 ? [...registryJson.data] : [];
+
+    // 若接口尚未准备好或网络异常，通过本地已知元数据兜底构建 6 大主流方案
+    if (catalog.length === 0) {
+        catalog = Object.entries(KNOWN_AVATAR_PROVIDER_INFO).map(([pid, pInfo]) => ({
+            id: pid,
+            name: pInfo.title,
+            status: "available",
+            selectable: true,
+            configuration_mode: pid === "local_procedural" ? "none" : "instance",
+            official_url: pInfo.officialUrl || ""
+        }));
+    }
+
+    if (!catalog.some(item => item.id === "custom_avatar")) {
+        catalog.push({
+            id: "custom_avatar",
+            name: "选项 6 · 自定义数字人 / 远端流服务（灵活接入）",
+            status: "available",
+            selectable: true,
+            configuration_mode: "instance",
+            official_url: "https://github.com/winclubs/AI-LiveStream-Agent",
+            ui_fields: [
+                {
+                    path: "base_url",
+                    label: "自定义服务/流连接地址 (WebSocket / RTMP / HTTP):",
+                    type: "url",
+                    required: true,
+                    default: "ws://127.0.0.1:8010/ws/render-v3",
+                    tip: "您的自建数字人渲染服务、私有网关或 RTMP 流地址（支持 ws://, wss://, http://, https://, rtmp://）。",
+                    pills: [
+                        { text: "本地WS: ws://127.0.0.1:8010/ws/render-v3", val: "ws://127.0.0.1:8010/ws/render-v3" },
+                        { text: "RTMP流: rtmp://127.0.0.1:1935/live/avatar", val: "rtmp://127.0.0.1:1935/live/avatar" },
+                        { text: "远程WSS: wss://my-gpu-node.com/ws/render", val: "wss://my-gpu-node.com/ws/render" }
+                    ]
+                },
+                {
+                    path: "api_key",
+                    label: "访问密码 / Token / API Key (选填):",
+                    type: "secret",
+                    required: false,
+                    tip: "连接您自定义服务端所需的安全认证密钥，系统将加密存储；无鉴权可直接留空。"
+                },
+                {
+                    path: "extra_params.stream_protocol",
+                    label: "通信协议类型:",
+                    type: "text",
+                    default: "websocket",
+                    tip: "与自定义服务通信所使用的协议（支持 websocket、rtmp、webrtc、http）。",
+                    pills: [
+                        { text: "WebSocket", val: "websocket" },
+                        { text: "RTMP直播流", val: "rtmp" },
+                        { text: "WebRTC低延时", val: "webrtc" }
+                    ]
+                }
+            ]
+        });
+    }
+
+    globalAvatarCatalog = catalog.sort((a, b) => (order[a.id] ?? 99) - (order[b.id] ?? 99));
+    globalAvatarConfigs = (configsJson.data || []).filter(item => item.config_group === "neural_renderer");
+
+    // 优先寻找既处于激活状态且校验通过的实例
+    let active = globalAvatarConfigs.find(item => item.is_active && (!item.provider_validation || item.provider_validation.valid));
+    if (!active) {
+        // 容错兜底：若有 active 实例，优先展示该激活方案
+        active = globalAvatarConfigs.find(item => item.is_active);
+    }
+    if (active && (active.adapter_id || active.provider_name)) {
+        selectedAvatarProviderId = active.adapter_id || active.provider_name;
+        currentEditingAvatarConfigId = active.id;
+    }
+}
+
+async function loadGpuAvatarProviders() {
+    try {
+        await fetchAvatarRegistryAndConfigs();
+        renderAvatarProvidersUI("gpu");
+    } catch (e) {
+        console.error("加载 GPU Avatar Providers 失败:", e);
+        const cardsBox = document.getElementById("gpu-avatar-provider-cards");
+        if (cardsBox) {
+            cardsBox.innerHTML = `
+                <div class="hw-cell" style="grid-column: 1 / -1; text-align: center; color: var(--signal-danger); padding: 24px;">
+                    <div>⚠️ 加载数字人配置时遇到异常: ${escapeHtml(String(e))}</div>
+                    <button class="btn btn-sm btn-secondary" style="margin-top: 10px;" onclick="loadGpuAvatarProviders()">点击重试加载</button>
+                </div>
+            `;
+        }
+    }
+}
+
+async function loadWizardAvatarProviders() {
+    try {
+        await fetchAvatarRegistryAndConfigs();
+        renderWizardGpuStatusCard();
+    } catch (e) {
+        console.error("加载向导 GPU 状态看板失败:", e);
+    }
+}
+
+function goToGpuSettingsTab() {
+    const navItem = document.querySelector(".nav-item[data-tab='gpu']");
+    if (navItem) {
+        navItem.click();
+    } else if (typeof switchToTab === "function") {
+        switchToTab("gpu");
+    }
+}
+
+async function quickEnableLocalProceduralAvatar() {
+    try {
+        for (const cfg of globalAvatarConfigs.filter(c => c.is_active)) {
+            await fetch(`${API_BASE}/settings/configs/save`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    id: cfg.id,
+                    config_group: "neural_renderer",
+                    provider_name: cfg.provider_name,
+                    is_active: false
+                })
+            });
+        }
+        showToast("已成功启用【本地轻量卡通】方案！", "success");
+        await loadGpuAvatarProviders();
+        await loadWizardAvatarProviders();
+    } catch (e) {
+        showToast("启用本地方案失败: " + e, "error");
+    }
+}
+
+async function testWizardGpuConnection(targetUrl, adapterId) {
+    const btn = document.getElementById("wizard-gpu-ping-btn");
+    const statusBox = document.getElementById("wizard-gpu-ping-status");
+    const origHtml = btn ? btn.innerHTML : "";
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="icon-sm spin" viewBox="0 0 24 24" style="width:13px;height:13px;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg> 探测中...`;
+    }
+
+    if (statusBox) {
+        statusBox.style.display = "inline-flex";
+        statusBox.style.background = "rgba(30, 41, 59, 0.7)";
+        statusBox.style.color = "var(--text-primary)";
+        statusBox.style.border = "1px solid rgba(148, 163, 184, 0.2)";
+        statusBox.innerHTML = `正在向 <code style="color:#38bdf8;font-family:monospace;">${escapeHtml(targetUrl)}</code> 发起握手探测...`;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/settings/test-connection`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                config_group: "neural_renderer",
+                provider_name: adapterId,
+                base_url: targetUrl
+            })
+        });
+        const json = await res.json();
+        if (json.code === 0 && json.success) {
+            if (statusBox) {
+                statusBox.style.background = "rgba(16, 185, 129, 0.15)";
+                statusBox.style.color = "#10B981";
+                statusBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
+                statusBox.innerHTML = `🟢 握手成功！延迟: ${json.latency_ms}ms${json.device ? ' (硬件: ' + escapeHtml(json.device) + ')' : ''}`;
+            }
+            showToast(`✅ 通信正常！${json.device ? '已识别硬件：' + json.device : ''}（延迟: ${json.latency_ms}ms）`, "success");
+        } else {
+            const err = json.message || "通信握手未成功";
+            if (statusBox) {
+                statusBox.style.background = "rgba(239, 68, 68, 0.15)";
+                statusBox.style.color = "#EF4444";
+                statusBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
+                statusBox.innerHTML = `🔴 连通异常: ${escapeHtml(err)}`;
+            }
+            showToast(`❌ 连通失败: ${err}`, "error");
+        }
+    } catch (e) {
+        if (statusBox) {
+            statusBox.style.background = "rgba(239, 68, 68, 0.15)";
+            statusBox.style.color = "#EF4444";
+            statusBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
+            statusBox.innerHTML = `⚠️ 请求异常: ${escapeHtml(String(e))}`;
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+    }
+}
+
+function renderWizardGpuStatusCard() {
+    const container = document.getElementById("wizard-gpu-display-container");
+    const headerBadge = document.getElementById("wizard-gpu-badge");
+    if (!container) return;
+
+    // 查找当前激活的数字人/渲染配置
+    const activeRemote = globalAvatarConfigs.find(item => item.is_active && (!item.provider_validation || item.provider_validation.valid)) ||
+                         globalAvatarConfigs.find(item => item.is_active);
+
+    // ==========================================
+    // 场景 A: 已配置且激活了云端租赁/远端 GPU 算力
+    // ==========================================
+    if (activeRemote && activeRemote.adapter_id !== "local_procedural") {
+        const adapterId = activeRemote.adapter_id || activeRemote.provider_name;
+        const descriptor = globalAvatarCatalog.find(item => item.id === adapterId) || {};
+        const info = KNOWN_AVATAR_PROVIDER_INFO[adapterId] || {};
+        const baseUrl = activeRemote.base_url || "";
+        const title = info.title || descriptor.name || activeRemote.title || "云端数字人算力节点";
+
+        if (headerBadge) {
+            headerBadge.className = "brand-badge green";
+            headerBadge.textContent = "云端 GPU 渲染已就绪";
+        }
+
+        container.innerHTML = `
+            <div style="background: rgba(15, 23, 42, 0.65); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 8px; padding: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+                <!-- 头部状态栏 -->
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 12px; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 14.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+                            <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#10B981; box-shadow: 0 0 8px #10B981;"></span>
+                            ${escapeHtml(title)}
+                        </span>
+                        <span class="brand-badge sky">云端租赁算力 (GPU)</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 12px; color: #38bdf8; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;" title="前往 GPU配置(2) 面板修改完整参数">
+                        前往【GPU配置(2)】修改参数
+                        <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    </button>
+                </div>
+
+                <!-- 核心参数指标速览（无需二次输入，直接呈现） -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 14px;">
+                    <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">🚀 算力与硬件环境</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #e2e8f0;">
+                            云端独立显卡加速 (如 NVIDIA A100 80GB) · 本机 0 显存负担
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">🌐 远端流服务连接地址 (base_url)</div>
+                        <div style="font-size: 12.5px; font-family: monospace; color: #38bdf8; word-break: break-all;">
+                            ${escapeHtml(baseUrl || "未填写连接地址")}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 连通性快速质检栏 -->
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; background: rgba(15, 23, 42, 0.5); padding: 8px 12px; border-radius: 6px;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span style="font-size: 12px; color: var(--text-muted);">对接健康状态:</span>
+                        <div id="wizard-gpu-ping-status" style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 4px; font-size: 12px; background: rgba(16, 185, 129, 0.12); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.25);">
+                            🟢 已在 GPU 配置中完成对接与启用
+                        </div>
+                    </div>
+                    ${baseUrl ? `
+                    <button id="wizard-gpu-ping-btn" type="button" class="btn btn-sm btn-secondary" onclick="testWizardGpuConnection('${escapeHtml(baseUrl)}', '${escapeHtml(adapterId)}')" style="font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 5px;">
+                        <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.2;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        快速验证连通性
+                    </button>` : ''}
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // ==========================================
+    // 场景 B: 正在使用本地轻量卡通方案 (选项 1)
+    // ==========================================
+    const isLocalProcedural = !activeRemote || (activeRemote && activeRemote.adapter_id === "local_procedural");
+    if (isLocalProcedural) {
+        if (headerBadge) {
+            headerBadge.className = "brand-badge green";
+            headerBadge.textContent = "本地卡通就绪";
+        }
+
+        container.innerHTML = `
+            <div style="background: rgba(15, 23, 42, 0.65); border: 1.5px solid rgba(14, 165, 233, 0.35); border-radius: 8px; padding: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 12px; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 14.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+                            <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#0ea5e9; box-shadow: 0 0 8px #0ea5e9;"></span>
+                            选项 1 · 本地轻量卡通形象
+                        </span>
+                        <span class="brand-badge green">0元免显卡 · 开箱即用</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 12px; color: #38bdf8; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;">
+                        切换为真人/云端GPU ↗
+                    </button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                    <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">💻 运行环境</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #e2e8f0;">
+                            本机 CPU 动效渲染引擎（双核即可跑满 25fps，免网络握手）
+                        </div>
+                    </div>
+                    <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">🛡️ 安全底线机制</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #10B981;">
+                            开箱即播，并作为断网时的暗中兜底画面（保障直播永不黑屏）
+                        </div>
+                    </div>
+                </div>
+
+                <div style="font-size: 12px; color: #94a3b8; line-height: 1.6;">
+                    💡 当前正在使用本地方案。若您需要超写写真人主播或云端 A100 算力，可随时点击右上角前往【GPU配置(2)】完成一键对接。
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // ==========================================
+    // 场景 C: 尚未配置任何数字人渲染
+    // ==========================================
+    if (headerBadge) {
+        headerBadge.className = "brand-badge amber";
+        headerBadge.textContent = "待配置";
+    }
+
+    container.innerHTML = `
+        <div style="background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 18px;">
+            <div style="font-size: 14px; font-weight: 700; color: #F59E0B; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:#F59E0B;fill:none;stroke-width:2;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                尚未配置生效的数字人渲染方案
+            </div>
+            <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.7; margin-bottom: 14px;">
+                开播需要数字人画面输出源。您可以直接一键使用免显卡的本地灵动卡通形象，或前往【GPU配置(2)】对接云端 GPU (如 NVIDIA A100)。
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn btn-sm btn-primary" onclick="goToGpuSettingsTab()" style="background: #10B981; border-color: #10B981; font-weight: 600; padding: 6px 16px;">
+                    立即前往【GPU配置(2)】配置云端/远端GPU ↗
+                </button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="quickEnableLocalProceduralAvatar()" style="font-size: 12px; padding: 6px 14px;">
+                    一键启用【本地轻量卡通】快速开播
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function renderAvatarProvidersUI(prefix) {
+    const cardsBox = document.getElementById(`${prefix}-avatar-provider-cards`);
+    if (!cardsBox) return;
+
+    cardsBox.innerHTML = "";
+    globalAvatarCatalog.forEach(provider => {
+        const info = KNOWN_AVATAR_PROVIDER_INFO[provider.id] || {};
+        const isSelected = provider.id === selectedAvatarProviderId;
+        const selectable = provider.selectable !== false;
+
+        const card = document.createElement("div");
+        card.className = `avatar-compact-card${isSelected ? " selected" : ""}${selectable ? "" : " is-disabled"}`;
+        card.setAttribute("data-avatar-provider", provider.id);
+
+        const logoHtml = info.logoSvg ? `<img src="${info.logoSvg}" alt="${escapeHtml(info.title || provider.name)}" class="avatar-compact-logo">` : "";
+        const primaryBadge = (info.badges && info.badges[0]) ? info.badges[0] : { text: "可用", cls: "green" };
+
+        card.innerHTML = `
+            ${logoHtml}
+            <div class="avatar-compact-title">${escapeHtml(info.title || provider.name)}</div>
+            <div>
+                <span class="avatar-compact-badge brand-badge ${primaryBadge.cls}">${escapeHtml(primaryBadge.text)}</span>
+            </div>
+        `;
+
+        if (selectable) {
+            card.addEventListener("click", () => {
+                selectAvatarProvider(provider.id, prefix);
+            });
+        }
+        cardsBox.appendChild(card);
+    });
+
+    renderAvatarDetailCard(selectedAvatarProviderId, prefix);
+}
+
+function selectAvatarProvider(providerId, prefix) {
+    selectedAvatarProviderId = providerId;
+    const matchedConfig = globalAvatarConfigs.find(item => item.adapter_id === providerId);
+    currentEditingAvatarConfigId = matchedConfig ? matchedConfig.id : "";
+
+    // 同步更新所有卡片的 selected 状态
+    document.querySelectorAll(".avatar-compact-card").forEach(card => {
+        card.classList.toggle("selected", card.getAttribute("data-avatar-provider") === providerId);
+    });
+
+    renderAvatarDetailCard(providerId, "gpu");
+    renderAvatarDetailCard(providerId, "wizard");
+}
+
+function renderAvatarDetailCard(providerId, prefix) {
+    const titleEl = document.getElementById(`${prefix}-detail-title`);
+    const badgeEl = document.getElementById(`${prefix}-detail-badge`);
+    const linkBox = document.getElementById(`${prefix}-detail-official-link-box`);
+    const visualEl = document.getElementById(`${prefix}-detail-visual`);
+    const hardwareEl = document.getElementById(`${prefix}-detail-hardware`);
+    const audienceEl = document.getElementById(`${prefix}-detail-audience`);
+    const plainEl = document.getElementById(`${prefix}-detail-plain-text`);
+
+    const info = KNOWN_AVATAR_PROVIDER_INFO[providerId] || {};
+    const descriptor = globalAvatarCatalog.find(p => p.id === providerId) || {};
+
+    if (titleEl) titleEl.textContent = info.title || descriptor.name || "数字人方案";
+    if (badgeEl) {
+        badgeEl.className = `brand-badge ${descriptor.status === "available" ? "green" : "amber"}`;
+        badgeEl.textContent = descriptor.status === "available" ? "可用 · 当前选中" : "联调中";
+    }
+
+    if (linkBox) {
+        const officialUrl = descriptor.official_url || info.officialUrl || "";
+        const officialLabel = info.officialLabel || "官方入口 ↗";
+        linkBox.innerHTML = officialUrl ? `
+            <a href="${escapeHtml(officialUrl)}" target="_blank" rel="noopener noreferrer" class="avatar-official-link" title="访问官方平台">
+                ${escapeHtml(officialLabel)}
+            </a>
+        ` : "";
+    }
+
+    // 动态注入整行独立指标
+    if (visualEl) visualEl.textContent = info.visual || descriptor.visual_style || "高质量画面输出";
+    if (hardwareEl) hardwareEl.textContent = info.hardware || descriptor.cost_hardware || "标准硬件兼容";
+    if (audienceEl) audienceEl.textContent = info.audience || descriptor.target_audience || "全体用户";
+    if (plainEl) plainEl.textContent = info.plain || descriptor.plain_explanation || info.summary || "开箱即用数字人方案。";
+
+    // 渲染参数配置字段
+    renderAvatarConfigFields(providerId, prefix);
+}
+
+function formatApiError(json, fallback = "操作失败") {
+    if (!json) return fallback;
+    if (typeof json === "string") return json;
+    if (json.detail) {
+        if (typeof json.detail === "string") return json.detail;
+        if (Array.isArray(json.detail)) {
+            return json.detail.map(item => {
+                if (typeof item === "string") return item;
+                if (item && item.msg) {
+                    const loc = Array.isArray(item.loc) ? item.loc.filter(x => x !== "body").join(".") : "";
+                    return loc ? `${loc}: ${item.msg}` : item.msg;
+                }
+                return JSON.stringify(item);
+            }).join("; ");
+        }
+        if (typeof json.detail === "object") {
+            return json.detail.msg || json.detail.message || JSON.stringify(json.detail);
+        }
+    }
+    if (json.message && typeof json.message === "string") return json.message;
+    return fallback;
+}
+
+function renderAvatarConfigFields(providerId, prefix) {
+    const configPanel = document.getElementById(prefix === "gpu" ? "gpu-avatar-config-fields-panel" : "wizard-avatar-config");
+    const fieldsBox = document.getElementById(prefix === "gpu" ? "gpu-avatar-fields-container" : "wizard-avatar-fields");
+    const statusHint = document.getElementById(prefix === "gpu" ? "gpu-avatar-status-hint" : "wizard-avatar-status");
+    const hiddenId = document.getElementById(prefix === "gpu" ? "gpu-avatar-config-id" : "wizard-avatar-config-id");
+
+    if (!configPanel || !fieldsBox) return;
+
+    const descriptor = globalAvatarCatalog.find(item => item.id === providerId);
+    if (!descriptor) return;
+
+    const activeRemote = globalAvatarConfigs.find(item => item.is_active && (!item.provider_validation || item.provider_validation.valid));
+    const isLocalActive = !activeRemote;
+
+    // 内置本地卡通形象模式
+    if (descriptor.configuration_mode !== "instance") {
+        configPanel.style.display = "block";
+        fieldsBox.innerHTML = `
+            <div style="grid-column: 1 / -1; padding: 14px 16px; background: rgba(16, 185, 129, 0.08); border: 1px dashed rgba(16, 185, 129, 0.3); border-radius: 8px; color: #cbd5e1; font-size: 13px; line-height: 1.7;">
+                <div style="font-weight: 600; color: #10B981; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    本地免显卡内置方案已就绪
+                </div>
+                无需配置任何外部 IP、端口或 API 密钥，当前电脑即可直接生成 2D 灵动卡通画面并保底防黑屏。<br>
+                状态：${isLocalActive ? '<strong style="color:#10B981;">当前已生效（主推流画面）</strong>' : '<span style="color:var(--text-muted);">当前处于备用保底状态（主画面为远端节点）</span>'}
+            </div>
+        `;
+        if (hiddenId) hiddenId.value = "";
+        if (statusHint) {
+            statusHint.textContent = isLocalActive ? "当前已生效" : "未生效（备用保底）";
+        }
+        const saveBtn = document.getElementById("gpu-avatar-save-btn");
+        if (saveBtn) {
+            saveBtn.innerHTML = `
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M20 6L9 17l-5-5"/></svg>
+                ${isLocalActive ? "刷新并保持本地方案" : "立即启用本地轻量卡通方案"}
+            `;
+        }
+        return;
+    }
+
+    // 实例配置模式 (Sidecar, Tencent, Aliyun, LiveAvatar, Custom)
+    configPanel.style.display = "block";
+    fieldsBox.innerHTML = "";
+    const resultBox = document.getElementById("gpu-avatar-conn-result");
+    if (resultBox) {
+        resultBox.style.display = "none";
+        resultBox.innerHTML = "";
+    }
+    const saveBtn = document.getElementById("gpu-avatar-save-btn");
+    if (saveBtn) {
+        saveBtn.innerHTML = `
+            <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            保存并启用此数字人方案
+        `;
+    }
+
+    const adapterId = descriptor.adapter_id || descriptor.id;
+    const config = globalAvatarConfigs.find(item => item.id === currentEditingAvatarConfigId && item.provider_name === adapterId) ||
+                   globalAvatarConfigs.find(item => item.provider_name === adapterId) || null;
+
+    if (hiddenId) hiddenId.value = config ? config.id : "";
+
+    const fields = Array.isArray(descriptor.ui_fields) ? descriptor.ui_fields : [];
+    fields.forEach((field, idx) => {
+        const inputId = `${prefix}-avatar-field-${idx}`;
+        const isSecret = field.type === "secret";
+        const wrapper = document.createElement("div");
+        wrapper.className = "form-group";
+
+        let val = "";
+        if (config) {
+            if (field.path === "base_url") {
+                val = config.base_url || "";
+            } else if (isSecret || field.path === "api_key") {
+                if (cachedAvatarDecryptedKeys[config.id]) {
+                    val = cachedAvatarDecryptedKeys[config.id];
+                } else if (config.masked_key) {
+                    val = config.masked_key;
+                }
+            } else if (field.path.startsWith("extra_params.")) {
+                const k = field.path.replace("extra_params.", "");
+                try {
+                    const extra = typeof config.extra_params === "string" ? JSON.parse(config.extra_params) : (config.extra_params || {});
+                    val = extra ? (extra[k] || "") : "";
+                } catch (e) {}
+            }
+        }
+        if (!val && field.default) val = field.default;
+
+        // 异步预载入已保存密码真实明文，以便切换明文或保存时使用
+        if (isSecret && config && config.id && !cachedAvatarDecryptedKeys[config.id]) {
+            fetch(`${API_BASE}/settings/configs/${config.id}/raw-key`)
+                .then(r => r.json())
+                .then(json => {
+                    if (json.code === 0) {
+                        const rk = json.raw_key || "";
+                        cachedAvatarDecryptedKeys[config.id] = rk;
+                        const el = document.getElementById(inputId);
+                        if (el) {
+                            if (!rk) {
+                                el.value = "";
+                            } else if (!el.value || el.value.includes("•")) {
+                                el.value = rk;
+                            }
+                        }
+                    }
+                })
+                .catch(e => console.warn("预拉取密钥明文异常:", e));
+        }
+
+        let pillsHtml = "";
+        if (Array.isArray(field.pills) && field.pills.length) {
+            pillsHtml = `<div class="pills-container" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">` +
+                field.pills.map(p => `
+                    <button type="button" class="badge-pill" style="font-size:11px;cursor:pointer;padding:2px 8px;border-radius:4px;border:1px solid rgba(148,163,184,0.25);background:rgba(30,41,59,0.7);color:#94a3b8;"
+                            onclick="document.getElementById('${inputId}').value='${escapeHtml(p.val)}'">
+                        ${escapeHtml(p.text)}
+                    </button>
+                `).join("") + `</div>`;
+        }
+
+        let inputHtml = "";
+        if (isSecret) {
+            inputHtml = `
+                <div style="position: relative; display: flex; align-items: center; width: 100%;">
+                    <input id="${inputId}" class="form-control" type="password"
+                           value="${escapeHtml(val)}" placeholder="${escapeHtml(field.default || "")}"
+                           data-avatar-path="${escapeHtml(field.path)}"
+                           data-avatar-required="${field.required ? "true" : "false"}"
+                           data-avatar-label="${escapeHtml(field.label || field.path)}"
+                           style="padding-right: 40px; font-family: monospace;">
+                    <button type="button" class="btn btn-sm btn-ghost avatar-eye-btn" id="${inputId}-eye"
+                            style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); height: 28px; width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: #94a3b8; cursor: pointer; z-index: 2;"
+                            title="点击显示明文"
+                            onclick="toggleAvatarSecretVisibility('${inputId}', '${config ? config.id : ""}')">
+                        <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                </div>
+            `;
+        } else {
+            inputHtml = `
+                <input id="${inputId}" class="form-control" type="text"
+                       value="${escapeHtml(val)}" placeholder="${escapeHtml(field.default || "")}"
+                       data-avatar-path="${escapeHtml(field.path)}"
+                       data-avatar-required="${field.required ? "true" : "false"}"
+                       data-avatar-label="${escapeHtml(field.label || field.path)}">
+            `;
+        }
+
+        wrapper.innerHTML = `
+            <label class="form-label" for="${inputId}">
+                ${escapeHtml(field.label || field.path)}${field.required ? ' <span style="color:var(--red);">*</span>' : ""}
+            </label>
+            ${inputHtml}
+            ${pillsHtml}
+            ${field.tip ? `<div class="field-tip" style="margin-top:4px;">${escapeHtml(field.tip)}</div>` : ""}
+        `;
+        fieldsBox.appendChild(wrapper);
+    });
+
+    if (statusHint) {
+        statusHint.textContent = config
+            ? `正在编辑 ${descriptor.name} 实例 (${config.is_active ? "当前已生效" : "已保存未生效"})`
+            : "保存时将为该 Provider 创建新的配置实例并立即生效";
+    }
+}
+
+async function handleSaveGpuAvatarConfig() {
+    const descriptor = globalAvatarCatalog.find(item => item.id === selectedAvatarProviderId);
+    if (!descriptor) return;
+
+    if (descriptor.configuration_mode !== "instance") {
+        // 本地程序化：将所有已生效远端设为非 active
+        try {
+            for (const cfg of globalAvatarConfigs.filter(c => c.is_active)) {
+                await fetch(`${API_BASE}/settings/configs/save`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: cfg.id,
+                        config_group: "neural_renderer",
+                        provider_name: cfg.provider_name,
+                        is_active: false
+                    })
+                });
+            }
+            showToast("已成功启用【本地轻量卡通】方案！", "success");
+            await loadGpuAvatarProviders();
+        } catch (e) {
+            showToast("切换失败: " + e, "error");
+        }
+        return;
+    }
+
+    const fieldsBox = document.getElementById("gpu-avatar-fields-container");
+    const inputs = fieldsBox ? fieldsBox.querySelectorAll("input[data-avatar-path]") : [];
+
+    const adapterId = descriptor.adapter_id || descriptor.id;
+    const payload = {
+        config_group: "neural_renderer",
+        provider_name: adapterId,
+        title: descriptor.name || descriptor.title || adapterId,
+        is_active: true,
+        extra_params: {
+            adapter: adapterId
+        }
+    };
+
+    const hiddenId = document.getElementById("gpu-avatar-config-id");
+    if (hiddenId && hiddenId.value) {
+        payload.id = hiddenId.value;
+    }
+
+    // 提取表单输入项与必填校验
+    for (const input of inputs) {
+        const path = input.getAttribute("data-avatar-path");
+        const isRequired = input.getAttribute("data-avatar-required") === "true";
+        const label = input.getAttribute("data-avatar-label") || path;
+        let val = input.value.trim();
+
+        // 默认回退值
+        if (!val && input.placeholder) {
+            val = input.placeholder.trim();
+        }
+
+        if (isRequired && !val) {
+            showToast(`请填写必填项：${label}`, "error");
+            input.focus();
+            return;
+        }
+
+        if (path === "base_url") {
+            payload.base_url = val;
+        } else if (path === "api_key") {
+            if (!val) {
+                payload.api_key = "";
+                if (payload.id) {
+                    delete cachedAvatarDecryptedKeys[payload.id];
+                }
+            } else if (!val.includes("•")) {
+                payload.api_key = val;
+            } else if (payload.id && cachedAvatarDecryptedKeys[payload.id]) {
+                payload.api_key = cachedAvatarDecryptedKeys[payload.id];
+            }
+        } else if (path.startsWith("extra_params.")) {
+            const k = path.replace("extra_params.", "");
+            payload.extra_params[k] = val;
+        }
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/settings/configs/save`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (res.ok && (json.code === 0 || json.code === undefined)) {
+            // 将其他已有 active 实例置为非 active
+            const savedId = payload.id || json.id || (json.data && json.data.id);
+            if (savedId) {
+                currentEditingAvatarConfigId = savedId;
+                cachedAvatarDecryptedKeys[savedId] = payload.api_key || "";
+            }
+            const otherActiveConfigs = globalAvatarConfigs.filter(c => c.is_active && c.id !== savedId);
+            for (const cfg of otherActiveConfigs) {
+                try {
+                    await fetch(`${API_BASE}/settings/configs/save`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            id: cfg.id,
+                            config_group: "neural_renderer",
+                            provider_name: cfg.provider_name,
+                            is_active: false
+                        })
+                    });
+                } catch (_) {}
+            }
+            showToast(`已成功保存并启用【${descriptor.name}】！正在检测通信连通性...`, "success");
+            await loadGpuAvatarProviders();
+
+            // 保存后立即自动进行通信连通性测试并展示结果
+            await testCurrentGpuAvatarConnection(true);
+
+        } else {
+            showToast("保存失败: " + formatApiError(json, "服务端验证未通过"), "error");
+        }
+    } catch (e) {
+        showToast("保存异常: " + e, "error");
+    }
+}
+
+async function testCurrentGpuAvatarConnection(isAutoAfterSave = false) {
+    console.log("[GPU Avatar] 点击测试通信连接, 当前 selectedAvatarProviderId:", selectedAvatarProviderId);
+
+    const testBtn = document.getElementById("gpu-avatar-test-btn");
+    const resultBox = document.getElementById("gpu-avatar-conn-result");
+    const fieldsBox = document.getElementById("gpu-avatar-fields-container");
+
+    let descriptor = globalAvatarCatalog.find(item => item.id === selectedAvatarProviderId);
+    if (!descriptor) {
+        descriptor = {
+            id: selectedAvatarProviderId || "custom_avatar",
+            adapter_id: selectedAvatarProviderId || "custom_avatar",
+            name: "自定义数字人 / 远端流服务",
+            configuration_mode: "instance"
+        };
+    }
+
+    if (descriptor.configuration_mode !== "instance") {
+        showToast("本地轻量卡通方案直接运行于本机，免网络握手！", "info");
+        if (resultBox) {
+            resultBox.style.display = "flex";
+            resultBox.style.background = "rgba(16, 185, 129, 0.12)";
+            resultBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
+            resultBox.style.color = "#10B981";
+            resultBox.innerHTML = `<strong>本地免显卡方案：</strong>直接运行于本机 Python 进程，无需网络通信握手。`;
+        }
+        return;
+    }
+
+    const inputs = fieldsBox ? fieldsBox.querySelectorAll("input[data-avatar-path]") : [];
+
+    let baseUrl = "";
+    let apiKey = "";
+    for (const input of inputs) {
+        const path = input.getAttribute("data-avatar-path");
+        const val = input.value.trim() || (input.placeholder ? input.placeholder.trim() : "");
+        if (path === "base_url") {
+            baseUrl = val;
+        } else if (path === "api_key") {
+            if (val && !val.includes("•")) {
+                apiKey = val;
+            } else {
+                const hiddenId = document.getElementById("gpu-avatar-config-id");
+                if (hiddenId && hiddenId.value && cachedAvatarDecryptedKeys[hiddenId.value]) {
+                    apiKey = cachedAvatarDecryptedKeys[hiddenId.value];
+                }
+            }
+        }
+    }
+
+    // 容错兜底：若从 data-avatar-path 没拿到，直接查找第一个 input 或历史激活配置
+    if (!baseUrl) {
+        const firstInput = fieldsBox ? fieldsBox.querySelector("input[type='text'], input[type='url']") : null;
+        if (firstInput && firstInput.value.trim()) {
+            baseUrl = firstInput.value.trim();
+        } else {
+            const activeCfg = globalAvatarConfigs.find(c => c.is_active && c.base_url);
+            if (activeCfg) {
+                baseUrl = activeCfg.base_url;
+            }
+        }
+    }
+
+    if (!baseUrl) {
+        showToast("请先填写自定义服务连接地址 (base_url)！", "warning");
+        if (resultBox) {
+            resultBox.style.display = "flex";
+            resultBox.style.background = "rgba(245, 158, 11, 0.12)";
+            resultBox.style.border = "1px solid rgba(245, 158, 11, 0.35)";
+            resultBox.style.color = "#F59E0B";
+            resultBox.innerHTML = `<strong>提示：</strong>请先在上方输入框填写服务连接地址 (base_url)，例如：<code style="font-family:monospace;">ws://127.0.0.1:8010/ws/render-v3</code>`;
+        }
+        return;
+    }
+
+    const originalBtnHtml = testBtn ? testBtn.innerHTML : "";
+    if (testBtn) {
+        testBtn.disabled = true;
+        testBtn.innerHTML = `
+            <svg class="icon-sm spin" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+            正在测试通信...
+        `;
+    }
+
+    if (resultBox) {
+        resultBox.style.display = "flex";
+        resultBox.style.background = "rgba(30, 41, 59, 0.7)";
+        resultBox.style.border = "1px solid rgba(148, 163, 184, 0.25)";
+        resultBox.style.color = "var(--text-primary)";
+        resultBox.innerHTML = `
+            <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#38bdf8; animation:pulse 1s infinite;"></span>
+            正在与远端节点发起握手连通测试：<code style="color:#38bdf8; font-family:monospace;">${escapeHtml(baseUrl)}</code> ...
+        `;
+    }
+
+    try {
+        const adapterId = descriptor.adapter_id || descriptor.id;
+        const res = await fetch(`${API_BASE}/settings/test-connection`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                config_group: "neural_renderer",
+                provider_name: adapterId,
+                base_url: baseUrl,
+                api_key: apiKey
+            })
+        });
+        const json = await res.json();
+        if (json.code === 0 && json.success) {
+            if (resultBox) {
+                resultBox.style.display = "flex";
+                resultBox.style.background = "rgba(16, 185, 129, 0.12)";
+                resultBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
+                resultBox.style.color = "#10B981";
+                resultBox.innerHTML = `
+                    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #10B981; fill: none; stroke-width: 2.5;"><polyline points="20 6 9 17 4 12"/></svg>
+                    <strong>通信对接成功！</strong>${escapeHtml(json.message)}
+                `;
+            }
+            showToast(`✅ 通信对接成功！${json.device ? '已识别到硬件：' + json.device : ''}（延迟: ${json.latency_ms}ms）`, "success");
+        } else {
+            const errMsg = json.message || "通信测试失败，请检查地址或网络端口";
+            if (resultBox) {
+                resultBox.style.display = "flex";
+                resultBox.style.background = "rgba(239, 68, 68, 0.12)";
+                resultBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
+                resultBox.style.color = "#EF4444";
+                resultBox.innerHTML = `
+                    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #EF4444; fill: none; stroke-width: 2.5;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <strong>通信对接未通达：</strong>${escapeHtml(errMsg)}
+                `;
+            }
+            showToast(isAutoAfterSave ? `⚠️ 配置已保存，但通信握手未成功: ${errMsg}` : `❌ 连通失败: ${errMsg}`, "error");
+        }
+    } catch (e) {
+        if (resultBox) {
+            resultBox.style.display = "flex";
+            resultBox.style.background = "rgba(239, 68, 68, 0.12)";
+            resultBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
+            resultBox.style.color = "#EF4444";
+            resultBox.innerHTML = `<strong>请求异常：</strong>${escapeHtml(String(e))}`;
+        }
+        showToast("连通测试异常: " + e, "error");
+    } finally {
+        if (testBtn) {
+            testBtn.disabled = false;
+            testBtn.innerHTML = originalBtnHtml;
+        }
+    }
+}
+
+// 显式挂载到 window 全局，确保 HTML 内联 onclick 能够直接调用
+window.testCurrentGpuAvatarConnection = testCurrentGpuAvatarConnection;
+window.handleSaveGpuAvatarConfig = handleSaveGpuAvatarConfig;
+window.loadGpuAvatarProviders = loadGpuAvatarProviders;
+window.loadWizardAvatarProviders = loadWizardAvatarProviders;
+window.selectAvatarProvider = selectAvatarProvider;
+window.toggleAvatarSecretVisibility = toggleAvatarSecretVisibility;
+window.goToGpuSettingsTab = goToGpuSettingsTab;
+window.quickEnableLocalProceduralAvatar = quickEnableLocalProceduralAvatar;
+window.testWizardGpuConnection = testWizardGpuConnection;

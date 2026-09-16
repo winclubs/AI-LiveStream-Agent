@@ -621,26 +621,29 @@ def test_anchors_crud(client):
 
 
 def test_voice_clone_and_preview(client):
-    """需求5：上传声音 → 一键克隆 → 在线试听"""
+    """需求5：上传声音 → 一键克隆 → 在线试听（诚实契约：无云端复刻时不得伪造试听）"""
     dummy_wav = b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
 
-    # 1. 上传样本
+    # 1. 上传样本（无百炼凭证）：仅本地档案，不得谎报可合成
     upload_res = client.post(
         "/api/v1/voices/clone",
         data={"name": "试听克隆音色", "speed": 1.0, "volume": 1.0},
         files={"audio_file": ("sample.wav", dummy_wav, "audio/wav")}
     )
     assert upload_res.status_code == 200
+    assert upload_res.json()["data"]["synthesis_status"] == "not_available"
     voice_id = upload_res.json()["data"]["id"]
 
-    # 2. 一键克隆
+    # 2. 一键克隆（本地特征）
     clone_res = client.post(f"/api/v1/voices/{voice_id}/clone")
     assert clone_res.status_code == 200
     assert clone_res.json()["data"]["status"] == "ready"
 
-    # 3. 在线试听返回音频
+    # 3. 在线试听：本地档案没有云端声线，必须诚实报错而非播放假声音
     preview_res = client.get(f"/api/v1/voices/{voice_id}/preview")
-    assert preview_res.status_code == 200
+    assert preview_res.status_code in (400, 500, 502)
+    detail = preview_res.json().get("detail", "")
+    assert any(k in detail for k in ("本地", "复刻", "百炼", "配置")), f"试听失败信息必须可操作，实际: {detail}"
 
     # 4. 改名更新
     update_res = client.post("/api/v1/voices/update", json={"id": voice_id, "name": "改名音色", "speech_speed": 1.1})
@@ -674,6 +677,194 @@ def test_voice_clone_honest_engine_report(client):
     assert ("特征" in msg) or ("CosyVoice" in msg), "应如实说明实际完成的能力边界"
 
     client.delete(f"/api/v1/voices/{voice_id}")
+
+
+class _FakeDashScopeResp:
+    def __init__(self, status_code=200, json_data=None, text="", content=b""):
+        import json as _json_mod
+        self.status_code = status_code
+        self._json = json_data
+        self.text = text if text else (_json_mod.dumps(json_data) if json_data is not None else "")
+        self.content = content
+
+    def json(self):
+        if self._json is None:
+            raise ValueError("no json body")
+        return self._json
+
+
+class _FakeDashScopeStream:
+    def __init__(self, status_code, lines):
+        self.status_code = status_code
+        self._lines = lines
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def aread(self):
+        return b""
+
+    async def aiter_lines(self):
+        for ln in self._lines:
+            yield ln
+
+
+class _FakeDashScopeClient:
+    """零外网的百炼桩：脚本化 getPolicy / OSS 上传 / create / query / SSE 合成 / 音频下载。"""
+    mode = "ok"  # ok | create_rejected
+    calls = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url, **kwargs):
+        _FakeDashScopeClient.calls.append(("GET", url, kwargs))
+        params = kwargs.get("params") or {}
+        if url.endswith("/uploads") and params.get("action") == "getPolicy":
+            assert params.get("model") == "cosyvoice-v3.5-flash"
+            return _FakeDashScopeResp(200, {"data": {
+                "policy": "POL", "signature": "SIG", "upload_dir": "tmp/dir",
+                "upload_host": "https://fake-oss.example.com",
+                "oss_access_key_id": "ID", "x_oss_object_acl": "private",
+                "x_oss_forbid_overwrite": "true",
+            }})
+        if url == "https://fake-audio.example.com/voice.mp3":
+            return _FakeDashScopeResp(200, content=b"FAKE_MP3_BYTES" * 300)
+        return _FakeDashScopeResp(404, text="not found")
+
+    async     def post(self, url, **kwargs):
+        _FakeDashScopeClient.calls.append(("POST", url, kwargs))
+        body = kwargs.get("json") or {}
+        if url == "https://fake-oss.example.com":
+            # 官方契约：OSS 上传必须是 multipart 文本表单 + 文件域
+            files_arg = kwargs.get("files") or {}
+            data_arg = kwargs.get("data") or {}
+            assert "file" in files_arg, "file 域必须放在 files 参数"
+            assert data_arg.get("OSSAccessKeyId"), "OSSAccessKeyId 必须放在 data 表单域"
+            assert data_arg.get("key").startswith("tmp/dir/"), "key 必须为 upload_dir/文件名"
+            assert "policy" not in files_arg, "policy 是文本表单域，不得放在 files"
+            assert isinstance(files_arg.get("file"), tuple) and len(files_arg["file"]) >= 2, "file 域必须为 (filename, bytes) 元组"
+            return _FakeDashScopeResp(200, text="")
+        if url.endswith("/services/audio/tts/customization"):
+            action = (body.get("input") or {}).get("action")
+            if action == "create_voice":
+                if _FakeDashScopeClient.mode == "create_rejected":
+                    return _FakeDashScopeResp(400, text='{"code":"InvalidParameter","message":"url invalid"}')
+                return _FakeDashScopeResp(200, {"output": {"voice_id": "cosyvoice-v3.5-flash-cloned-abc123"}})
+            if action == "query_voice":
+                return _FakeDashScopeResp(200, {"output": {"status": "OK", "target_model": "cosyvoice-v3.5-flash"}})
+        return _FakeDashScopeResp(404, text="not found")
+
+    def stream(self, method, url, **kwargs):
+        _FakeDashScopeClient.calls.append(("STREAM", url, kwargs))
+        import base64 as _b64
+        # 数据块按真实量级给足（生产侧要求有效音频 >512B）
+        lines = [
+            'data: {"output": {"audio": {"data": "' + _b64.b64encode(b"X" * 2048).decode() + '"}}}',
+            'data: {"output": {"audio": {"url": "https://fake-audio.example.com/voice.mp3"}}}',
+        ]
+        return _FakeDashScopeStream(200, lines)
+
+
+def test_dashscope_clone_end_to_end_contract(client, monkeypatch):
+    """契约：上传→临时OSS→create_voice(url)→轮询OK→SSE合成；全程断言官方契约形状，零外网。"""
+    import httpx as _httpx_mod
+    _FakeDashScopeClient.calls = []
+    _FakeDashScopeClient.mode = "ok"
+    monkeypatch.setattr(_httpx_mod, "AsyncClient", _FakeDashScopeClient)
+
+    wav = b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+    res = client.post(
+        "/api/v1/voices/clone",
+        data={"name": "云端复刻音色", "speed": 1.0, "volume": 1.0,
+              "provider_name": "cosyvoice", "api_key": "sk-test",
+              "base_url": "https://ws-test123.cn-beijing.maas.aliyuncs.com/api/v1",
+              "target_model": "cosyvoice-v3.5-flash"},
+        files={"audio_file": ("cloud.wav", wav, "audio/wav")},
+    )
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["id"] == "cosyvoice-v3.5-flash-cloned-abc123"
+    assert data["synthesis_status"] == "ready"
+    assert data["preview_kind"] == "clone_sample"
+    assert "cloned_preview" not in (data["path"] or ""), "sample 必须仍指向原始上传样本"
+
+    calls = _FakeDashScopeClient.calls
+    creates = [c for c in calls if c[0] == "POST" and str(c[1]).endswith("/services/audio/tts/customization")
+               and (c[2].get("json") or {}).get("input", {}).get("action") == "create_voice"]
+    assert len(creates) == 1
+    c_body = creates[0][2]["json"]["input"]
+    c_headers = creates[0][2].get("headers") or {}
+    assert c_body["action"] == "create_voice"
+    assert c_body["target_model"] == "cosyvoice-v3.5-flash"
+    assert str(c_body["url"]).startswith("oss://"), "CosyVoice 复刻必须传公网 URL"
+    assert "audio" not in c_body, "CosyVoice 不接受 base64 audio 字段"
+    assert c_headers.get("X-DashScope-OssResourceResolve") == "enable"
+
+    synths = [c for c in calls if c[0] == "STREAM" and str(c[1]).endswith("/services/audio/tts/SpeechSynthesizer")]
+    assert len(synths) == 1
+    s_body = synths[0][2]["json"]
+    assert s_body["input"]["voice"] == "cosyvoice-v3.5-flash-cloned-abc123"
+    assert "parameters" not in s_body, "voice 必须放在 input 内而非 parameters"
+
+    # 试听缓存命中，直接 200（不再触网）
+    from server.routes.voices import VOICES_DIR as _VD
+    preview_path = _VD / "cosyvoice-v3.5-flash-cloned-abc123_cloned_preview.mp3"
+    assert preview_path.exists() and preview_path.stat().st_size > 1024
+    pv = client.get(f"/api/v1/voices/{data['id']}/preview")
+    assert pv.status_code == 200
+    assert len(pv.content) > 1024
+
+    # 删除顺带清理试听缓存
+    assert client.delete(f"/api/v1/voices/{data['id']}").status_code == 200
+    assert not preview_path.exists()
+
+
+def test_dashscope_clone_failure_is_honest(client, monkeypatch):
+    """复刻被拒（400）时：如实 not_available + 可操作信息，id 保持本地，样本仍在。"""
+    import httpx as _httpx_mod
+    _FakeDashScopeClient.calls = []
+    _FakeDashScopeClient.mode = "create_rejected"
+    monkeypatch.setattr(_httpx_mod, "AsyncClient", _FakeDashScopeClient)
+
+    wav = b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+    res = client.post(
+        "/api/v1/voices/clone",
+        data={"name": "复刻被拒音色", "speed": 1.0, "volume": 1.0,
+              "provider_name": "cosyvoice", "api_key": "sk-test",
+              "base_url": "https://ws-test123.cn-beijing.maas.aliyuncs.com/api/v1",
+              "target_model": "cosyvoice-v3.5-flash"},
+        files={"audio_file": ("rejected.wav", wav, "audio/wav")},
+    )
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["id"].startswith("clone_")
+    assert data["synthesis_status"] == "not_available"
+    assert data["preview_kind"] == "original_sample"
+    assert ("复刻" in res.json()["message"]) or ("百炼" in res.json()["message"])
+    from pathlib import Path as _P
+    assert _P(data["path"]).exists(), "原始样本必须保留"
+    client.delete(f"/api/v1/voices/{data['id']}")
+
+
+def test_generate_preview_local_clone_is_honest_without_network():
+    """本地 clone_ 档案在未复刻前必须直接给出可操作说明，且不得发起任何外网调用。"""
+    import asyncio as _aio
+    from server.core.audio import clone_preview as _cp
+    with pytest.raises(RuntimeError, match="本地"):
+        _aio.run(_cp.generate_cloned_voice_preview(
+            voice_id="clone_abcdef12", voice_name="小琴琴",
+            base_url="https://ws-test.cn-beijing.maas.aliyuncs.com/api/v1",
+            api_key="sk-test", force_regenerate=True))
 
 
 def test_douyin_cookie_config_api(client):
@@ -1426,7 +1617,8 @@ def test_console_critical_operation_contracts():
     from pathlib import Path
 
     root = Path(__file__).parents[2]
-    js = (root / "server/static/js/console.js").read_text(encoding="utf-8")
+    js_modules = (root / "server/static/js/modules").glob("*.js")
+    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules)) + (root / "server/static/js/console.js").read_text(encoding="utf-8")
     html = (root / "server/static/index.html").read_text(encoding="utf-8")
 
     assert 'let currentMode = "";' in js
@@ -1437,3 +1629,63 @@ def test_console_critical_operation_contracts():
     assert 'if (!sku) { alert("请输入已上架商品的 SKU"); return; }' in js
     assert 'placeholder="商品 SKU（必填）" required' in html
     assert 'onclick="runPreflight({ auto: true })"' not in html
+
+
+def test_save_neural_renderer_config_and_validation_error_handler(client):
+    """回归：neural_renderer 配置保存成功，且 422 验证异常返回人类可读的字符串 detail/message。"""
+    # 1. 成功保存一个 sidecar_v3 实例
+    res = client.post(
+        "/api/v1/settings/configs/save",
+        json={
+            "config_group": "neural_renderer",
+            "provider_name": "sidecar_v3",
+            "title": "测试自建渲染节点",
+            "is_active": True,
+            "base_url": "ws://127.0.0.1:8010/ws/render-v3",
+            "extra_params": {
+                "adapter": "sidecar_v3",
+                "backend_id": "auto",
+                "avatar_id": "default",
+            },
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["code"] == 0
+    saved_id = data["id"]
+    assert saved_id
+
+    # 2. 回归：当 extra_params 中未显式传 adapter 时，后端自动根据 provider_name 补齐并成功保存
+    auto_res = client.post(
+        "/api/v1/settings/configs/save",
+        json={
+            "config_group": "neural_renderer",
+            "provider_name": "sidecar_v3",
+            "base_url": "ws://127.0.0.1:8010/ws/render-v3",
+            "extra_params": {
+                # 未传 adapter，后端自动推导填充为 sidecar_v3
+                "backend_id": "auto",
+                "avatar_id": "default",
+            },
+        },
+    )
+    assert auto_res.status_code == 200
+    assert auto_res.json()["code"] == 0
+
+    # 3. 测试真正非法参数（如无效 URL scheme）触发 422 时，返回可读的字符串 message 与 detail，拒绝裸 object 导致前端 [object Object]
+    bad_res = client.post(
+        "/api/v1/settings/configs/save",
+        json={
+            "config_group": "neural_renderer",
+            "provider_name": "sidecar_v3",
+            "base_url": "ftp://invalid-scheme/avatar",
+            "extra_params": {
+                "adapter": "sidecar_v3",
+            },
+        },
+    )
+    assert bad_res.status_code == 422
+    bad_json = bad_res.json()
+    assert isinstance(bad_json.get("detail"), str)
+    assert "ws" in bad_json["detail"]
+    assert isinstance(bad_json.get("message"), str)

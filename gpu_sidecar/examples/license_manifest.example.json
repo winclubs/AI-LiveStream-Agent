@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "accepted": false,
+  "implementation": {
+    "path": "REPLACE_WITH_AUTHORIZED_IMPLEMENTATION_DIRECTORY",
+    "source": "REPLACE_WITH_IMPLEMENTATION_SOURCE_REFERENCE",
+    "license": "REPLACE_WITH_IMPLEMENTATION_LICENSE_REFERENCE",
+    "usage_authorization_reference": "REPLACE_WITH_ALLOWED_USE_REFERENCE",
+    "human_approved": false,
+    "human_approval_reference": "REPLACE_WITH_REVIEW_RECORD",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "weights": {
+    "path": "REPLACE_WITH_AUTHORIZED_WEIGHT_FILE",
+    "source": "REPLACE_WITH_WEIGHT_SOURCE_REFERENCE",
+    "license": "REPLACE_WITH_WEIGHT_LICENSE_REFERENCE",
+    "commercial_use_authorized": false,
+    "commercial_authorization": "REPLACE_WITH_COMMERCIAL_AUTHORIZATION_RECORD",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "factory": "authorized_plugin.factory:create_engine"
+}

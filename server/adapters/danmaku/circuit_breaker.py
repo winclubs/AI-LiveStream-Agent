@@ -62,6 +62,11 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
         self.last_real_event_time = time.time()
         self.heartbeat_timeout_sec = 45.0
         self._is_unhealthy_edge = False
+        self._observed_connection_generation = 0
+        self._half_open_deadline_at = 0.0
+        self._half_open_probe_started = False
+        self._half_open_started_at = 0.0
+        self._half_open_generation = 0
 
         # 劫持并替换真实 fetcher 的回调，以便统计成功/失败事件及链路错误
         if hasattr(self.real_fetcher, "on_event_callback"):
@@ -71,17 +76,60 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
         if hasattr(self.real_fetcher, "on_health_change_callback"):
             self.real_fetcher.on_health_change_callback = self._on_underlying_health_change
 
-    def _on_underlying_health_change(self, health: FetcherHealth):
-        """响应底层抓取器上报的真实健康协议 (仅同步状态与探活恢复，不重复调用 record_failure 避免双重计次)"""
-        self._health = health
-        if health.connected and health.worker_alive:
+    @staticmethod
+    def _connection_generation(health: FetcherHealth) -> int:
+        generation = getattr(health, "connection_generation", 0)
+        return generation if isinstance(generation, int) else 0
+
+    def _observe_connection_generation(self, health: FetcherHealth) -> None:
+        """新物理连接开始新的故障 episode，但不清除累计失败。"""
+        generation = self._connection_generation(health)
+        if generation > self._observed_connection_generation:
+            self._observed_connection_generation = generation
             self._is_unhealthy_edge = False
-            self.consecutive_failures = 0
-            if self.state != self.STATE_CLOSED:
-                self._notify_state_change(self.STATE_CLOSED, "底层健康协议检测到连接与心跳已恢复")
+
+    def _has_fresh_downlink(self, health: FetcherHealth, now: Optional[float] = None) -> bool:
+        heartbeat = health.last_heartbeat_at
+        if not health.connected or not health.worker_alive or not heartbeat or heartbeat <= 0:
+            return False
+        if (now or time.time()) - heartbeat > self.heartbeat_timeout_sec:
+            return False
+        if self.state == self.STATE_HALF_OPEN:
+            return (
+                self._connection_generation(health) > self._half_open_generation
+                and heartbeat >= self._half_open_started_at
+            )
+        return True
+
+    def _stop_mock_fallback(self) -> None:
+        if not self.enable_mock_fallback or not self.mock_fetcher.is_running:
+            return
+        try:
+            asyncio.get_running_loop().create_task(self.mock_fetcher.stop())
+        except RuntimeError:
+            pass
+
+    def _on_underlying_health_change(self, health: FetcherHealth):
+        """仅新鲜协议下行可清失败并结束 HALF_OPEN，物理握手只开启新 episode。"""
+        self._health = health
+        self._observe_connection_generation(health)
+        if not self._has_fresh_downlink(health):
+            return
+
+        self._is_unhealthy_edge = False
+        self.consecutive_failures = 0
+        if self.state != self.STATE_CLOSED:
+            self._half_open_deadline_at = 0.0
+            self._half_open_probe_started = False
+            self._half_open_started_at = 0.0
+            self._notify_state_change(self.STATE_CLOSED, "底层协议收到新鲜下行，链路已恢复")
+            self._stop_mock_fallback()
 
     def _on_underlying_error(self, exc: Exception, reason: str = ""):
-        """底层抓取器连接中断/重连时触发，直接计入熔断器失败 (单点权威记录)"""
+        """同一连接代际的 send/recv/monitor 故障仅在健康边沿计一次。"""
+        if self._is_unhealthy_edge:
+            logger.debug("忽略同一故障边沿的重复错误: %s (%s)", exc, reason)
+            return
         self._is_unhealthy_edge = True
         self.record_failure(f"底层数据源异常 [{reason}]: {exc}")
 
@@ -110,9 +158,11 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
         self._is_unhealthy_edge = False
         if self.state in (self.STATE_OPEN, self.STATE_HALF_OPEN):
             self.consecutive_failures = 0
+            self._half_open_deadline_at = 0.0
+            self._half_open_probe_started = False
+            self._half_open_started_at = 0.0
             self._notify_state_change(self.STATE_CLOSED, "真实弹幕源恢复通信，自动恢复正常流")
-            if self.enable_mock_fallback:
-                asyncio.create_task(self.mock_fetcher.stop())
+            self._stop_mock_fallback()
         else:
             self.consecutive_failures = 0
 
@@ -141,11 +191,14 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
             or self.state == self.STATE_HALF_OPEN
         )
         if should_open:
+            self._half_open_deadline_at = 0.0
+            self._half_open_probe_started = False
+            self._half_open_started_at = 0.0
             self._notify_state_change(
                 self.STATE_OPEN,
                 f"真实弹幕源异常 (连续第 {self.consecutive_failures} 次)，进入降级熔断状态: {reason}",
             )
-            if self.enable_mock_fallback:
+            if self.enable_mock_fallback and not self.mock_fetcher.is_running:
                 try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(self.mock_fetcher.start())
@@ -157,6 +210,10 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
         self.consecutive_failures = 0
         self.state = self.STATE_CLOSED
         self.last_real_event_time = time.time()
+        self._half_open_deadline_at = 0.0
+        self._half_open_probe_started = False
+        self._half_open_started_at = 0.0
+        self._half_open_generation = 0
 
         # 启动底层真实 fetcher
         try:
@@ -171,8 +228,14 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
 
     async def stop(self):
         self.is_running = False
-        if self._monitor_task and not self._monitor_task.done():
-            self._monitor_task.cancel()
+        self._half_open_deadline_at = 0.0
+        self._half_open_probe_started = False
+        self._half_open_started_at = 0.0
+        monitor_task = self._monitor_task
+        self._monitor_task = None
+        if monitor_task and not monitor_task.done():
+            monitor_task.cancel()
+            await asyncio.gather(monitor_task, return_exceptions=True)
         try:
             await self.real_fetcher.stop()
         except Exception as exc:
@@ -185,51 +248,66 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
         logger.info("弹幕熔断器已停止")
 
     async def _circuit_monitor_loop(self):
-        """熔断器探活循环：当处于 DEGRADED 状态超过 recovery_timeout_sec 时，尝试转为 HALF_OPEN 并探活"""
+        """巡检健康边沿，并为 HALF_OPEN 探测执行一次性启动与下行 deadline。"""
         while self.is_running:
             try:
                 await asyncio.sleep(5.0)
                 if not self.is_running:
                     break
 
-                # 检查真实 fetcher 健康状态协议
+                now = time.time()
                 health = self.real_fetcher.get_health() if hasattr(self.real_fetcher, "get_health") else None
                 if health:
+                    self._on_underlying_health_change(health)
                     is_down = False
                     reason = ""
-                    now = time.time()
-
                     if not health.worker_alive or not health.connected:
                         is_down = True
                         reason = f"健康协议检测到断联: {health.last_error or '连接断开'}"
-                    elif health.last_heartbeat_at > 0 and (now - health.last_heartbeat_at) > self.heartbeat_timeout_sec:
+                    elif health.last_heartbeat_at and (
+                        now - health.last_heartbeat_at
+                    ) > self.heartbeat_timeout_sec:
                         is_down = True
                         reason = f"心跳超时 (距离上次心跳已过去 {int(now - health.last_heartbeat_at)} 秒)"
 
-                    if is_down:
-                        # 边沿触发：仅在从正常状态转为故障状态时计入一次失败，持续故障期间不重复累加
-                        if not self._is_unhealthy_edge:
-                            self._is_unhealthy_edge = True
-                            if self.state == self.STATE_CLOSED:
-                                self.record_failure(reason)
-                    else:
-                        self._is_unhealthy_edge = False
+                    if is_down and not self._is_unhealthy_edge:
+                        self._is_unhealthy_edge = True
+                        if self.state in (self.STATE_CLOSED, self.STATE_HALF_OPEN):
+                            self.record_failure(reason)
 
                 if self.state == self.STATE_DEGRADED:
-                    now = time.time()
                     if now - self.last_state_change_time >= self.recovery_timeout_sec:
                         self._notify_state_change(self.STATE_HALF_OPEN, "熔断冷却期结束，进入半开探测阶段")
+                        self._half_open_probe_started = True
+                        self._half_open_generation = self._observed_connection_generation
                         try:
                             await self.real_fetcher.stop()
                         except Exception as stop_err:
                             logger.debug("半开探测前清理旧抓取器任务: %s", stop_err)
 
+                        self._half_open_started_at = time.time()
+                        self._half_open_deadline_at = self._half_open_started_at + self.heartbeat_timeout_sec
                         try:
                             await self.real_fetcher.start()
-                        except Exception as e:
-                            logger.warning("半开探测重启真实数据源失败: %s", e)
-                            self.last_state_change_time = time.time()
-                            self.record_failure(f"半开探测重启失败: {e}")
+                        except Exception as exc:
+                            logger.warning("半开探测重启真实数据源失败: %s", exc)
+                            self.record_failure(f"半开探测重启失败: {exc}")
+
+                elif (
+                    self.state == self.STATE_HALF_OPEN
+                    and self._half_open_probe_started
+                    and self._half_open_deadline_at > 0
+                    and now >= self._half_open_deadline_at
+                ):
+                    self._half_open_deadline_at = 0.0
+                    self._half_open_probe_started = False
+                    self._half_open_started_at = 0.0
+                    try:
+                        await self.real_fetcher.stop()
+                    except Exception as stop_err:
+                        logger.debug("半开探测超时后停止抓取器异常: %s", stop_err)
+                    if self.state == self.STATE_HALF_OPEN:
+                        self.record_failure("半开探测期限内未收到有效协议下行")
             except asyncio.CancelledError:
                 break
             except Exception:

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" width="44" height="44">
+  <defs>
+    <linearGradient id="aliyunGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6A00"/>
+      <stop offset="100%" stop-color="#FFA000"/>
+    </linearGradient>
+  </defs>
+  <!-- 底座背景 -->
+  <circle cx="22" cy="22" r="21" fill="#1C1008" stroke="rgba(255, 106, 0, 0.35)" stroke-width="1.5"/>
+  <!-- 阿里云标志性对称括号/云算力方块 -->
+  <path d="M 15 16 L 11 20 L 11 24 L 15 28" fill="none" stroke="#FF6A00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 29 16 L 33 20 L 33 24 L 29 28" fill="none" stroke="#FF6A00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 居中万相数智核心 -->
+  <rect x="18" y="18" width="8" height="8" rx="2" fill="url(#aliyunGrad)"/>
+</svg>

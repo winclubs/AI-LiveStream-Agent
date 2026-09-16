@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "avatar_id": "example-avatar",
+  "revision": "replace-with-reviewed-revision",
+  "source_path": "REPLACE_WITH_AUTHORIZED_AVATAR_SOURCE",
+  "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "preprocessing_profile": {
+    "profile_id": "REPLACE_WITH_PLUGIN_PROFILE_ID",
+    "profile_revision": "REPLACE_WITH_PROFILE_REVISION"
+  },
+  "assets": {
+    "plugin_asset_name": {
+      "path": "REPLACE_WITH_PLUGIN_ASSET_PATH",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "config": {}
+    }
+  },
+  "plugin_config": {}
+}

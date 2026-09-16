@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" width="44" height="44">
+  <defs>
+    <linearGradient id="sidecarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+  <!-- 底座背景 -->
+  <circle cx="22" cy="22" r="21" fill="#081424" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.5"/>
+  <!-- GPU 芯片与高精度面部轮廓 -->
+  <rect x="12" y="12" width="20" height="20" rx="4" fill="#0F243E" stroke="#0284C7" stroke-width="1.2"/>
+  <!-- 芯片针脚 -->
+  <path d="M 16 9 L 16 12 M 22 9 L 22 12 M 28 9 L 28 12" stroke="#38BDF8" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M 16 32 L 16 35 M 22 32 L 22 35 M 28 32 L 28 35" stroke="#38BDF8" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M 9 16 L 12 16 M 9 22 L 12 22 M 9 28 L 12 28" stroke="#38BDF8" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M 32 16 L 35 16 M 32 22 L 35 22 M 32 28 L 35 28" stroke="#38BDF8" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- 核心真人面部矩阵轮廓与音唇对齐波点 -->
+  <circle cx="19" cy="19" r="1.4" fill="#F59E0B"/>
+  <circle cx="25" cy="19" r="1.4" fill="#F59E0B"/>
+  <path d="M 19 25 C 21 27 23 27 25 25" fill="none" stroke="#F59E0B" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

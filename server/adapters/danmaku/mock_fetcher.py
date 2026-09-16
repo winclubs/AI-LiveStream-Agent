@@ -25,9 +25,11 @@ class MockDanmakuFetcher(BaseDanmakuFetcher):
             self._task.cancel()
 
     async def simulate_event(self, event_type: str, user_name: str, payload: Dict[str, Any], priority: int = 2):
-        """手动注入一条弹幕或礼物事件"""
+        """手动注入一条明确标记为 Mock 的弹幕或礼物事件。"""
         if self.on_event_callback:
-            res = self.on_event_callback(event_type, user_name, payload, priority)
+            mock_payload = dict(payload)
+            mock_payload["_is_mock"] = True
+            res = self.on_event_callback(event_type, user_name, mock_payload, priority)
             if asyncio.iscoroutine(res):
                 await res
 

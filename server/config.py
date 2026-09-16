@@ -3,6 +3,7 @@ import sys
 import base64
 import ctypes
 from pathlib import Path
+from typing import Any
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # 项目根路径与数据目录 (支持通过 LIVE_AGENT_DATA_DIR 重定向，用于测试隔离/便携部署)
@@ -176,12 +177,13 @@ def encrypt_secret(plain_text: str) -> str:
     combined = nonce + cipher_bytes
     return base64.b64encode(combined).decode("utf-8")
 
-def decrypt_secret(cipher_b64: str) -> str:
+def decrypt_secret(cipher_b64: Any) -> str:
     """使用 AES-256-GCM 解密密文字符串"""
     if not cipher_b64:
         return ""
     try:
-        combined = base64.b64decode(cipher_b64.encode("utf-8"))
+        cipher_str = str(cipher_b64)
+        combined = base64.b64decode(cipher_str.encode("utf-8"))
         if len(combined) < 12:
             return ""
         nonce = combined[:12]
@@ -195,6 +197,8 @@ def decrypt_secret(cipher_b64: str) -> str:
 
 def mask_api_key(raw_key: str) -> str:
     """脱敏展示 API Key，如 sk-proj-••••••••abcd"""
-    if not raw_key or len(raw_key) <= 8:
+    if not raw_key:
+        return ""
+    if len(raw_key) <= 8:
         return "••••••••"
     return f"{raw_key[:4]}••••••••{raw_key[-4:]}"

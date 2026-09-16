@@ -177,6 +177,8 @@ class BilibiliDanmakuFetcher(BaseDanmakuFetcher):
 
         while self.is_running:
             try:
+                # 房间发现 API 也是独立连接尝试；其 DNS/TLS/HTTP 连续失败必须推进 episode。
+                self.on_connection_attempted()
                 info = await self._fetch_danmu_info()
                 token = info["token"]
                 hosts = info["hosts"]
@@ -188,6 +190,7 @@ class BilibiliDanmakuFetcher(BaseDanmakuFetcher):
                         return
                     try:
                         logger.info(f"正在建立 Bilibili 弹幕 WebSocket 握手: {ws_url} (房间 {self.room_id})")
+                        self.on_connection_attempted()
                         async with websockets.connect(ws_url, max_size=2 ** 22) as ws:
                             auth_body = json.dumps({
                                 "uid": 0,
@@ -216,6 +219,9 @@ class BilibiliDanmakuFetcher(BaseDanmakuFetcher):
                         raise
                     except Exception as e:
                         logger.warning(f"Bilibili 节点 {ws_url} 连接异常: {e}，尝试下一节点...")
+                        # 每个独立 host/generation 都形成一次权威 failure episode；
+                        # 同 socket 的 heartbeat/recv 重复错误由熔断器按 generation 去重。
+                        self.notify_error(e, "Bilibili 弹幕节点连接中断")
                         continue
 
                 if not connected and self.is_running:

@@ -106,6 +106,94 @@ MIGRATIONS = [
             "ALTER TABLE products ADD COLUMN size_chart TEXT DEFAULT '{}'",
         ],
     ),
+    (
+        "0006_avatar_voice_nullable_paths",
+        "历史库 avatars/voice_profiles 资产路径列重建为可空（与 ORM 模型一致）",
+        [
+            # 背景：早期 DDL 将路径列建为 NOT NULL，现行模型为 nullable=True。
+            # 启动时的数据清洗迁移会把指向缺失文件的遗留路径置 NULL，旧表约束导致
+            # IntegrityError 启动失败。SQLite 不支持 ALTER COLUMN，须整表重建。
+            # 两张表在数据库层均无外键引用（已验证现行与历史子表均未建立指向它们的
+            # FK 约束），DROP 不会触发级联，重建安全。
+            # 前置防御（两层）：
+            # 1) CREATE IF NOT EXISTS：对缺失该表的历史空库补建（现行 schema、空表）；
+            # 2) ALTER ADD COLUMN：对只有部分列的极老库补齐缺失列（框架预检自动跳过
+            #    已存在列；ADD COLUMN 语义即为 nullable）。
+            # 随后的整表 rebuild 统一处理"列存在但 NOT NULL"的库（如本次故障库）。
+            """
+            CREATE TABLE IF NOT EXISTS avatars (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                avatar_type VARCHAR(32),
+                source_file_path VARCHAR(512),
+                preprocessed_cache_path VARCHAR(512),
+                created_at DATETIME
+            )
+            """,
+            "ALTER TABLE avatars ADD COLUMN avatar_type VARCHAR(32)",
+            "ALTER TABLE avatars ADD COLUMN source_file_path VARCHAR(512)",
+            "ALTER TABLE avatars ADD COLUMN preprocessed_cache_path VARCHAR(512)",
+            "ALTER TABLE avatars ADD COLUMN created_at DATETIME",
+            """
+            CREATE TABLE IF NOT EXISTS voice_profiles (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                sample_wav_path VARCHAR(512),
+                embedding_npy_path VARCHAR(512),
+                speech_speed FLOAT,
+                volume_gain FLOAT,
+                created_at DATETIME,
+                status VARCHAR(32) DEFAULT 'ready'
+            )
+            """,
+            "ALTER TABLE voice_profiles ADD COLUMN sample_wav_path VARCHAR(512)",
+            "ALTER TABLE voice_profiles ADD COLUMN embedding_npy_path VARCHAR(512)",
+            "ALTER TABLE voice_profiles ADD COLUMN speech_speed FLOAT",
+            "ALTER TABLE voice_profiles ADD COLUMN volume_gain FLOAT",
+            "ALTER TABLE voice_profiles ADD COLUMN created_at DATETIME",
+            "ALTER TABLE voice_profiles ADD COLUMN status VARCHAR(32) DEFAULT 'ready'",
+            "DROP TABLE IF EXISTS avatars_schema_migrate",
+            """
+            CREATE TABLE avatars_schema_migrate (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                avatar_type VARCHAR(32),
+                source_file_path VARCHAR(512),
+                preprocessed_cache_path VARCHAR(512),
+                created_at DATETIME
+            )
+            """,
+            """
+            INSERT INTO avatars_schema_migrate
+                (id, name, avatar_type, source_file_path, preprocessed_cache_path, created_at)
+            SELECT id, name, avatar_type, source_file_path, preprocessed_cache_path, created_at
+            FROM avatars
+            """,
+            "DROP TABLE avatars",
+            "ALTER TABLE avatars_schema_migrate RENAME TO avatars",
+            "DROP TABLE IF EXISTS voice_profiles_schema_migrate",
+            """
+            CREATE TABLE voice_profiles_schema_migrate (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                sample_wav_path VARCHAR(512),
+                embedding_npy_path VARCHAR(512),
+                speech_speed FLOAT,
+                volume_gain FLOAT,
+                created_at DATETIME,
+                status VARCHAR(32) DEFAULT 'ready'
+            )
+            """,
+            """
+            INSERT INTO voice_profiles_schema_migrate
+                (id, name, sample_wav_path, embedding_npy_path, speech_speed, volume_gain, created_at, status)
+            SELECT id, name, sample_wav_path, embedding_npy_path, speech_speed, volume_gain, created_at, status
+            FROM voice_profiles
+            """,
+            "DROP TABLE voice_profiles",
+            "ALTER TABLE voice_profiles_schema_migrate RENAME TO voice_profiles",
+        ],
+    ),
 ]
 
 

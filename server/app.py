@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI):
             logger.info("正在初始化本地持久化数据库 (SQLite WAL)")
             await init_db()
 
+            try:
+                from server.routes.live import restore_obs_connection
+                async with AsyncSessionLocal() as session:
+                    await restore_obs_connection(session)
+            except Exception:
+                logger.warning("启动时恢复 OBS 配置/连接失败，服务将继续启动", exc_info=True)
+
             async with AsyncSessionLocal() as session:
                 await reload_guardrails(session)
             logger.info("违禁词 Aho-Corasick 内存匹配引擎加载就绪")
@@ -146,7 +153,26 @@ app.add_middleware(
 
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc: RequestValidationError):
+    errors = exc.errors()
+    msg_parts = []
+    for err in errors:
+        loc = ".".join(str(p) for p in err.get("loc", ()) if p != "body")
+        msg = err.get("msg", "参数格式错误")
+        msg_parts.append(f"{loc}: {msg}" if loc else msg)
+    clean_msg = "；".join(msg_parts) if msg_parts else "请求参数验证失败"
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": 422,
+            "message": f"参数校验失败: {clean_msg}",
+            "detail": clean_msg
+        }
+    )
 
 # 挂载业务路由
 app.include_router(roles_router, prefix="/api/v1")

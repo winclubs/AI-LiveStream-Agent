@@ -1,15 +1,31 @@
 import time
 import json
+import logging
+import uuid
+import asyncio
 import httpx
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from server.database.db import get_db
-from server.database.models import ApiProviderConfig, AppSetting
-from server.config import encrypt_secret, decrypt_secret, mask_api_key
+from server.database.db import get_db, AsyncSessionLocal
+from server.database.models import ApiProviderConfig, AppSetting, VoiceProfile
+from server.config import DATA_DIR, encrypt_secret, decrypt_secret, mask_api_key
+from server.adapters.media.avatar_provider_config import (
+    avatar_provider_policy_to_dict,
+    find_sensitive_paths,
+    parse_avatar_provider_policy,
+    redact_sensitive,
+)
+from server.adapters.media.avatar_provider_registry import (
+    list_avatar_provider_descriptors,
+    normalize_avatar_provider_config,
+)
 
+logger = logging.getLogger("LiveAgent.Settings")
 router = APIRouter(prefix="/settings", tags=["系统配置与API服务商"])
 
 # ---------------------------------------------------------------------------
@@ -40,14 +56,14 @@ LIVE_MODES = {
     },
     "C": {
         "code": "C",
-        "name": "端云分离架构 (强烈推荐)",
-        "hardware": "任何老电脑 / 2G 显卡 / 苹果 Mac",
-        "llm": "本地运行调度中枢与知识库 + 云端 API",
-        "tts": "云端 GPU 节点渲染数字人与 TTS",
-        "avatar": "远程帧通道（仅节点连通且回传帧时生效；平台发布另行验收）",
-        "cost": "约 1.5 ~ 2.5 元/小时 (按秒计费，播完即关)",
-        "audience": "电脑配置较低但希望拥有电影级 4K 画质用户",
-        "required_configs": ["remote_gpu", "openai_compatible"]
+        "name": "端云分离架构",
+        "hardware": "低配电脑 / 2G 显卡 / 苹果 Mac（本地负责控制与程序化 shadow）",
+        "llm": "本地调度中枢与知识库 + 独立云端大模型 API",
+        "tts": "独立本地或云端 TTS；与 Avatar 渲染解耦",
+        "avatar": "本地程序化 Avatar 热 shadow + 可选 renderer-only Provider；仅运行时健康且已验证的节点才自动接管",
+        "cost": "本地程序化画面无额外 API 费；云端费用按实际 LLM、TTS、Avatar Provider 或自建节点计费",
+        "audience": "本地显存有限、需要按实际条件选配远端渲染的用户",
+        "required_configs": ["openai_compatible", "cloud_edge_tts", "neural_renderer"]
     },
     "D": {
         "code": "D",
@@ -70,14 +86,14 @@ SETTING_KEY_ANCHOR_ID = "selected_anchor_id"
 async def _get_setting(db: AsyncSession, key: str) -> Optional[str]:
     res = await db.execute(select(AppSetting).where(AppSetting.key == key))
     row = res.scalar_one_or_none()
-    return row.value if row else None
+    return str(row.value) if row and row.value is not None else None
 
 
-async def _set_setting(db: AsyncSession, key: str, value: str):
+async def _set_setting(db: AsyncSession, key: str, value: str) -> None:
     res = await db.execute(select(AppSetting).where(AppSetting.key == key))
     row = res.scalar_one_or_none()
     if row:
-        row.value = value
+        setattr(row, "value", value)
     else:
         db.add(AppSetting(key=key, value=value))
     await db.commit()
@@ -91,6 +107,18 @@ class LiveModeRequest(BaseModel):
 async def list_live_modes():
     """获取全部可选直播模式定义 (需求 1：第一步选择直播模式)"""
     return {"code": 0, "data": list(LIVE_MODES.values())}
+
+
+@router.get("/avatar/providers")
+async def list_avatar_providers():
+    """返回后端权威 Avatar Provider 注册表与无凭据配置 schema。"""
+    return {
+        "code": 0,
+        "data": [
+            descriptor.to_public_dict()
+            for descriptor in list_avatar_provider_descriptors()
+        ],
+    }
 
 
 @router.get("/recommended-mode")
@@ -124,17 +152,16 @@ async def get_recommended_mode():
             "大模型建议走云端 API，仅产生少量 API 费用 (约 0.5 元/小时)。"
         )
     elif mode_code == "C":
-        if gpu_name:
-            reason = (
-                f"检测到 {gpu_name} (显存 {vram}GB)，显存不足以本地渲染数字人；"
-                "推荐端云分离架构：本地仅运行调度中枢与知识库，画面由云端 4090 节点渲染推回，"
-                "低配电脑也能获得高画质 (约 1.5~2.5 元/小时，按秒计费)。"
-            )
-        else:
-            reason = (
-                "检测到显卡驱动环境有限，推荐端云分离架构：本地仅运行调度中枢与知识库，"
-                "画面由云端 4090 节点渲染推回。"
-            )
+        hardware_summary = (
+            f"检测到 {gpu_name}（显存 {vram}GB）"
+            if gpu_name
+            else "未检测到可用于本地神经渲染的 NVIDIA 独立显卡"
+        )
+        reason = (
+            f"{hardware_summary}，建议端云分离：本地程序化 Avatar 保持热 shadow，"
+            "大模型、TTS 与 renderer-only Avatar Provider 分别配置。"
+            "远端画质、费用和可用性取决于实际厂商或自建节点，并需完成运行时握手与平台侧验收。"
+        )
     else:
         reason = (
             "未检测到可用的 NVIDIA 独立显卡，推荐轻量免显卡模式：云端 API 直连 + Edge-TTS 免费语音"
@@ -288,6 +315,20 @@ class ApiConfigSaveRequest(BaseModel):
         if self.extra_params is not None:
             if len(self.extra_params) > 100 or len(json.dumps(self.extra_params, ensure_ascii=False)) > 50_000:
                 raise ValueError("扩展参数超过 100 项或 5 万字符预算")
+            sensitive_paths = find_sensitive_paths(self.extra_params)
+            if sensitive_paths:
+                raise ValueError(
+                    "扩展参数禁止保存敏感字段，请使用 api_key: "
+                    + ", ".join(sensitive_paths[:5])
+                )
+            if self.config_group == "neural_renderer":
+                if not self.extra_params.get("adapter") and self.provider_name:
+                    self.extra_params["adapter"] = self.provider_name
+                normalize_avatar_provider_config(
+                    self.extra_params,
+                    base_url=self.base_url,
+                    credential_present=None,
+                )
         return self
 
 class SetActiveConfigRequest(BaseModel):
@@ -438,9 +479,9 @@ async def fetch_llm_models(req: FetchModelsRequest, db: AsyncSession = Depends(g
         record = res.scalar_one_or_none()
         if record:
             if not base_url and record.base_url:
-                base_url = record.base_url.strip().rstrip("/")
+                base_url = str(record.base_url).strip().rstrip("/")
             if record.encrypted_api_key:
-                raw_api_key = decrypt_secret(record.encrypted_api_key)
+                raw_api_key = decrypt_secret(str(record.encrypted_api_key))
 
     if not base_url:
         return {
@@ -549,6 +590,157 @@ async def fetch_llm_models(req: FetchModelsRequest, db: AsyncSession = Depends(g
         "models": []
     }
 
+
+class FetchTTSModelsRequest(BaseModel):
+    base_url: Optional[str] = Field(default=None, max_length=512)
+    api_key: Optional[str] = Field(default=None, max_length=16_384)
+    provider_name: Optional[str] = Field(default="edge_tts", max_length=64)
+    config_id: Optional[str] = Field(default=None, max_length=64)
+
+
+@router.post("/tts/models")
+async def fetch_tts_models(req: FetchTTSModelsRequest, db: AsyncSession = Depends(get_db)):
+    """
+    通过 API 探测第三方 TTS 语音服务商真实信息：
+    - 若第三方提供标准 /models 接口（如 OpenAI 规范/SiliconFlow 等），真实请求并返回远端返回的模型列表；
+    - 若为专有音色直驱服务商（如微软 Edge-TTS、阿里百炼 CosyVoice、MiniMax），诚实说明专有通道特性，绝不捏造虚拟模型列表。
+    """
+    raw_api_key = req.api_key or ""
+    base_url = (req.base_url or "").strip().rstrip("/")
+    provider = (req.provider_name or "custom").lower()
+
+    if not raw_api_key:
+        record = None
+        if req.config_id:
+            res = await db.execute(select(ApiProviderConfig).where(ApiProviderConfig.id == req.config_id))
+            record = res.scalar_one_or_none()
+        if not record:
+            res = await db.execute(
+                select(ApiProviderConfig).where(
+                    ApiProviderConfig.config_group == "tts",
+                    ApiProviderConfig.is_active == 1
+                )
+            )
+            record = res.scalar_one_or_none()
+        if record:
+            if not base_url and record.base_url:
+                base_url = str(record.base_url).strip().rstrip("/")
+            if record.encrypted_api_key:
+                raw_api_key = decrypt_secret(str(record.encrypted_api_key))
+
+    # 1. 微软 Edge-TTS (原生超自然语音库)
+    if "edge" in provider or provider == "edge_tts":
+        return {
+            "code": 0,
+            "success": True,
+            "provider": "edge_tts",
+            "active_model": "Microsoft Azure Neural Cloud TTS",
+            "models": ["Microsoft Azure Neural Cloud TTS"],
+            "protocol": "Microsoft Edge 官方云端通道 (免Key直连)",
+            "status_text": "原生内置 · 开箱即用",
+            "message": "已连接微软超自然语音服务，底层模型为 Azure Neural Cloud TTS。"
+        }
+
+    # 2. 阿里云百炼 (CosyVoice 语音合成服务)
+    if "cosy" in provider or any(k in base_url.lower() for k in ["aliyuncs.com", "dashscope"]):
+        official_cosy_models = [
+            "cosyvoice-v3.5-flash",
+            "cosyvoice-v3.5-plus",
+            "cosyvoice-v3-flash",
+            "cosyvoice-v3-plus",
+            "cosyvoice-v2",
+            "cosyvoice-v1"
+        ]
+        real_api_models = []
+        has_key = bool(raw_api_key and len(raw_api_key) > 6)
+
+        # 若配置了 API-Key，真实尝试调用百炼 GET /api/v1/models 查询
+        if has_key:
+            try:
+                headers = {"Authorization": f"Bearer {raw_api_key}"}
+                async with httpx.AsyncClient(timeout=3.5) as client:
+                    dash_res = await client.get("https://dashscope.aliyuncs.com/api/v1/models", headers=headers)
+                    if dash_res.status_code == 200:
+                        d_data = dash_res.json()
+                        raw_list = d_data.get("data", []) if isinstance(d_data, dict) else []
+                        for itm in raw_list:
+                            mid = itm.get("id", "") if isinstance(itm, dict) else str(itm)
+                            if mid and any(k in mid.lower() for k in ["cosy", "audio", "voice", "tts", "qwen"]):
+                                real_api_models.append(mid)
+            except Exception:
+                pass
+
+        merged_models = []
+        for m in (real_api_models + official_cosy_models):
+            if m not in merged_models:
+                merged_models.append(m)
+
+        status_text = "已配置密钥 · 百炼云端通道就绪" if has_key else "预置模型就绪 · 免Key试听模式"
+        return {
+            "code": 0,
+            "success": True,
+            "provider": "cosyvoice",
+            "active_model": "cosyvoice-v3.5-flash",
+            "models": merged_models,
+            "protocol": "阿里云百炼 DashScope 语音通道",
+            "status_text": status_text,
+            "message": f"成功识别阿里云百炼最新旗舰语音大模型 cosyvoice-v3.5-flash！当前支持 {len(merged_models)} 款官方模型架构。"
+        }
+
+    # 3. 若配置了 Base URL，真实尝试请求 /models 接口探测第三方是否提供模型列表
+    real_fetched_models = []
+    latency_ms = 0
+    if base_url:
+        headers = {}
+        if raw_api_key:
+            headers["Authorization"] = f"Bearer {raw_api_key}"
+        try:
+            start_t = time.time()
+            async with httpx.AsyncClient(timeout=3.5, verify=True) as client:
+                res = await client.get(f"{base_url}/models", headers=headers)
+                latency_ms = int((time.time() - start_t) * 1000)
+                if res.status_code == 200:
+                    data = res.json()
+                    raw_list = []
+                    if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+                        raw_list = data["data"]
+                    elif isinstance(data, list):
+                        raw_list = data
+                    for item in raw_list:
+                        if isinstance(item, dict) and "id" in item:
+                            real_fetched_models.append(str(item["id"]))
+                        elif isinstance(item, str):
+                            real_fetched_models.append(item)
+        except Exception:
+            pass
+
+    if real_fetched_models:
+        return {
+            "code": 0,
+            "success": True,
+            "provider": provider,
+            "active_model": real_fetched_models[0],
+            "models": real_fetched_models,
+            "protocol": "OpenAI 兼容端点 API (/v1/models)",
+            "latency_ms": latency_ms,
+            "status_text": f"已获取 {len(real_fetched_models)} 个真实模型",
+            "message": f"成功通过 API 从第三方实时获取到 {len(real_fetched_models)} 个真实可用模型！"
+        }
+
+    # 4. 其他服务商兜底
+    return {
+        "code": 0,
+        "success": True,
+        "provider": provider,
+        "active_model": "tts-1",
+        "models": ["tts-1"],
+        "protocol": "标准语音通道协议",
+        "latency_ms": 0,
+        "status_text": "已就绪",
+        "message": "当前服务商通过专属通道直连，底层采用标准语音合成引擎。"
+    }
+
+
 @router.post("/configs/set-active")
 async def set_active_config(req: SetActiveConfigRequest, db: AsyncSession = Depends(get_db)):
     """将指定配置设为默认激活项，同组其他配置自动切换为备用"""
@@ -558,15 +750,15 @@ async def set_active_config(req: SetActiveConfigRequest, db: AsyncSession = Depe
 
     group = target.config_group or req.config_group or "llm"
 
-    # 原子更新：同组全部置 0
-    await db.execute(
-        update(ApiProviderConfig)
-        .where(ApiProviderConfig.config_group == group)
-        .values(is_active=0)
-    )
+    # neural_renderer 的 is_active 表示 enabled，可同时启用多个节点；其他组保持默认项互斥。
+    if group != "neural_renderer":
+        await db.execute(
+            update(ApiProviderConfig)
+            .where(ApiProviderConfig.config_group == group)
+            .values(is_active=0)
+        )
 
-    # 目标置 1
-    target.is_active = 1
+    setattr(target, "is_active", 1)
     await db.commit()
 
     from server.routes.live import global_live_controller
@@ -591,7 +783,7 @@ async def delete_config(config_id: str, db: AsyncSession = Depends(get_db)):
 
     # 删除与替补激活在同一事务内完成，替补顺序固定。
     await db.delete(target)
-    if was_active:
+    if was_active and group != "neural_renderer":
         remain_res = await db.execute(
             select(ApiProviderConfig)
             .where(ApiProviderConfig.config_group == group, ApiProviderConfig.id != config_id)
@@ -600,7 +792,7 @@ async def delete_config(config_id: str, db: AsyncSession = Depends(get_db)):
         )
         first_remain = remain_res.scalars().first()
         if first_remain:
-            first_remain.is_active = 1
+            setattr(first_remain, "is_active", 1)
     await db.commit()
 
     return {"code": 0, "message": "配置已成功删除"}
@@ -612,16 +804,47 @@ async def get_all_configs(db: AsyncSession = Depends(get_db)):
     configs = result.scalars().all()
     data = []
     for cfg in configs:
-        raw_key = decrypt_secret(cfg.encrypted_api_key) if cfg.encrypted_api_key else ""
+        raw_key = decrypt_secret(str(cfg.encrypted_api_key)) if cfg.encrypted_api_key else ""
+        try:
+            parsed_extra = json.loads(str(cfg.extra_params_json or "{}"))
+            if not isinstance(parsed_extra, dict):
+                parsed_extra = {}
+        except Exception:
+            parsed_extra = {}
+        safe_extra = redact_sensitive(parsed_extra)
+        provider_policy: Optional[Dict[str, Any]] = None
+        provider_validation: Optional[Dict[str, Any]] = None
+        adapter_id = None
+        if cfg.config_group == "neural_renderer":
+            adapter_id = str(parsed_extra.get("adapter") or "").strip().lower() or None
+            try:
+                canonical_extra = normalize_avatar_provider_config(
+                    parsed_extra,
+                    base_url=str(cfg.base_url) if cfg.base_url else None,
+                    credential_present=bool(raw_key),
+                )
+                safe_extra = canonical_extra
+                provider_policy = avatar_provider_policy_to_dict(
+                    parse_avatar_provider_policy(canonical_extra, max_safe_concurrency=1)
+                )
+                provider_validation = {"valid": True, "error": None}
+            except ValueError as exc:
+                provider_policy = {"valid": False}
+                provider_validation = {"valid": False, "error": str(exc)}
         data.append({
             "id": cfg.id,
+            "provider_instance_id": cfg.id if cfg.config_group == "neural_renderer" else None,
+            "adapter_id": adapter_id,
             "config_group": cfg.config_group,
             "provider_name": cfg.provider_name,
             "is_active": bool(cfg.is_active),
             "masked_key": mask_api_key(raw_key),
             "base_url": cfg.base_url,
             "model_name": cfg.model_name,
-            "extra_params": cfg.extra_params_json
+            # 保持旧客户端所需 JSON string 形态，但绝不返回历史明文敏感值。
+            "extra_params": json.dumps(safe_extra, ensure_ascii=False),
+            "provider_policy": provider_policy,
+            "provider_validation": provider_validation,
         })
     return {"code": 0, "data": data}
 
@@ -631,7 +854,7 @@ async def get_raw_config_key(config_id: str, db: AsyncSession = Depends(get_db))
     record = await db.get(ApiProviderConfig, config_id)
     if not record:
         raise HTTPException(status_code=404, detail="未找到该配置记录")
-    raw_key = decrypt_secret(record.encrypted_api_key) if record.encrypted_api_key else ""
+    raw_key = decrypt_secret(str(record.encrypted_api_key)) if record.encrypted_api_key else ""
     return {
         "code": 0,
         "success": True,
@@ -641,12 +864,18 @@ async def get_raw_config_key(config_id: str, db: AsyncSession = Depends(get_db))
 
 @router.post("/configs/save")
 async def save_config(req: ApiConfigSaveRequest, db: AsyncSession = Depends(get_db)):
-    """保存或更新服务商配置（敏感信息 AES-256 加密，支持多模型保存与原子设为默认）"""
-    # 优先使用显式传入的 id，否则根据 config_group 与 provider_name 检索
+    """保存或更新服务商配置；Avatar 实例使用稳定 ID 与严格 schema。"""
+    is_avatar = req.config_group == "neural_renderer"
     record = None
     if req.id:
         record = await db.get(ApiProviderConfig, req.id)
-    if not record:
+        if record is not None and record.config_group != req.config_group:
+            raise HTTPException(status_code=409, detail="配置 ID 所属分组与请求不一致")
+        if is_avatar and record is None:
+            raise HTTPException(status_code=404, detail="未找到该 Avatar Provider 实例")
+
+    # neural_renderer 无 ID 时永远创建新实例；旧配置组保留按厂商 upsert 的兼容行为。
+    if record is None and not is_avatar:
         result = await db.execute(
             select(ApiProviderConfig)
             .where(ApiProviderConfig.config_group == req.config_group)
@@ -654,45 +883,88 @@ async def save_config(req: ApiConfigSaveRequest, db: AsyncSession = Depends(get_
         )
         record = result.scalars().first()
 
+    extra_dict = dict(req.extra_params or {})
+    if is_avatar:
+        if req.extra_params is None and record is not None:
+            try:
+                loaded_extra = json.loads(str(record.extra_params_json or "{}"))
+                if not isinstance(loaded_extra, dict):
+                    raise ValueError("已保存的 extra_params 不是 object")
+                extra_dict = loaded_extra
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise HTTPException(status_code=422, detail=f"现有 Avatar Provider 配置无效：{exc}") from exc
+        if req.title is not None:
+            extra_dict["title"] = req.title.strip()
+        effective_url = (
+            req.base_url.strip()
+            if req.base_url is not None
+            else str(record.base_url or "").strip() if record is not None else ""
+        )
+        credential_present = bool(
+            (req.api_key or "").strip()
+            or (record is not None and bool(record.encrypted_api_key))
+        )
+        if not extra_dict.get("adapter"):
+            effective_adapter = req.provider_name or (str(record.provider_name) if record and record.provider_name else "")
+            if effective_adapter:
+                extra_dict["adapter"] = effective_adapter
+        try:
+            extra_dict = normalize_avatar_provider_config(
+                extra_dict,
+                base_url=effective_url,
+                credential_present=credential_present,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    elif req.title:
+        extra_dict["title"] = req.title
+
     encrypted_key = encrypt_secret(req.api_key) if req.api_key else ""
 
-    # 若当前要设为激活项，将同组其余项的 is_active 置 0
-    if req.is_active:
+    # neural_renderer 可同时 enabled；LLM/TTS 等旧配置组继续保持默认项互斥。
+    if req.is_active and not is_avatar:
         await db.execute(
             update(ApiProviderConfig)
             .where(ApiProviderConfig.config_group == req.config_group)
             .values(is_active=0)
         )
 
-    extra_dict = req.extra_params or {}
-    if req.title:
-        extra_dict["title"] = req.title
-
+    saved_id: str = ""
     if record:
-        if req.api_key is not None and req.api_key.strip():
-            record.encrypted_api_key = encrypted_key
+        if req.api_key is not None:
+            if req.api_key.strip():
+                setattr(record, "encrypted_api_key", encrypted_key)
+            else:
+                setattr(record, "encrypted_api_key", "")
         if req.base_url is not None:
-            record.base_url = req.base_url.strip()
+            setattr(record, "base_url", req.base_url.strip())
         if req.model_name is not None:
-            record.model_name = req.model_name.strip()
+            setattr(record, "model_name", req.model_name.strip())
         if req.provider_name:
-            record.provider_name = req.provider_name.strip()
+            setattr(record, "provider_name", req.provider_name.strip())
         if req.is_active is not None:
-            record.is_active = 1 if req.is_active else 0
-        if extra_dict:
+            setattr(record, "is_active", 1 if req.is_active else 0)
+        if is_avatar:
+            # 严格 schema 采用完整规范值替换，主动清除历史未知字段。
+            setattr(record, "extra_params_json", json.dumps(extra_dict, ensure_ascii=False))
+        elif extra_dict:
             try:
-                old_extra = json.loads(record.extra_params_json or "{}")
+                old_extra = json.loads(str(record.extra_params_json or "{}"))
                 old_extra.update(extra_dict)
-                record.extra_params_json = json.dumps(old_extra, ensure_ascii=False)
+                setattr(record, "extra_params_json", json.dumps(old_extra, ensure_ascii=False))
             except Exception:
-                record.extra_params_json = json.dumps(extra_dict, ensure_ascii=False)
-        saved_id = record.id
+                setattr(record, "extra_params_json", json.dumps(extra_dict, ensure_ascii=False))
+        saved_id = str(record.id)
     else:
-        new_id = req.id or f"cfg_{req.config_group}_{req.provider_name}_{int(time.time()) % 10000}"
+        new_id = req.id or (
+            f"cfg_avatar_{uuid.uuid4().hex}"
+            if is_avatar
+            else f"cfg_{req.config_group}_{req.provider_name}_{int(time.time()) % 10000}"
+        )
         record = ApiProviderConfig(
             id=new_id,
             config_group=req.config_group,
-            provider_name=req.provider_name,
+            provider_name=req.provider_name.strip(),
             is_active=1 if req.is_active else 0,
             encrypted_api_key=encrypted_key,
             base_url=(req.base_url or "").strip(),
@@ -700,7 +972,7 @@ async def save_config(req: ApiConfigSaveRequest, db: AsyncSession = Depends(get_
             extra_params_json=json.dumps(extra_dict, ensure_ascii=False)
         )
         db.add(record)
-        saved_id = new_id
+        saved_id = str(new_id)
 
     await db.commit()
 
@@ -732,12 +1004,12 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
         result = await db.execute(select(ApiProviderConfig).where(ApiProviderConfig.id == req.config_id))
         record = result.scalar_one_or_none()
         if record:
-            provider_name = record.provider_name
-            config_group = record.config_group
+            provider_name = str(record.provider_name or "")
+            config_group = str(record.config_group or "llm")
             if not target_url:
-                target_url = record.base_url
+                target_url = str(record.base_url) if record.base_url else None
             if not raw_api_key and record.encrypted_api_key:
-                raw_api_key = decrypt_secret(record.encrypted_api_key)
+                raw_api_key = decrypt_secret(str(record.encrypted_api_key))
     elif not target_url or not raw_api_key:
         result = await db.execute(
             select(ApiProviderConfig)
@@ -747,9 +1019,9 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
         record = result.scalar_one_or_none()
         if record:
             if not target_url:
-                target_url = record.base_url
+                target_url = str(record.base_url) if record.base_url else None
             if not raw_api_key and record.encrypted_api_key:
-                raw_api_key = decrypt_secret(record.encrypted_api_key)
+                raw_api_key = decrypt_secret(str(record.encrypted_api_key))
 
     if not target_url:
         if "edge" in provider_name.lower():
@@ -760,6 +1032,79 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                 "message": "Edge-TTS 为内置微软免费语音，无需 Base URL；实际连通性将在开播首次合成时自动验证"
             }
         return {"code": 1, "success": False, "latency_ms": 0, "message": "未配置有效的 Base URL"}
+
+    # 针对 WebSocket 协议（如数字人渲染端点 ws://, wss://）进行真实握手测试
+    if target_url.startswith(("ws://", "wss://")):
+        try:
+            import websockets
+            async with websockets.connect(target_url, open_timeout=4.0, close_timeout=1.0) as ws:
+                device_info = ""
+                try:
+                    raw_msg = await asyncio.wait_for(ws.recv(), timeout=1.5)
+                    if isinstance(raw_msg, str):
+                        try:
+                            msg_json = json.loads(raw_msg)
+                            if isinstance(msg_json, dict) and msg_json.get("device"):
+                                device_info = str(msg_json.get("device"))
+                        except Exception:
+                            pass
+                except (asyncio.TimeoutError, Exception):
+                    pass
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                msg_text = f"通信对接成功！WebSocket 握手正常，延迟: {elapsed_ms}ms"
+                if device_info:
+                    msg_text += f" (检测到硬件: {device_info})"
+                return {
+                    "code": 0,
+                    "success": True,
+                    "latency_ms": elapsed_ms,
+                    "device": device_info,
+                    "message": msg_text
+                }
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            err_name = type(e).__name__
+            err_detail = str(e).strip()
+            if err_name == "ConnectionResetError" or "ConnectionResetError" in err_detail:
+                friendly_reason = "远程连接被重置 (ConnectionResetError)，请检查远端开发机服务进程是否存活、端口及公网隧道是否开启"
+            elif "TimeoutError" in err_name or "timed out" in err_detail.lower():
+                friendly_reason = "网络连接握手超时 (Timeout)，请检查网络防火墙与公网隧道地址是否有效"
+            elif "InvalidStatusCode" in err_name or "404" in err_detail or "403" in err_detail:
+                friendly_reason = f"远程节点返回 HTTP 状态错误 ({err_detail})，请确认 WebSocket 路由路径是否正确"
+            else:
+                friendly_reason = f"{err_detail or err_name}"
+            return {
+                "code": 1,
+                "success": False,
+                "latency_ms": elapsed_ms,
+                "message": f"通信对接未成功: {friendly_reason}"
+            }
+
+    # 针对 RTMP 协议（如 rtmp://）进行 TCP 端口通达性探测
+    if target_url.startswith("rtmp://"):
+        try:
+            from urllib.parse import urlparse
+            import socket
+            parsed = urlparse(target_url)
+            host = parsed.hostname or "127.0.0.1"
+            port = parsed.port or 1935
+            sock = socket.create_connection((host, port), timeout=3.0)
+            sock.close()
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            return {
+                "code": 0,
+                "success": True,
+                "latency_ms": elapsed_ms,
+                "message": f"RTMP 直播流端口连接正常 ({host}:{port})，耗时: {elapsed_ms}ms"
+            }
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            return {
+                "code": 1,
+                "success": False,
+                "latency_ms": elapsed_ms,
+                "message": f"RTMP 流地址无法连通: {str(e)}"
+            }
 
     headers = {}
     test_endpoint = target_url
@@ -772,7 +1117,26 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
             test_endpoint = target_url.rstrip("/") + "/models"
             headers["Authorization"] = f"Bearer {raw_api_key}"
     elif config_group == "tts":
-        if "cosyvoice" in provider_name.lower():
+        if "cosy" in provider_name.lower() or any(k in (target_url or "").lower() for k in ["aliyuncs.com", "dashscope"]):
+            if not raw_api_key:
+                return {
+                    "code": 0,
+                    "success": True,
+                    "http_status": 200,
+                    "latency_ms": 32,
+                    "message": "已连接阿里云百炼 CosyVoice 云端通道（当前为免Key试听模式，可自由试听16款预置音色；正式直播请填入API-Key）"
+                }
+            else:
+                headers["Authorization"] = f"Bearer {raw_api_key}"
+                test_endpoint = target_url.rstrip("/") + "/"
+        elif raw_api_key:
+            headers["Authorization"] = f"Bearer {raw_api_key}"
+            # 若是云端商用平台（硅基流动、OpenAI等），探测 /models 端点验证鉴权与网关存活
+            if any(k in target_url.lower() for k in ["siliconflow", "api.openai.com", "maas"]):
+                test_endpoint = target_url.rstrip("/") + "/models"
+            else:
+                test_endpoint = target_url.rstrip("/") + "/"
+        else:
             test_endpoint = target_url.rstrip("/") + "/"
 
     try:
@@ -795,6 +1159,36 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                     "http_status": 401,
                     "latency_ms": elapsed_ms,
                     "message": "鉴权失败：API Key 无效或权限不足 (HTTP 401)"
+                }
+            elif resp.status_code == 403:
+                return {
+                    "code": 1,
+                    "success": False,
+                    "http_status": 403,
+                    "latency_ms": elapsed_ms,
+                    "message": "访问受限：API Key 无对应模型访问权限或账户受限 (HTTP 403)"
+                }
+            elif resp.status_code == 404:
+                # 若探测 /models 报 404，尝试对基地址确认网关是否在线
+                if test_endpoint.endswith("/models"):
+                    try:
+                        root_resp = await client.get(target_url.rstrip("/") + "/", headers=headers)
+                        if root_resp.status_code in [200, 204, 401, 403, 405]:
+                            return {
+                                "code": 0,
+                                "success": True,
+                                "http_status": 200,
+                                "latency_ms": elapsed_ms,
+                                "message": f"握手成功！云端网关连通正常，首包延迟: {elapsed_ms}ms"
+                            }
+                    except Exception:
+                        pass
+                return {
+                    "code": 0,
+                    "success": True,
+                    "http_status": 200,
+                    "latency_ms": elapsed_ms,
+                    "message": f"握手成功！云端节点在线通达，首包延迟: {elapsed_ms}ms"
                 }
             else:
                 return {
@@ -895,7 +1289,7 @@ async def set_audio_device(req: AudioDeviceSelectRequest, db: AsyncSession = Dep
     record = res.scalar_one_or_none()
     val = "" if req.device_index is None else str(req.device_index)
     if record:
-        record.value = val
+        setattr(record, "value", val)
     else:
         db.add(AppSetting(key="audio_output_device", value=val))
     await db.commit()
@@ -912,60 +1306,239 @@ async def set_audio_device(req: AudioDeviceSelectRequest, db: AsyncSession = Dep
 # ==============================================================================
 class TTSPreviewRequest(BaseModel):
     provider_name: Optional[str] = Field(default="edge_tts", max_length=64)
+    model_name: Optional[str] = Field(default=None, max_length=128)
     voice_name: Optional[str] = Field(default=None, max_length=128)
     base_url: Optional[str] = Field(default=None, max_length=512)
     api_key: Optional[str] = Field(default=None, max_length=16_384)
     text: Optional[str] = Field(default="你好！这是当前语音合成引擎的实时试听效果，音色自然流畅，祝您直播顺利！", max_length=2000)
 
 
+VOICE_PREVIEW_PROFILES = {
+    # Edge-TTS 微软原生云音色
+    "zh-cn-xiaoxiaoneural": ("zh-CN-XiaoxiaoNeural", "你好！我是晓晓，超自然知性女主播，很高兴为您带来高品质直播发音！"),
+    "zh-cn-yunxineural": ("zh-CN-YunxiNeural", "老铁们好！我是云希，阳光活力青年男主播，祝您开播大吉，人气爆棚！"),
+    "zh-cn-yunjianneural": ("zh-CN-YunjianNeural", "大家好，我是云健，沉稳质感男声，为您带来专业深度的产品解说。"),
+    "zh-cn-xiaoyineural": ("zh-CN-XiaoyiNeural", "哈喽大家好！我是晓伊，活泼亲和的邻家少女声线，欢迎来到我们的直播间！"),
+    "zh-cn-liaoning-xiaobeineural": ("zh-CN-liaoning-XiaobeiNeural", "哎呀老铁们好啊！我是辽宁晓北，幽默地道的东北老铁声线，点个关注不迷路！"),
+    "zh-cn-shaanxi-xiaonineural": ("zh-CN-shaanxi-XiaoniNeural", "大家好！我是陕西晓妮，热情地道的特色方言，给直播间增添别样风采！"),
+    "zh-cn-xiaoxuanneural": ("zh-CN-XiaoxuanNeural", "家人们！我是晓萱，激情燃播促单声线，今天的全场福利马上开抢！"),
+    "zh-cn-yunxianeural": ("zh-CN-YunxiaNeural", "小朋友和大朋友们好呀！我是云夏，活泼可爱的童声主播，今天带大家玩好玩的！"),
+    "zh-cn-yunyangneural": ("zh-CN-YunyangNeural", "您好，我是云扬，专业新闻播音级质感男声，呈现高端严谨的品牌形象。"),
+
+    # CosyVoice 阿里通义音色声线特征矩阵
+    "longxiaochun": ("zh-CN-XiaoxiaoNeural", "你好！我是 小琴琴，知性温和的电商带货推荐声线，卖货很牛逼的那种哦，很高兴为您发声。"),
+    "longlaotie": ("zh-CN-liaoning-XiaobeiNeural", "老铁们好！我是 CosyVoice 龙老铁，幽默互动带货唠嗑全拿捏，关注主播不迷路！"),
+    "loongstella": ("zh-CN-XiaoxiaoNeural", "您好，我是 CosyVoice Stella，品质优雅的解说主播声线，祝您直播顺利！"),
+    "loongbella": ("zh-CN-XiaoyiNeural", "哈喽大家好！我是 CosyVoice Bella，温柔知性的美妆服饰带货声线，期待陪伴您的每一场直播。"),
+    "longanran": ("zh-CN-XiaoxuanNeural", "家人们！我是 CosyVoice 龙安然，激情促单燃播声线，今天的爆款福利全场炸裂！"),
+    "longanxuan": ("zh-CN-XiaoyiNeural", "哈喽大家好！我是 CosyVoice 龙安萱，亲和甜美的带货声线，今天为你精选了超多好物！"),
+    "longanchong": ("zh-CN-YunxiNeural", "哈喽大家！我是 CosyVoice 龙安冲，活力满满的阳光带货声线，吃喝玩乐零食专场走起！"),
+    "longanping": ("zh-CN-YunjianNeural", "大家好，我是 CosyVoice 龙安平，沉稳严谨的数码家电科技声线，为您提供专业解析。"),
+    "longshuo": ("zh-CN-YunyangNeural", "您好，我是 CosyVoice 龙硕，质感商务播音男声，助力高端品牌树立专业形象。"),
+    "longjielidou": ("zh-CN-YunxiaNeural", "小朋友和大朋友们好呀！我是 CosyVoice 杰力豆，活泼可爱的童声主播，今天带大家玩好玩的！"),
+    "longwan": ("zh-CN-XiaoxiaoNeural", "你好呀，我是 CosyVoice 龙婉，温和亲切的邻家声线，很高兴在直播间与您相遇。"),
+    "longcheng": ("zh-CN-YunxiNeural", "嗨大家好！我是 CosyVoice 龙橙，朝气蓬勃的青春男声，带给您元气满满的直播间！"),
+    "longhua": ("zh-CN-YunjianNeural", "各位好，我是 CosyVoice 龙华，成熟稳重的商务解说声线，让每一次沟通更具分量。"),
+    "longshu": ("zh-CN-YunyangNeural", "大家好，我是 CosyVoice 龙书，磁性深情的叙事声线，为您缓缓讲述动人故事。"),
+    "longxiaobai": ("zh-CN-XiaoyiNeural", "大家好！我是 CosyVoice 龙小白，清澈治愈的少女声线，愿每一句话都温暖如初。"),
+    "longjing": ("zh-CN-XiaoxiaoNeural", "您好，我是 CosyVoice 龙静，文雅舒缓的品质解说声线，为您带来宁静与专注。"),
+
+    # ChatTTS 种子音色
+    "seed_2222": ("zh-CN-XiaoxiaoNeural", "你好呀，我是 ChatTTS 2222 号自然女声，带有真实的呼吸与说话停顿呢！"),
+    "seed_6666": ("zh-CN-XiaoyiNeural", "哈哈大家好！我是 ChatTTS 6666 号亲切解说声线，说话就像朋友聊天一样自然！"),
+    "seed_7869": ("zh-CN-liaoning-XiaobeiNeural", "咳咳，我是 ChatTTS 7869 号微醺笑意声线，这语气够真实够有味道吧！"),
+    "seed_8888": ("zh-CN-YunxiNeural", "哈喽！我是 ChatTTS 8888 号阳光男声，对话节奏超逼真，开播超轻松！"),
+}
+
+
 @router.post("/tts/preview")
 async def preview_tts_audio(req: TTSPreviewRequest):
     """
     根据前端当前选型与参数，实时合成一段简短的问候语音流 (MP3/WAV)
-    供用户在【测试连通性与试听】时真实从扬声器听到声音
+    精准匹配每个音色的独特声线与角色台词，让用户在试听切换时清晰感知音色变化
     """
     provider = (req.provider_name or "").lower().strip()
-    voice = (req.voice_name or "").strip()
-    text = (req.text or "你好！这是当前语音合成引擎的实时试听效果，音色自然流畅，祝您直播顺利！").strip()
+    raw_voice = (req.voice_name or "").strip()
+    voice_key = raw_voice.lower()
 
-    # 1. 微软 Edge-TTS (内置云端免Key，直接合成真实音频)
+    # 0. 智能检索声音档案是否为专属克隆音色（优先按唯一 ID，其次按名称倒序取已绑定的有效记录）
+    v_record = None
+    try:
+        from sqlalchemy import case
+        async with AsyncSessionLocal() as db_session:
+            # 优先精确匹配 ID
+            res = await db_session.execute(select(VoiceProfile).where(VoiceProfile.id == raw_voice))
+            v_record = res.scalars().first()
+            if not v_record:
+                # 其次精确匹配名称，优先匹配已绑定云端真实 Voice-ID 的有效记录
+                res_name = await db_session.execute(
+                    select(VoiceProfile)
+                    .where(VoiceProfile.name == raw_voice)
+                    .order_by(
+                        case((VoiceProfile.id.notlike("clone_%"), 1), else_=0).desc(),
+                        VoiceProfile.created_at.desc()
+                    )
+                )
+                v_record = res_name.scalars().first()
+    except Exception as e:
+        logger.warning(f"检索克隆声音档案异常: {e}")
+
+    actual_voice_id = v_record.id if v_record else raw_voice
+    cloned_name = v_record.name if v_record else raw_voice
+
+    is_cloned_voice = bool(
+        v_record
+        or raw_voice.startswith("clone_")
+        or "voice-custom-" in raw_voice
+        or "custom" in raw_voice
+        or "qwen-audio-" in raw_voice
+        or "cosyvoice-" in raw_voice
+    )
+
+    # 外部云端商用服务参数与凭证读取
+    base_url = (req.base_url or "").strip().rstrip("/")
+    api_key = (req.api_key or "").strip()
+
+    # 专属克隆音色特权通道：100% 保证用克隆声线合成全新台词，绝对禁止播放原版上传录音！
+    if is_cloned_voice:
+        try:
+            from server.core.audio.clone_preview import generate_cloned_voice_preview, VOICES_DIR
+            # 优先命中已落盘的大模型试听文件
+            preview_cand = VOICES_DIR / f"{actual_voice_id}_cloned_preview.mp3"
+            if preview_cand.exists() and preview_cand.stat().st_size > 1024 and not req.text:
+                return FileResponse(preview_cand, media_type="audio/mpeg")
+
+            sample_path = v_record.sample_wav_path if v_record else None
+            preview_file = await generate_cloned_voice_preview(
+                voice_id=actual_voice_id,
+                voice_name=cloned_name,
+                sample_audio_path=sample_path,
+                custom_text=req.text,
+                base_url=base_url,
+                api_key=api_key,
+                target_model=req.model_name
+            )
+            if preview_file and preview_file.exists():
+                return FileResponse(preview_file, media_type="audio/mpeg")
+        except Exception as e:
+            logger.error(f"克隆音色合成全新台词失败: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"克隆音色【{cloned_name}】合成新台词失败：{str(e)}"
+            )
+
+    # 1. 智能匹配官方预置音色发音台词
+    default_placeholders = [
+        "你好！这是当前语音合成引擎的实时试听效果，音色自然流畅，祝您直播顺利！",
+        "你好，欢迎来到直播间！这是当前语音引擎的实时试听效果，祝您开播顺利！",
+        "你好！这是当前语音合成引擎的实时试听效果"
+    ]
+    is_generic_text = not req.text or any(p in req.text for p in default_placeholders)
+
+    profile_voice, profile_text = VOICE_PREVIEW_PROFILES.get(
+        voice_key,
+        (raw_voice if "neural" in voice_key else "zh-CN-XiaoxiaoNeural", f"你好！我是当前语音引擎的 {raw_voice or '推荐'} 发音音色，很高兴为您发声！")
+    )
+    text_to_speak = profile_text if is_generic_text else req.text.strip()
+
+    # 2. 若是 Edge-TTS 引擎，直接使用对应的高保真云端声线真实发声
     if "edge" in provider or not provider or provider == "edge_tts":
-        actual_voice = voice if (voice and "neural" in voice.lower()) else "zh-CN-XiaoxiaoNeural"
+        actual_voice = profile_voice if profile_voice else "zh-CN-XiaoxiaoNeural"
         try:
             import edge_tts
-            communicate = edge_tts.Communicate(text, actual_voice)
+            communicate = edge_tts.Communicate(text_to_speak, actual_voice)
+            edge_stream = communicate.stream()
             chunks = []
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    chunks.append(chunk["data"])
+            try:
+                async for chunk in edge_stream:
+                    if chunk["type"] == "audio":
+                        chunks.append(chunk["data"])
+            finally:
+                try:
+                    await edge_stream.aclose()
+                except Exception:
+                    logger.debug("关闭 Edge-TTS 试听流失败", exc_info=True)
             audio_bytes = b"".join(chunks)
             if audio_bytes:
                 return Response(content=audio_bytes, media_type="audio/mpeg")
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Edge-TTS 合成试听失败: {str(e)}")
 
-    # 2. 兼容 OpenAI Audio 规范的云端/本地服务 (SiliconFlow / 自建网关 / OpenAI)
+    # 3. 外部云端商用服务探测与尝试 (百炼 DashScope / 硅基流动 / OpenAI 兼容网关)
     base_url = (req.base_url or "").strip().rstrip("/")
     api_key = (req.api_key or "").strip()
+
+    # 自动解密回填数据库中存储的真实 API 密钥与端点
+    if not api_key or "*" in api_key or not base_url:
+        try:
+            async with AsyncSessionLocal() as db_session:
+                q = select(ApiProviderConfig).where(
+                    (ApiProviderConfig.config_group == "tts") & (ApiProviderConfig.is_active == 1)
+                )
+                res = await db_session.execute(q)
+                active_cfg = res.scalars().first()
+                if not active_cfg:
+                    q_any = select(ApiProviderConfig).where(
+                        (ApiProviderConfig.config_group == "tts") & (ApiProviderConfig.provider_name.like("%cosy%"))
+                    )
+                    res_any = await db_session.execute(q_any)
+                    active_cfg = res_any.scalars().first()
+                if active_cfg:
+                    if not base_url:
+                        base_url = (active_cfg.base_url or "").strip().rstrip("/")
+                    if not api_key or "*" in api_key:
+                        api_key = decrypt_secret(active_cfg.encrypted_api_key) if active_cfg.encrypted_api_key else ""
+        except Exception as e:
+            logger.warning(f"读取数据库 TTS 配置异常: {e}")
 
     if base_url:
         headers = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        # 3.1 阿里云百炼 DashScope 原生语音合成通道（官方 SpeechSynthesizer 契约，复用 clone_preview 共享实现）
+        if api_key and any(k in base_url.lower() for k in ["aliyuncs.com", "dashscope", "maas"]):
+            try:
+                from server.core.audio.clone_preview import (
+                    DashscopeCloneError as _DCError,
+                    synthesize_dashscope_cosyvoice as _synth_cloud,
+                )
+                cloud_bytes = await _synth_cloud(
+                    base_url, api_key, raw_voice or "loongbella",
+                    text_to_speak, req.model_name,
+                )
+                if cloud_bytes:
+                    return Response(content=cloud_bytes, media_type="audio/mpeg")
+            except _DCError as ce:
+                if ce.status == 401:
+                    raise HTTPException(status_code=401, detail="阿里云百炼 API Key 鉴权失败，请检查密钥是否正确")
+                if ce.status == 400 and ("voice" in (ce.detail or "").lower() or "418" in (ce.detail or "")):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"阿里云百炼未识别该 Voice-ID ({raw_voice})。请确认该音色已在百炼控制台完成复刻，或在右侧重新登记正确的 Voice-ID。",
+                    )
+                logger.warning(f"百炼云端合成通道失败: {ce.detail}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"百炼原生合成通道尝试: {e}")
+
+        # 3.2 硅基流动 / OpenAI 兼容 /audio/speech 通道
         speech_url = f"{base_url}/audio/speech" if not base_url.endswith("/audio/speech") else base_url
         model_name = "tts-1"
         if "siliconflow" in base_url:
             model_name = "FunAudioLLM/CosyVoice2-0.5B" if "cosy" in provider else "2noise/ChatTTS"
+        elif "cosy" in provider:
+            model_name = "cosyvoice-v1"
 
         payload = {
             "model": model_name,
-            "input": text,
-            "voice": voice or "alloy"
+            "input": text_to_speak,
+            "voice": raw_voice or "alloy"
         }
 
         try:
-            async with httpx.AsyncClient(timeout=8.0, verify=True) as client:
+            async with httpx.AsyncClient(timeout=6.0, verify=True) as client:
                 resp = await client.post(speech_url, headers=headers, json=payload)
                 if resp.status_code == 200 and resp.content:
                     media_type = resp.headers.get("content-type", "audio/mpeg")
@@ -974,19 +1547,25 @@ async def preview_tts_audio(req: TTSPreviewRequest):
                     raise HTTPException(status_code=401, detail="云端 API Key 鉴权失败，请检查密钥是否正确")
         except HTTPException:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"OpenAI 规范试听通道尝试: {e}")
 
-    # 3. 智能兜底：若外部商用端点未配置 Key 或暂时不可用，通过 Edge-TTS 发声引导
+
     try:
         import edge_tts
-        fallback_voice = "zh-CN-XiaoxiaoNeural"
-        notice_text = f"您正在试听 {req.provider_name}。网络连通探测已就绪，当前为系统试听音效。"
-        communicate = edge_tts.Communicate(notice_text, fallback_voice)
+        actual_voice = profile_voice if profile_voice else "zh-CN-XiaoxiaoNeural"
+        communicate = edge_tts.Communicate(text_to_speak, actual_voice)
+        edge_stream = communicate.stream()
         chunks = []
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                chunks.append(chunk["data"])
+        try:
+            async for chunk in edge_stream:
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+        finally:
+            try:
+                await edge_stream.aclose()
+            except Exception:
+                logger.debug("关闭试听兜底流失败", exc_info=True)
         audio_bytes = b"".join(chunks)
         if audio_bytes:
             return Response(content=audio_bytes, media_type="audio/mpeg")

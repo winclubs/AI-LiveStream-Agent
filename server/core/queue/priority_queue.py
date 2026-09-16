@@ -14,6 +14,8 @@ class QueuePutResult:
     """入队结果 (兼容布尔判断与等值比较)"""
     accepted: bool
     dropped_event_id: Optional[str] = None
+    dropped_event_type: Optional[str] = None
+    dropped_is_mock: Optional[bool] = None
     reason: Optional[str] = None
 
     def __bool__(self) -> bool:
@@ -26,6 +28,8 @@ class QueuePutResult:
             return (
                 self.accepted == other.accepted
                 and self.dropped_event_id == other.dropped_event_id
+                and self.dropped_event_type == other.dropped_event_type
+                and self.dropped_is_mock == other.dropped_is_mock
                 and self.reason == other.reason
             )
         return False
@@ -85,8 +89,8 @@ class PriorityBargeInQueue:
         self.hard_maxsize = self.maxsize + self.p0_maxsize
         self.last_put_result: Optional[QueuePutResult] = None
 
-    def _evict_oldest_by_priority(self, target_priority: int) -> Optional[str]:
-        """淘汰指定优先级中最旧的项"""
+    def _evict_oldest_by_priority(self, target_priority: int) -> Optional[LiveEventItem]:
+        """淘汰指定优先级中最旧的项，并返回完整事件供调用方正确归属指标。"""
         underlying = getattr(self._queue, "_queue", None)
         if not underlying:
             return None
@@ -101,7 +105,7 @@ class PriorityBargeInQueue:
             self.dropped_p3_total += 1
         elif target_priority == 2:
             self.dropped_p2_total += 1
-        return oldest.event_id
+        return oldest
 
     async def put(
         self,
@@ -133,6 +137,21 @@ class PriorityBargeInQueue:
             self.last_put_result = res
             return res if as_result else res.accepted
 
+        def _accepted_result(dropped_item: Optional[LiveEventItem] = None) -> QueuePutResult:
+            if dropped_item is None:
+                return QueuePutResult(accepted=True)
+            dropped_payload = dropped_item.payload or {}
+            return QueuePutResult(
+                accepted=True,
+                dropped_event_id=dropped_item.event_id,
+                dropped_event_type=dropped_item.event_type,
+                dropped_is_mock=bool(
+                    dropped_payload.get("_is_mock")
+                    or dropped_payload.get("_is_fallback")
+                    or dropped_payload.get("_source") == "mock"
+                ),
+            )
+
         # 全局硬容量保护：防止任何异常中继导致内存无限增长
         if current_size >= self.hard_maxsize:
             logger.error("队列达到全局硬容量限制 (%d)，拒绝入队以保护进程", self.hard_maxsize)
@@ -147,38 +166,38 @@ class PriorityBargeInQueue:
                 return _ret(QueuePutResult(accepted=False, reason="p0_capacity_exceeded"))
 
             # 若总队列满，驱逐最低优事件 (先找 P3，再找 P2，再找 P1)
-            dropped_id = None
+            dropped_item = None
             if current_size >= self.maxsize:
                 for evict_p in (3, 2, 1):
-                    dropped_id = self._evict_oldest_by_priority(evict_p)
-                    if dropped_id:
+                    dropped_item = self._evict_oldest_by_priority(evict_p)
+                    if dropped_item:
                         break
             await self._queue.put(item)
             detail = (payload or {}).get("gift_name") or (payload or {}).get("text") or event_type
             await self.trigger_barge_in(f"收到用户【{user_name}】的高优先级事件: {detail}")
-            return _ret(QueuePutResult(accepted=True, dropped_event_id=dropped_id))
+            return _ret(_accepted_result(dropped_item))
 
         # P1 (促单咨询)：满载时驱逐最旧 P3，无则驱逐最旧 P2；若全为高优则拒绝扩展入队
         if priority == 1:
-            dropped_id = None
+            dropped_item = None
             if current_size >= self.maxsize:
-                dropped_id = self._evict_oldest_by_priority(3) or self._evict_oldest_by_priority(2)
-                if not dropped_id:
+                dropped_item = self._evict_oldest_by_priority(3) or self._evict_oldest_by_priority(2)
+                if not dropped_item:
                     logger.warning("队列中全为高优事件且已满载，P1 事件触发背压丢弃")
                     return _ret(QueuePutResult(accepted=False, reason="queue_full_no_lower_priority"))
             await self._queue.put(item)
-            return _ret(QueuePutResult(accepted=True, dropped_event_id=dropped_id))
+            return _ret(_accepted_result(dropped_item))
 
         # P2 (普通闲聊)：满载时优先驱逐最旧 P3，若无 P3 则背压拒绝新 P2 (防冲刷已有消息)
         if priority == 2:
-            dropped_id = None
+            dropped_item = None
             if current_size >= self.maxsize:
-                dropped_id = self._evict_oldest_by_priority(3)
-                if not dropped_id:
+                dropped_item = self._evict_oldest_by_priority(3)
+                if not dropped_item:
                     self.dropped_p2_total += 1
                     return _ret(QueuePutResult(accepted=False, reason="queue_full_p2_rejected"))
             await self._queue.put(item)
-            return _ret(QueuePutResult(accepted=True, dropped_event_id=dropped_id))
+            return _ret(_accepted_result(dropped_item))
 
         # P3 (冷场垫场)：满载直接丢弃
         if current_size >= self.maxsize:

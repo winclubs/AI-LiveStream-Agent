@@ -22,6 +22,7 @@ API 契约 (与 CosyVoiceMediaDriver 完全对齐)：
 import argparse
 import asyncio
 import importlib.util
+import logging
 import os
 import shutil
 import sys
@@ -42,6 +43,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+logger = logging.getLogger("LiveAgent.CosyVoiceServer")
 app = FastAPI(title="CosyVoice 兼容参考服务端", version="1.0.0")
 
 BACKEND = os.getenv("COSYVOICE_BACKEND", "edge")
@@ -83,13 +85,26 @@ async def clone_speaker(req: CloneRequest):
     return {"ok": True, "speaker_id": req.speaker_id.strip(), "prompt_wav": str(dest)}
 
 
+async def _iter_edge_stream(communicate):
+    """确保 StreamingResponse 取消时同步关闭 Edge-TTS 的 aiohttp 资源。"""
+    stream = communicate.stream()
+    try:
+        async for chunk in stream:
+            yield chunk
+    finally:
+        try:
+            await stream.aclose()
+        except Exception:
+            logger.debug("关闭 Edge-TTS CosyVoice 兼容流失败", exc_info=True)
+
+
 async def _edge_synth(text: str, speed: float, volume: float) -> AsyncGenerator[bytes, None]:
     """默认后端：Edge-TTS 实时合成真实语音 (零权重，音色不受参考样本影响)"""
     import edge_tts
     rate = f"{int(round((float(speed or 1.0) - 1.0) * 100)):+d}%"
     vol = f"{int(round((float(volume or 1.0) - 1.0) * 100)):+d}%"
     communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural", rate=rate, volume=vol)
-    async for chunk in communicate.stream():
+    async for chunk in _iter_edge_stream(communicate):
         if chunk["type"] == "audio":
             yield chunk["data"]
 

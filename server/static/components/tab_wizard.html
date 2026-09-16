@@ -78,12 +78,12 @@
           </div>
         </div>
 
-        <!-- 第一步：选择直播模式 -->
+        <!-- 第一步：选择直播运营模式 -->
         <div class="panel-card">
           <div class="panel-header">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
-              第一步 · 选择直播运行模式
+              第一步 · 选择直播运营模式
             </span>
           </div>
           <p class="page-intro">
@@ -100,27 +100,45 @@
           <div id="mode-cards" class="grid-4"></div>
         </div>
 
-        <!-- 第二步：选择主播角色 -->
+        <!-- 第二步：数字人画面与云渲染 -->
+        <div class="panel-card" id="wizard-gpu-panel">
+          <div class="panel-header" style="margin-bottom: 14px;">
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="13" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+              第二步 · 数字人画面与云渲染状态
+            </span>
+            <span id="wizard-gpu-badge" class="brand-badge green">检查中...</span>
+          </div>
+
+          <!-- 动态渲染容器：直观展示已配置的本地/云端GPU状态或未配置引导，彻底免除二次输入 -->
+          <div id="wizard-gpu-display-container">
+            <div style="text-align: center; color: var(--text-muted); padding: 24px; font-size: 13px;">
+              正在同步当前 GPU 配置与数字人连通状态...
+            </div>
+          </div>
+        </div>
+
+        <!-- 第三步：选择主播角色 -->
         <div class="panel-card">
           <div class="panel-header">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              第二步 · 选择主播角色
+              第三步 · 选择主播角色
             </span>
           </div>
           <div id="wizard-role-cards" class="grid-4"></div>
         </div>
 
-        <!-- 第三步：建议与约束提示词 -->
+        <!-- 第四步：建议与约束提示词 -->
         <div class="panel-card">
           <div class="panel-header">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>
-              第三步 · 模式 × 角色专属建议与 AI 约束提示词
+              第四步 · 模式 × 角色专属建议与 AI 约束提示词
             </span>
           </div>
           <div id="wizard-suggestion-box" style="margin-bottom: 16px;">
-            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.85;">请先完成上面两步选择，这里将给出针对性的运营建议与话术红线。</div>
+            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.85;">请先完成上面三步选择，这里将给出针对性的运营建议与话术红线。</div>
           </div>
           <label class="form-label" for="wizard-theme">今日直播主题 <span style="font-weight:400;color:var(--text-muted);">（选择主播角色后自动推荐专属主题，AI 冷场时围绕主题找话题，可自由修改）</span></label>
           <input type="text" id="wizard-theme" class="form-control" placeholder="选择主播角色后自动填充专属主题，也可自定义输入" title="今日直播主题" aria-label="今日直播主题">

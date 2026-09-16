@@ -5,6 +5,8 @@
 """
 import logging
 import asyncio
+import threading
+import time
 from typing import Optional, Tuple
 
 try:
@@ -61,7 +63,12 @@ class VirtualCameraService:
         self.cam_device = None
         self.backend_name = "None"
         self.total_frames_sent = 0
+        self.frames_rejected_by_owner = 0
         self._last_error = ""
+        self._owner_lock = threading.Lock()
+        self._frame_owner = ""
+        self._frame_owner_priority = -1
+        self._owner_lease_until = 0.0
 
     def start(self) -> bool:
         """初始化并启动虚拟摄像头输出设备"""
@@ -94,15 +101,36 @@ class VirtualCameraService:
             logger.warning(f"虚拟摄像头启动失败 (可能未启动 OBS 虚拟摄像头驱动): {e}")
             return False
 
-    def send_frame(self, frame_rgb):
-        """发送一帧 RGB 图像到虚拟摄像头 (帧率节流由上游 25fps 渲染循环负责，此处不得二次睡眠)"""
+    def send_frame(
+        self,
+        frame_rgb,
+        *,
+        owner: str = "default",
+        priority: int = 0,
+        lease_seconds: float = 0.12,
+    ):
+        """按短租约仲裁单写入者，防止本地 shadow 覆盖远端发布帧。"""
         if not self.is_active or not self.cam_device:
             return
 
         try:
-            output_frame = letterbox_frame(frame_rgb, self.width, self.height)
-            self.cam_device.send(output_frame)
-            self.total_frames_sent += 1
+            now = time.monotonic()
+            with self._owner_lock:
+                owner = str(owner or "default")
+                another_owner_active = bool(
+                    self._frame_owner
+                    and self._frame_owner != owner
+                    and now < self._owner_lease_until
+                )
+                if another_owner_active and priority <= self._frame_owner_priority:
+                    self.frames_rejected_by_owner += 1
+                    return
+                self._frame_owner = owner
+                self._frame_owner_priority = int(priority)
+                self._owner_lease_until = now + max(0.04, float(lease_seconds))
+                output_frame = letterbox_frame(frame_rgb, self.width, self.height)
+                self.cam_device.send(output_frame)
+                self.total_frames_sent += 1
         except Exception as e:
             self._last_error = str(e)
 
@@ -115,6 +143,10 @@ class VirtualCameraService:
                 pass
             self.cam_device = None
         self.is_active = False
+        with self._owner_lock:
+            self._frame_owner = ""
+            self._frame_owner_priority = -1
+            self._owner_lease_until = 0.0
         logger.info("本地虚拟摄像头已关闭")
 
     def get_status(self) -> dict:
@@ -125,6 +157,8 @@ class VirtualCameraService:
             "resolution": f"{self.width}x{self.height}",
             "fps": self.fps,
             "frames_sent": self.total_frames_sent,
+            "frame_owner": self._frame_owner,
+            "frames_rejected_by_owner": self.frames_rejected_by_owner,
             "last_error": self._last_error
         }
 

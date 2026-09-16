@@ -103,6 +103,7 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                 await self.worker_task
             except asyncio.CancelledError:
                 pass
+        self.on_worker_stopped()
         logger.info("Douyin 弹幕监听器已断开停止")
 
     async def _fetch_room_meta(self) -> Dict[str, Any]:
@@ -165,8 +166,8 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                     f"正在建立抖音 WSS 弹幕长连接: room_id={internal_id} "
                     f"(未携带 a_bogus 签名，风控拒绝时请配置 ttwid/msToken 或使用中继模式)"
                 )
+                self.on_connection_attempted()
                 async with websockets.connect(ws_url, additional_headers=headers, ping_interval=None) as ws:
-                    backoff = 1.0  # 握手成功，重置退避计时
                     self.on_connection_opened()
                     logger.info("抖音直播间弹幕长连接握手成功！")
 
@@ -183,8 +184,9 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                             logger.warning("抖音弹幕长连接接收超时 (45s 无数据帧)，抛出异常进入指数退避自愈重连")
                             raise TimeoutError("抖音下行数据帧 45s 静默超时") from te
 
-                        # 真实收到服务端下行数据帧才作为健康证据刷新心跳
+                        # 真实收到服务端下行数据帧才构成恢复证据并重置重连退避。
                         self.on_heartbeat()
+                        backoff = 1.0
                         if isinstance(msg, bytes):
                             self._parse_push_frame(msg)
 
@@ -207,7 +209,7 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                 break
             except Exception as e:
                 logger.warning("抖音心跳发送异常: %s", e)
-                self.notify_error(e, "抖音心跳发送失败")
+                # 只关闭 socket 唤醒 recv；统一由主接收循环上报该连接代际的故障。
                 try:
                     await ws.close()
                 except Exception:
@@ -330,6 +332,7 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
     def _emit_event(self, event_type: str, user_name: str, payload: dict, priority: int = 2):
         if self.on_event_callback and self.is_running:
             try:
+                self.on_event_received()
                 res = self.on_event_callback(event_type, user_name, payload, priority)
                 if asyncio.iscoroutine(res):
                     try:

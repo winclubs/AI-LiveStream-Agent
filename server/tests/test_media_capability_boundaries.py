@@ -65,7 +65,8 @@ def test_live_status_distinguishes_local_source_from_external_publish():
 
 def test_console_uses_local_source_wording():
     root = Path(__file__).parents[2]
-    js = (root / "server/static/js/console.js").read_text(encoding="utf-8")
+    js_modules = (root / "server/static/js/modules").glob("*.js")
+    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules)) + (root / "server/static/js/console.js").read_text(encoding="utf-8")
     html = (root / "server/static/index.html").read_text(encoding="utf-8")
     assert "正在直播推流中" not in js
     assert "一键开播推流" not in js
@@ -95,3 +96,55 @@ def test_voice_local_features_are_not_reported_as_clone(client):
         assert data["engine"] == "cosyvoice"
         assert data["synthesis_status"] == "reference_ready"
     assert client.delete(f"/api/v1/voices/{voice_id}").status_code == 200
+
+
+def test_avatar_provider_supports_custom_official_url():
+    from server.adapters.media.avatar_provider_registry import (
+        list_avatar_provider_descriptors,
+        normalize_avatar_provider_config,
+    )
+
+    descriptors = list_avatar_provider_descriptors()
+    cloud_provider_ids = {"sidecar_v3", "liveavatar_lite", "aliyun_avatar", "tencent_avatar", "custom_avatar"}
+    for d in descriptors:
+        if d.adapter_id in cloud_provider_ids:
+            paths = [f["path"] for f in d.ui_fields]
+            assert "extra_params.custom_official_url" in paths, f"{d.adapter_id} ui_fields 应包含 custom_official_url"
+
+    assert any(d.adapter_id == "custom_avatar" for d in descriptors), "必须包含选项 6 custom_avatar"
+
+    custom_url = "https://my-custom-avatar.internal.example.com/console"
+    sidecar_canonical = normalize_avatar_provider_config(
+        {
+            "adapter": "sidecar_v3",
+            "custom_official_url": custom_url,
+        },
+        base_url="ws://127.0.0.1:8010/ws/render-v3",
+        credential_present=False,
+    )
+    assert sidecar_canonical["custom_official_url"] == custom_url
+
+    custom_canonical = normalize_avatar_provider_config(
+        {
+            "adapter": "custom_avatar",
+            "stream_protocol": "rtmp",
+            "avatar_id": "my_anchor_1",
+            "custom_official_url": custom_url,
+        },
+        base_url="rtmp://127.0.0.1:1935/live/avatar",
+        credential_present=False,
+    )
+    assert custom_canonical["adapter"] == "custom_avatar"
+    assert custom_canonical["stream_protocol"] == "rtmp"
+    assert custom_canonical["custom_official_url"] == custom_url
+
+    tencent_canonical = normalize_avatar_provider_config(
+        {
+            "adapter": "tencent_avatar",
+            "virtualman_project_id": "proj_test_123",
+            "custom_official_url": custom_url,
+        },
+        base_url="https://gw.tvs.qq.com",
+        credential_present=True,
+    )
+    assert tencent_canonical["custom_official_url"] == custom_url

@@ -1,0 +1,1846 @@
+// ============================================================================
+// 语音合成与远程算力 (TTS 声音枢纽) 生态选型与多引擎管理体系
+// ============================================================================
+const BUILTIN_TTS_ECOSYSTEM = [
+    {
+        id: "edge_tts",
+        name: "Edge-TTS",
+        tagline: "微软超自然云语音 · 免Key极速",
+        officialUrl: "https://azure.microsoft.com/zh-cn/products/ai-services/text-to-speech",
+        officialAction: "微软 Azure 语音官网 ↗",
+        getKeyUrl: "",
+        cardDocTitle: "微软官方 Azure 语音官网 (注：本项目已内置 Edge-TTS，无需开通账号，免 Key 免自建直接免费使用)",
+        brandColor: "#0284C7",
+        logoSvg: "/static/svg/tts_edgetts.svg",
+        defaultBaseUrl: "",
+        placeholderUrl: "云端直接调用，无需填写 Base URL",
+        needKey: false,
+        needUrl: false,
+        recommendedVoices: [
+            { text: "晓晓 (超自然知性女主播 · 推荐)", val: "zh-CN-XiaoxiaoNeural" },
+            { text: "云希 (活力阳光青年男主播)", val: "zh-CN-YunxiNeural" },
+            { text: "云健 (沉稳影视讲解男声)", val: "zh-CN-YunjianNeural" },
+            { text: "晓伊 (亲和活泼少女音)", val: "zh-CN-XiaoyiNeural" },
+            { text: "辽宁晓北 (幽默东北老铁口音)", val: "zh-CN-liaoning-XiaobeiNeural" },
+            { text: "陕西晓妮 (接地气陕西方言)", val: "zh-CN-shaanxi-XiaoniNeural" }
+        ],
+        desc: "微软官方云端超自然神经网络语音。本项目已原生内置云端直连免Key协议，无需注册开通账号或自建服务即可免费使用；如需企业商用服务可前往微软 Azure 官网开通。",
+        urlPills: [
+            { text: "⚡ 微软云端直连 (免填URL·免Key)", val: "", needKey: false }
+        ]
+    },
+    {
+        id: "cosyvoice",
+        name: "CosyVoice",
+        tagline: "官方大模型原生端点 · 极速流式 WebSocket",
+        officialUrl: "https://bailian.console.aliyun.com/cn-beijing/model/experience/voice/sound-cloning",
+        officialAction: "百炼声音复刻中心 ↗",
+        getKeyUrl: "https://bailian.console.aliyun.com/",
+        cardDocTitle: "前往阿里云百炼声音复刻中心 (在线录制/上传音频复刻并获取专属 Voice-ID)",
+        brandColor: "#EA580C",
+        logoSvg: "https://img.alicdn.com/imgextra/i2/O1CN01TOFMg022PLymzwaSX_!!6000000007112-55-tps-40-40.svg",
+        defaultBaseUrl: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1",
+        placeholderUrl: "选择云端商用 API (填Key即用) 或 本地自建推理端口 (如 http://127.0.0.1:9233)",
+        needKey: true,
+        needUrl: true,
+        recommendedVoices: [
+            { text: "龙小春 (知性女声 · 电商带货推荐)", val: "longxiaochun" },
+            { text: "龙老铁 (东北老铁 · 互动爆款)", val: "longlaotie" },
+            { text: "Stella (自然解说 · 品质女主播)", val: "loongstella" },
+            { text: "Bella (温柔知性 · 服饰带货)", val: "loongbella" },
+            { text: "龙安然 (燃播带货 · 激情促单)", val: "longanran" },
+            { text: "龙安萱 (亲和带货 · 美妆日用)", val: "longanxuan" },
+            { text: "龙安冲 (活力带货 · 食品零食)", val: "longanchong" },
+            { text: "龙安平 (科技沉稳 · 数码家电)", val: "longanping" },
+            { text: "龙硕 (质感男声 · 品牌带货)", val: "longshuo" },
+            { text: "杰力豆 (活泼童声 · 母婴玩具)", val: "longjielidou" },
+            { text: "龙婉 (温和对话 · 亲切邻家)", val: "longwan" },
+            { text: "龙橙 (阳光朝气 · 青春男声)", val: "longcheng" },
+            { text: "龙华 (成熟稳重 · 商务男声)", val: "longhua" },
+            { text: "龙书 (磁性叙事 · 情感故事)", val: "longshu" },
+            { text: "龙小白 (清澈邻家 · 少女女声)", val: "longxiaobai" },
+            { text: "龙静 (文雅解说 · 舒缓女声)", val: "longjing" }
+        ],
+        desc: "阿里通义开源大模型语音合成。商业云端调用推荐使用【阿里云百炼平台】开通账号并创建 API Key（Base URL 为 https://dashscope.aliyuncs.com/api/v1 或您的百炼专属服务端点），亦支持本地或局域网私有化 GPU 部署。",
+        urlPills: [
+            { text: "☁️ 我的百炼专属节点 (北京)", val: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1", needKey: true },
+            { text: "☁️ 阿里云百炼 (官方默认API)", val: "https://dashscope.aliyuncs.com/api/v1", needKey: true },
+            { text: "☁️ 硅基流动 (云端免显卡直连)", val: "https://api.siliconflow.cn/v1", needKey: true },
+            { text: "🖥️ 本机私有部署 (127.0.0.1:9233)", val: "http://127.0.0.1:9233", needKey: false },
+            { text: "🖥️ 局域网 GPU 算力机", val: "http://192.168.1.100:9233", needKey: false }
+        ]
+    },
+    {
+        id: "chattts",
+        name: "ChatTTS",
+        tagline: "对话级自然停顿 · 真实语气笑声",
+        officialUrl: "https://cloud.siliconflow.cn/account/ak",
+        officialAction: "前往硅基流动获取Key ↗",
+        getKeyUrl: "https://cloud.siliconflow.cn/account/ak",
+        cardDocTitle: "前往硅基流动官方控制台 (注册开通、获取 ChatTTS API Key 与 Base URL)",
+        brandColor: "#059669",
+        logoSvg: "/static/svg/tts_chattts.svg",
+        defaultBaseUrl: "",
+        placeholderUrl: "选择云端托管 API (免显卡) 或 本地自建推理端口 (如 http://127.0.0.1:9966)",
+        needKey: false,
+        needUrl: true,
+        recommendedVoices: [
+            { text: "种子音色 2222 (自然女声)", val: "seed_2222" },
+            { text: "种子音色 6666 (亲切解说)", val: "seed_6666" },
+            { text: "种子音色 7869 (微醺笑意)", val: "seed_7869" },
+            { text: "种子音色 8888 (阳光男声)", val: "seed_8888" }
+        ],
+        desc: "专为人机对话打造，支持语气词、自然笑声与停顿。云端免显卡商业使用推荐在【硅基流动平台】注册开通并创建 API Key（Base URL 为 https://api.siliconflow.cn/v1），亦支持本地部署。",
+        urlPills: [
+            { text: "☁️ 硅基流动 (官方云端高速)", val: "https://api.siliconflow.cn/v1", needKey: true },
+            { text: "🖥️ 本机私有部署 (127.0.0.1:9966)", val: "http://127.0.0.1:9966", needKey: false }
+        ]
+    },
+    {
+        id: "gpt_sovits",
+        name: "GPT-SoVITS",
+        tagline: "少样本深度拟真 · 主播个性声线",
+        officialUrl: "https://www.autodl.com",
+        officialAction: "前往 AutoDL 租用算力 ↗",
+        getKeyUrl: "https://www.autodl.com",
+        cardDocTitle: "前往 AutoDL 算力云官方平台 (开通账号、租用 GPU 算力获取推理 API 端口)",
+        brandColor: "#0284C7",
+        logoSvg: "/static/svg/tts_gptsovits.svg",
+        defaultBaseUrl: "",
+        placeholderUrl: "输入本机私有端口 (如 http://127.0.0.1:9880) 或 AutoDL 等远程算力节点",
+        needKey: false,
+        needUrl: true,
+        recommendedVoices: [
+            { text: "预训练官方女主播", val: "default_female" },
+            { text: "二次元专属声线", val: "anime_custom" },
+            { text: "主播个性微调权重", val: "anchor_v2" }
+        ],
+        desc: "少样本微调高保真个性声音。需 GPU 算力运行，推荐在【AutoDL 算力云】充值租用 GPU 镜像，开箱获取 Base URL 端口；或在本机启动官方 api.py 服务。",
+        urlPills: [
+            { text: "🖥️ 本机私有服务 (127.0.0.1:9880)", val: "http://127.0.0.1:9880", needKey: false },
+            { text: "☁️ AutoDL / 远程 GPU 算力节点", val: "http://region-x.autodl.pro:9880", needKey: false }
+        ]
+    },
+    {
+        id: "elevenlabs",
+        name: "ElevenLabs",
+        tagline: "全球顶级情感克隆 · 电影级人声",
+        officialUrl: "https://elevenlabs.io/app/developers/api-keys",
+        officialAction: "前往开通并创建Key ↗",
+        getKeyUrl: "https://elevenlabs.io/app/developers/api-keys",
+        cardDocTitle: "前往 ElevenLabs 官网控制台 (开通账号、订阅充值并创建 API Key)",
+        brandColor: "#F43F5E",
+        logoSvg: "/static/svg/tts_elevenlabs.svg",
+        defaultBaseUrl: "https://api.elevenlabs.io/v1",
+        placeholderUrl: "https://api.elevenlabs.io/v1",
+        needKey: true,
+        needUrl: true,
+        recommendedVoices: [
+            { text: "Rachel (知性温婉)", val: "21m00Tcm4TlvDq8ikWAM" },
+            { text: "Adam (沉稳男声)", val: "pNInz6obpgDQGcFmaJgB" },
+            { text: "Bella (甜美轻快)", val: "EXAVITQu4vr4xnSDxMaL" },
+            { text: "Antoni (富有感染力)", val: "ErXwobaYiN019PkySvjV" }
+        ],
+        desc: "行业公认全球顶尖拟真度，官方云端托管。前往 ElevenLabs 官网控制台开通账号、充值订阅并创建 API Key（官方 Base URL 为 https://api.elevenlabs.io/v1）。",
+        urlPills: [
+            { text: "⚡ ElevenLabs 官方云端", val: "https://api.elevenlabs.io/v1", needKey: true }
+        ]
+    },
+    {
+        id: "custom_tts",
+        name: "本地自建/网关",
+        tagline: "兼容 OpenAI Audio / 自定义 HTTP",
+        officialUrl: "https://platform.openai.com/api-keys",
+        officialAction: "获取 OpenAI API Key ↗",
+        getKeyUrl: "https://platform.openai.com/api-keys",
+        cardDocTitle: "前往 OpenAI 官方控制台 (开通账号、绑定充值并获取 API Key)",
+        brandColor: "#0F766E",
+        logoSvg: "/static/svg/tts_custom.svg",
+        defaultBaseUrl: "",
+        placeholderUrl: "输入兼容 OpenAI /v1/audio/speech 的自建网关或局域网节点",
+        needKey: false,
+        needUrl: true,
+        recommendedVoices: [
+            { text: "alloy (标准女声)", val: "alloy" },
+            { text: "echo (清晰男声)", val: "echo" },
+            { text: "fable (英伦叙事)", val: "fable" },
+            { text: "nova (活泼元气)", val: "nova" }
+        ],
+        desc: "兼容 OpenAI Audio /v1/audio/speech 规范网关。可直接对接 OpenAI 官方云端 API（需在 OpenAI 控制台开通 Key），或接入任意兼容规范的自建与局域网节点。",
+        urlPills: [
+            { text: "☁️ OpenAI 官方云端", val: "https://api.openai.com/v1", needKey: true },
+            { text: "🖥️ 本机自建网关 (8000)", val: "http://127.0.0.1:8000/v1", needKey: false },
+            { text: "☁️ 局域网/远程 GPU 节点", val: "http://192.168.1.120:8000/v1", needKey: false }
+        ]
+    }
+];
+
+let currentSelectedTTSProvider = "edge_tts";
+
+function renderTTSEcosystemGrid(selectedId = "edge_tts") {
+    const grid = document.getElementById("tts-ecosystem-grid");
+    if (!grid) return;
+    grid.innerHTML = "";
+
+    BUILTIN_TTS_ECOSYSTEM.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "tts-provider-card" + (item.id === selectedId ? " selected" : "");
+        card.setAttribute("data-provider", item.id);
+        card.onclick = () => selectTTSProvider(item.id);
+
+        const logoSrc = (item.logoSvg || "").startsWith("http") ? item.logoSvg : (item.logoSvg + "?v=2.0.4");
+        card.innerHTML = `
+                <a href="${item.officialUrl}" target="_blank" rel="noopener noreferrer" class="tts-card-official-link" title="${item.cardDocTitle}" onclick="event.stopPropagation();">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <line x1="10" y1="14" x2="21" y2="3"></line>
+                    </svg>
+                </a>
+                <img src="${logoSrc}" class="tts-provider-logo" alt="${item.name}">
+                <div class="tts-provider-name" title="${item.name}">${item.name}</div>
+                <div class="tts-provider-tagline" title="${item.tagline}">${item.tagline}</div>
+            `;
+        grid.appendChild(card);
+    });
+}
+
+// 智能识别 TTS 品牌元数据
+function resolveTTSProviderMeta(providerId, config = null) {
+    const rawId = (providerId || "").toLowerCase().trim();
+    if (rawId && rawId !== "custom" && rawId !== "custom_tts") {
+        const hit = BUILTIN_TTS_ECOSYSTEM.find(p => p.id === rawId);
+        if (hit) return hit;
+    }
+
+    const pName = (config && config.provider_name ? config.provider_name : rawId).toLowerCase();
+    const bUrl = (config && config.base_url ? config.base_url : "").toLowerCase();
+    const mName = (config && config.model_name ? config.model_name : "").toLowerCase();
+    const combined = `${pName} ${bUrl} ${mName}`;
+
+    if (combined.includes("edge")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "edge_tts");
+    if (combined.includes("cosy")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "cosyvoice");
+    if (combined.includes("chattts") || combined.includes("9966")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "chattts");
+    if (combined.includes("sovits") || combined.includes("9880")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "gpt_sovits");
+    if (combined.includes("eleven")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "elevenlabs");
+
+    return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "custom_tts") || BUILTIN_TTS_ECOSYSTEM[0];
+}
+
+// 快速填入 TTS Base URL 并联动更新 Key 状态
+function fillTTSBaseUrlAndSyncKey(url, needKey = null) {
+    const urlInput = document.getElementById("tts-input-url");
+    if (urlInput) {
+        urlInput.value = url;
+        urlInput.focus();
+    }
+    syncTTSKeyStatusByUrl(url, needKey);
+}
+
+// 依据当前输入的 URL 智能判断是云端 API (需 Key) 还是本地私有自建 (免 Key)，并联动显示官方开通获取 Key 链接
+function syncTTSKeyStatusByUrl(url, explicitNeedKey = null) {
+    const keyInput = document.getElementById("tts-input-key");
+    const hintEl = document.getElementById("tts-key-status-hint");
+    const getKeyLink = document.getElementById("tts-get-key-link");
+    if (!keyInput) return;
+
+    const trimmed = (url || "").trim().toLowerCase();
+    const isLocal = trimmed.includes("127.0.0.1") || trimmed.includes("localhost") || trimmed.startsWith("http://192.168.") || trimmed.startsWith("http://10.");
+    const isEdge = currentSelectedTTSProvider === "edge_tts";
+
+    const isCloud = explicitNeedKey === true || (!isLocal && !isEdge && (trimmed.startsWith("https://") || trimmed.includes("dashscope") || trimmed.includes("siliconflow") || trimmed.includes("elevenlabs") || trimmed.includes("api.")));
+
+    const curMeta = BUILTIN_TTS_ECOSYSTEM.find(p => p.id === currentSelectedTTSProvider) || BUILTIN_TTS_ECOSYSTEM[0];
+
+    if (isEdge) {
+        if (hintEl) hintEl.innerText = "微软云端直连免密钥";
+        keyInput.placeholder = "此引擎完全免 API 密钥，直接开箱即用";
+        if (getKeyLink) getKeyLink.style.display = "none";
+    } else if (isCloud) {
+        if (hintEl) hintEl.innerText = "云端商用托管 (需硬件安全加密密钥)";
+        keyInput.placeholder = "输入云服务商 API 密钥 (如 sk-xxxx)";
+        if (getKeyLink) {
+            let targetUrl = curMeta.getKeyUrl || curMeta.officialUrl;
+            // 针对云端端点微调：若是硅基流动端点则直达硅基流动AK页
+            if (trimmed.includes("siliconflow")) {
+                targetUrl = "https://cloud.siliconflow.cn/account/ak";
+            } else if (trimmed.includes("dashscope") || trimmed.includes("aliyun")) {
+                targetUrl = "https://bailian.console.aliyun.com/";
+            }
+            if (targetUrl) {
+                getKeyLink.href = targetUrl;
+                getKeyLink.innerText = "开通账号/获取API Key ↗";
+                getKeyLink.title = `前往官方控制台开通并获取 API Key (在新标签页打开)`;
+                getKeyLink.style.display = "inline";
+            } else {
+                getKeyLink.style.display = "none";
+            }
+        }
+    } else if (isLocal) {
+        if (hintEl) hintEl.innerText = "本地私有端口免密钥直连";
+        keyInput.placeholder = "当前为本地/局域网推理端口，免 API Key 直连";
+        if (getKeyLink) getKeyLink.style.display = "none";
+    } else {
+        if (hintEl) hintEl.innerText = "根据端点自动适配密钥";
+        keyInput.placeholder = "云端商用需填 sk-xxxx，本地端口可留空";
+        if (getKeyLink && curMeta.getKeyUrl) {
+            getKeyLink.href = curMeta.getKeyUrl;
+            getKeyLink.innerText = "开通账号/获取API Key ↗";
+            getKeyLink.style.display = "inline";
+        } else if (getKeyLink) {
+            getKeyLink.style.display = "none";
+        }
+    }
+}
+
+// 切换当前配置的语音引擎品牌
+async function selectTTSProvider(providerId, existingConfig = null) {
+    const meta = resolveTTSProviderMeta(providerId, existingConfig);
+    currentSelectedTTSProvider = meta.id;
+
+    if (!existingConfig && cachedAllConfigs && cachedAllConfigs.length > 0) {
+        // 优先匹配当前已激活的该引擎配置
+        let found = cachedAllConfigs.find(c => {
+            if (c.config_group !== "tts") return false;
+            const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+            return cMeta.id === meta.id && Boolean(c.is_active);
+        });
+        if (!found) {
+            found = cachedAllConfigs.find(c => {
+                if (c.config_group !== "tts") return false;
+                const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+                return cMeta.id === meta.id;
+            });
+        }
+        if (found) existingConfig = found;
+    }
+
+    // 高亮品牌卡片
+    document.querySelectorAll(".tts-provider-card").forEach(c => {
+        c.classList.toggle("selected", c.getAttribute("data-provider") === meta.id);
+    });
+
+    // 编辑面板头部
+    const logoEl = document.getElementById("tts-editor-logo");
+    const titleEl = document.getElementById("tts-editor-title");
+    const badgeEl = document.getElementById("tts-editor-badge");
+    const descEl = document.getElementById("tts-editor-desc");
+    const providerInput = document.getElementById("tts-editor-provider");
+    const configIdInput = document.getElementById("tts-editor-config-id");
+
+    const officialLinkEl = document.getElementById("tts-editor-official-link");
+
+    if (logoEl) logoEl.src = (meta.logoSvg || "").startsWith("http") ? meta.logoSvg : (meta.logoSvg + "?v=2.0.4");
+    if (titleEl) titleEl.innerText = `配置 ${meta.name}`;
+    if (badgeEl) badgeEl.innerText = (meta.tagline || "").includes("·") ? meta.tagline.split("·")[0].trim() : (meta.tagline || "官方推荐");
+    if (descEl) descEl.innerText = meta.desc || "";
+    if (providerInput) providerInput.value = meta.id;
+    if (configIdInput) configIdInput.value = existingConfig ? existingConfig.id : "";
+    if (officialLinkEl && meta.officialUrl) {
+        officialLinkEl.href = meta.officialUrl;
+        officialLinkEl.title = meta.cardDocTitle || `前往 ${meta.name} 官方控制台 (在新标签页打开)`;
+        const spanEl = officialLinkEl.querySelector("span");
+        if (spanEl) {
+            spanEl.innerText = meta.officialAction || "官方控制台 ↗";
+        }
+    }
+
+    // 第一行 Base URL (双通道支持)
+    const urlInput = document.getElementById("tts-input-url");
+    const currentBaseUrl = existingConfig ? (existingConfig.base_url || meta.defaultBaseUrl) : meta.defaultBaseUrl;
+    if (urlInput) {
+        urlInput.value = currentBaseUrl || "";
+        urlInput.placeholder = meta.placeholderUrl || (meta.needUrl ? "请输入服务 Base URL 地址" : "云端直接调用，无需填写 Base URL");
+        urlInput.oninput = () => syncTTSKeyStatusByUrl(urlInput.value);
+    }
+
+    const urlPillsBox = document.getElementById("tts-editor-url-pills");
+    if (urlPillsBox) {
+        urlPillsBox.innerHTML = `
+            <span style="font-size: 11px; color: var(--text-muted);">快捷端点:</span>
+            ${meta.urlPills.map(p => `<span class="quick-pill" onclick="fillTTSBaseUrlAndSyncKey('${p.val}', ${p.needKey})">${p.text}</span>`).join("")}
+        `;
+    }
+
+    // 第二行 API Key：切换引擎时立即重置输入框，严格隔离各引擎密钥，杜绝跨引擎混入
+    const keyInput = document.getElementById("tts-input-key");
+    if (keyInput) {
+        keyInput.value = "";
+        keyInput.type = "password";
+    }
+    syncTTSKeyStatusByUrl(currentBaseUrl, meta.needKey);
+    await autoFillRealTTSKeyIfConfigured(existingConfig ? existingConfig.id : null, existingConfig, meta);
+
+    // 专属开通指引提示卡（如阿里云百炼 CosyVoice / Edge-TTS 等）
+    const guideBox = document.getElementById("tts-provider-guide-box");
+    if (guideBox) {
+        if (meta.id === "cosyvoice") {
+            guideBox.innerHTML = `
+                <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(234, 88, 12, 0.35); border-radius: 8px; padding: 12px 15px; font-size: 12.5px; color: #cbd5e1; line-height: 1.85;">
+                    <div style="font-weight: 700; color: #fb923c; margin-bottom: 8px; display: flex; align-items: center; gap: 7px;">
+                        <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #fb923c; fill: none; stroke-width: 2.2;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        阿里云百炼 · CosyVoice 快速开通与发声指南：
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 5px; padding-left: 2px;">
+                        <div>1. 打开 <a href="https://bailian.console.aliyun.com/cn-beijing/model/experience/voice/sound-cloning" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">阿里云百炼声音复刻中心 ↗</a>；</div>
+                        <div>2. 上传或录制 10~20 秒清晰人声，生成您的专属 <strong>Voice-ID</strong>；</div>
+                        <div>3. 点击左侧 <strong>API-Key</strong> 创建并复制您的百炼 API Key 和 OpenAI 兼容地址（Base URL）；</div>
+                        <div>4. 回到中控台填写并登记 Voice-ID，系统将通过官方 WebSocket 协议由大模型实时发声！</div>
+                    </div>
+                </div>
+            `;
+            guideBox.style.display = "block";
+        } else if (meta.id === "edge_tts") {
+            guideBox.innerHTML = `
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; font-size: 12.5px; color: #cbd5e1; line-height: 1.7;">
+                    <div style="font-weight: 600; color: #10b981; display: flex; align-items: center; gap: 6px;">
+                        <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #10b981; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        Edge-TTS 微软超自然云语音已内置直连协议，完全免填 API 密钥，开箱即用！
+                    </div>
+                </div>
+            `;
+            guideBox.style.display = "block";
+        } else {
+            guideBox.innerHTML = "";
+            guideBox.style.display = "none";
+        }
+    }
+
+    // 第五行：初始化具体音色与选定状态（自动拉取专属克隆音色与引擎推荐音色，克隆置顶）
+    const voiceInput = document.getElementById("tts-input-voice");
+    const pingStatusEl = document.getElementById("tts-ping-latency-status");
+    if (pingStatusEl) pingStatusEl.innerHTML = `握手测试: 未测试`;
+
+    const selectedVoiceVal = (existingConfig && existingConfig.model_name) ? existingConfig.model_name : "";
+    if (voiceInput && selectedVoiceVal) voiceInput.value = selectedVoiceVal;
+
+    // 自动拉取克隆音色库与引擎预设音色并即时呈现
+    fetchAndRenderTTSVoices(meta, selectedVoiceVal);
+
+    const testResultBox = document.getElementById("tts-test-result");
+    if (testResultBox) testResultBox.style.display = "none";
+
+    // 自动通过 API 探测/拉取第三方服务商底层生效模型与协议
+    const cachedKey = existingConfig ? (cachedDecryptedKeys[existingConfig.id] || "") : "";
+    fetchAndRenderTTSThirdpartyModelInfo(currentBaseUrl, cachedKey, meta.id, existingConfig ? existingConfig.id : "");
+
+    // 联动更新专属声音克隆定制工作台
+    updateTTSCloneWorkbenchUI(meta.id);
+
+    // 强化保障：无论如何自动确保 Base URL 与解密 API Key 填入输入框
+    await ensureTTSKeyAndUrlFilled(meta.id, existingConfig);
+}
+
+// 确保输入框自动填入端点与解密后的 API Key
+async function ensureTTSKeyAndUrlFilled(providerId, existingConfig = null) {
+    const meta = resolveTTSProviderMeta(providerId, existingConfig);
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
+
+    // 1. 自动填入 Base URL
+    let targetUrl = (existingConfig && existingConfig.base_url) ? existingConfig.base_url : meta.defaultBaseUrl;
+    if (!targetUrl && meta.id === "cosyvoice") {
+        targetUrl = "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1";
+    }
+    if (urlInput && targetUrl) {
+        urlInput.value = targetUrl;
+        syncTTSKeyStatusByUrl(targetUrl, meta.needKey);
+    }
+
+    // 2. 自动填入真实解密后的 API Key
+    if (keyInput) {
+        await autoFillRealTTSKeyIfConfigured(existingConfig ? existingConfig.id : null, existingConfig, meta);
+    }
+}
+
+// 切换声音克隆工作台的 Tab (上传克隆 vs 登记ID)
+function switchTTSCloneTab(tab) {
+    const tabUploadBtn = document.getElementById("btn-clone-tab-upload");
+    const tabBindBtn = document.getElementById("btn-clone-tab-bind");
+    const panelUpload = document.getElementById("tts-clone-panel-upload");
+    const panelBind = document.getElementById("tts-clone-panel-bind");
+
+    if (tab === "bind") {
+        if (tabUploadBtn) tabUploadBtn.classList.remove("active");
+        if (tabBindBtn) tabBindBtn.classList.add("active");
+        if (panelUpload) panelUpload.style.display = "none";
+        if (panelBind) panelBind.style.display = "block";
+    } else {
+        if (tabUploadBtn) tabUploadBtn.classList.add("active");
+        if (tabBindBtn) tabBindBtn.classList.remove("active");
+        if (panelUpload) panelUpload.style.display = "block";
+        if (panelBind) panelBind.style.display = "none";
+    }
+}
+
+// 依据当前选中的 TTS 引擎更新克隆工作台状态
+function updateTTSCloneWorkbenchUI(providerId) {
+    const pId = (providerId || currentSelectedTTSProvider || "edge_tts").toLowerCase();
+    const targetNameEl = document.getElementById("tts-clone-target-engine-name");
+    const badgeEl = document.getElementById("tts-clone-engine-badge");
+    const noticeEl = document.getElementById("tts-clone-unsupported-notice");
+    const panelUpload = document.getElementById("tts-clone-panel-upload");
+    const panelBind = document.getElementById("tts-clone-panel-bind");
+    const tipEl = document.getElementById("tts-clone-upload-tip");
+    const tabUploadBtn = document.getElementById("btn-clone-tab-upload");
+    const tabBindBtn = document.getElementById("btn-clone-tab-bind");
+
+    const meta = resolveTTSProviderMeta(pId);
+    if (targetNameEl && meta) targetNameEl.innerText = meta.name;
+
+    if (pId === "edge_tts") {
+        if (badgeEl) {
+            badgeEl.className = "brand-badge amber";
+            badgeEl.innerText = "固定预置库 · 不支持克隆";
+        }
+        if (noticeEl) noticeEl.style.display = "block";
+        if (panelUpload) panelUpload.style.display = "none";
+        if (panelBind) panelBind.style.display = "none";
+        if (tabUploadBtn) tabUploadBtn.style.display = "none";
+        if (tabBindBtn) tabBindBtn.style.display = "none";
+    } else {
+        if (badgeEl) {
+            badgeEl.className = "brand-badge green";
+            badgeEl.innerText = "支持专属声音克隆";
+        }
+        if (noticeEl) noticeEl.style.display = "none";
+        if (tabUploadBtn) tabUploadBtn.style.display = "inline-block";
+        if (tabBindBtn) tabBindBtn.style.display = "inline-block";
+
+        const isBindActive = tabBindBtn && tabBindBtn.classList.contains("active");
+        if (panelUpload) panelUpload.style.display = isBindActive ? "none" : "block";
+        if (panelBind) panelBind.style.display = isBindActive ? "block" : "none";
+
+        if (tipEl) {
+            if (pId.includes("cosy")) {
+                tipEl.innerText = "⚡ 上传 120秒内清晰音频，系统将针对阿里云 CosyVoice (cosyvoice-v3.5-flash) 创建专属克隆声线";
+            } else if (pId.includes("eleven")) {
+                tipEl.innerText = "⚡ 上传音频将通过 ElevenLabs Instant Voice Cloning 官方接口创建电影级克隆音色";
+            } else if (pId.includes("sovits")) {
+                tipEl.innerText = "⚡ 上传音频将自动作为少样本声学特征基准样本注入 GPT-SoVITS 引擎";
+            } else {
+                tipEl.innerText = "⚡ 点击克隆后将自动生成声纹档案，并即刻加入上方音色栏供试听与开播";
+            }
+        }
+    }
+}
+
+// 执行本地音频一键克隆
+async function handleExecuteTTSClone() {
+    const btn = document.getElementById("btn-execute-clone");
+    const nameInput = document.getElementById("tts-clone-voice-name");
+    const fileInput = document.getElementById("tts-clone-voice-file");
+    const speedInput = document.getElementById("tts-clone-speed");
+
+    const voiceName = nameInput ? nameInput.value.trim() : "";
+    if (!voiceName) {
+        if (typeof showToast === "function") showToast("请输入克隆音色名称", "warning");
+        if (nameInput) nameInput.focus();
+        return;
+    }
+
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        if (typeof showToast === "function") showToast("请选择一段 120秒内清晰人声 WAV/MP3 音频文件", "warning");
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const speed = speedInput ? parseFloat(speedInput.value) || 1.0 : 1.0;
+
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
+    const providerInput = document.getElementById("tts-editor-provider");
+    const activeModelEl = document.getElementById("tts-thirdparty-active-model");
+
+    const baseUrl = urlInput ? urlInput.value.trim() : "";
+    const apiKey = keyInput ? keyInput.value.trim() : "";
+    const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
+    const targetModel = activeModelEl ? activeModelEl.innerText.trim() : "cosyvoice-v3.5-flash";
+
+    const formData = new FormData();
+    formData.append("name", voiceName);
+    formData.append("audio_file", file);
+    formData.append("speed", speed.toString());
+    formData.append("volume", "1.0");
+    formData.append("provider_name", provider);
+    if (apiKey) formData.append("api_key", apiKey);
+    if (baseUrl) formData.append("base_url", baseUrl);
+    if (targetModel) formData.append("target_model", targetModel);
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-sm"></span> 正在提取声纹并克隆中...`;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/voices/clone`, {
+            method: "POST",
+            body: formData
+        });
+        const json = await res.json();
+        if (res.ok && json.code === 0 && json.data) {
+            const voiceId = json.data.voice_code || json.data.id;
+            const displayName = json.data.name || voiceName;
+            const synthReady = json.data.synthesis_status === "ready";
+            const serverMsg = json.message || "";
+
+            // 诚实呈现服务端结论：真复刻成功才报喜，否则原样展示原因与下一步
+            if (typeof showToast === "function") {
+                showToast(
+                    synthReady ? `🎉 专属声音克隆成功: ${displayName}。${serverMsg}` : `⚠️ ${displayName}: ${serverMsg}`,
+                    synthReady ? "success" : "warning",
+                    synthReady ? 3200 : 9000
+                );
+            }
+
+            if (synthReady) {
+                // 仅在真实拿到云端 Voice-ID 且试听已就绪时，注入药丸并自动触发试听
+                injectClonedVoicePill(voiceId, `👑 [专属克隆] ${displayName}`);
+            } else {
+                // 样本已保存但未拿到云端专属 Voice-ID，自动切到登记 Tab 辅助主播完成绑定
+                if (typeof switchTTSCloneTab === "function") {
+                    switchTTSCloneTab("bind");
+                }
+                const bindNameInput = document.getElementById("tts-bind-voice-name");
+                const bindVidInput = document.getElementById("tts-bind-voice-id");
+                if (bindNameInput) bindNameInput.value = displayName;
+                if (bindVidInput) bindVidInput.focus();
+            }
+
+            // 重置上传表单
+            if (nameInput) nameInput.value = "";
+            if (fileInput) fileInput.value = "";
+
+            // 刷新下方资产库
+            if (typeof loadVoiceTable === "function") loadVoiceTable();
+        } else {
+            if (typeof showToast === "function") {
+                showToast(`克隆失败: ${json.detail || json.message || "未知错误"}`, "error");
+            }
+        }
+    } catch (e) {
+        if (typeof showToast === "function") showToast("上传克隆异常: " + e, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                立即一键克隆并加入音色列表
+            `;
+        }
+    }
+}
+
+
+// 输入 Voice-ID 时智能推导配对模型并实时同步
+function handleVoiceIdInputAdaptModel(val) {
+    if (!val) return;
+    const clean = val.trim().toLowerCase();
+    const hintEl = document.getElementById("tts-bind-model-hint");
+    let matchedModel = "";
+    if (clean.includes("qwen-audio-3.0-tts-plus")) {
+        matchedModel = "qwen-audio-3.0-tts-plus";
+    } else if (clean.includes("qwen-audio-3.0-tts-flash")) {
+        matchedModel = "qwen-audio-3.0-tts-flash";
+    } else if (clean.includes("cosyvoice-v3.5")) {
+        matchedModel = "cosyvoice-v3.5-flash";
+    } else if (clean.includes("cosyvoice-v1")) {
+        matchedModel = "cosyvoice-v1";
+    }
+
+    if (matchedModel) {
+        selectTTSRealModel(matchedModel);
+        if (hintEl) {
+            hintEl.innerHTML = `
+                <span style="color: #34d399; font-weight: 600;">
+                    ✓ 智能识别模型架构: <strong>${matchedModel}</strong> (已自动同步并配对)
+                </span>
+            `;
+        }
+    }
+}
+
+// 探测/同步阿里云百炼当前业务空间已复刻的音色
+async function handleSyncDashscopeVoices() {
+    const btn = document.getElementById("btn-sync-dashscope-voices");
+    const container = document.getElementById("tts-cloud-voices-suggestion");
+    const listEl = document.getElementById("tts-cloud-voices-list");
+    const nameInput = document.getElementById("tts-bind-voice-name");
+    const vidInput = document.getElementById("tts-bind-voice-id");
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-sm"></span> 探测百炼云端中...`;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/voices/dashscope-voices`);
+        const json = await res.json();
+        if (json.code === 0 && Array.isArray(json.data) && json.data.length > 0) {
+            if (container) container.style.display = "block";
+            if (listEl) {
+                listEl.innerHTML = json.data.map(v => {
+                    const vid = v.voice_id || "";
+                    const m = v.target_model || "qwen-audio-3.0-tts-plus";
+                    const shortId = vid.length > 25 ? (vid.substring(0, 10) + '...' + vid.substring(vid.length - 8)) : vid;
+                    return `
+                        <div class="quick-pill" style="cursor: pointer; border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); color: #38bdf8; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 11px;"
+                             title="点击自动填入 Voice-ID: ${escapeHtml(vid)}"
+                             onclick="selectCloudDetectedVoice('${escapeHtml(vid)}', '${escapeHtml(m)}')">
+                            <span>✨ ${escapeHtml(shortId)}</span>
+                            <span style="opacity: 0.7; font-size: 10px;">(${escapeHtml(m)})</span>
+                        </div>
+                    `;
+                }).join("");
+            }
+            if (typeof showToast === "function") {
+                showToast(`已从阿里云百炼探测到 ${json.data.length} 个就绪克隆音色！`, "success");
+            }
+            // 若只有一个且输入框为空，自动贴心地帮用户预填
+            if (json.data.length === 1 && vidInput && !vidInput.value.trim()) {
+                selectCloudDetectedVoice(json.data[0].voice_id, json.data[0].target_model);
+            }
+        } else {
+            if (container) container.style.display = "none";
+            const msg = json.message || "未在百炼空间中探测到有效克隆音色";
+            if (typeof showToast === "function") showToast(`百炼云端探测: ${msg}`, "info");
+        }
+    } catch (e) {
+        console.warn("探测百炼云端音色异常:", e);
+        if (typeof showToast === "function") showToast("探测云端音色异常: " + e, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: #34d399; fill: none; stroke-width: 2;"><path d="M21.5 15a4.5 4.5 0 0 0-4-6.5h-.5A7 7 0 0 0 3.5 11 5 5 0 0 0 2 15a5 5 0 0 0 5 5h14.5a4.5 4.5 0 0 0 0-9z"/></svg>
+                ☁️ 探测/同步云端已复刻音色
+            `;
+        }
+    }
+}
+
+// 选中云端探测到的音色
+function selectCloudDetectedVoice(vid, targetModel) {
+    const vidInput = document.getElementById("tts-bind-voice-id");
+    const nameInput = document.getElementById("tts-bind-voice-name");
+    if (vidInput) vidInput.value = vid;
+    if (nameInput && !nameInput.value.trim()) {
+        nameInput.value = "专属克隆音色";
+    }
+    handleVoiceIdInputAdaptModel(vid);
+    if (targetModel) {
+        selectTTSRealModel(targetModel);
+    }
+}
+
+async function handleRegisterExternalVoiceId() {
+    const btn = document.getElementById("btn-bind-voice");
+    const nameInput = document.getElementById("tts-bind-voice-name");
+    const vidInput = document.getElementById("tts-bind-voice-id");
+
+    const voiceName = (nameInput ? nameInput.value.trim() : "") || "主播专属声线";
+    const voiceId = vidInput ? vidInput.value.trim() : "";
+
+    if (!voiceName) {
+        if (typeof showToast === "function") showToast("请输入音色名称", "warning");
+        if (nameInput) nameInput.focus();
+        return;
+    }
+    if (!voiceId) {
+        if (typeof showToast === "function") showToast("请输入在第三方平台生成的专属 Voice ID", "warning");
+        if (vidInput) vidInput.focus();
+        return;
+    }
+
+    const providerInput = document.getElementById("tts-editor-provider");
+    const activeModelEl = document.getElementById("tts-thirdparty-active-model");
+    const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
+    
+    // 智能推导模型：优先以 Voice-ID 前缀特征推导
+    let targetModel = activeModelEl ? activeModelEl.innerText.trim() : "cosyvoice-v3.5-flash";
+    const cleanVid = voiceId.toLowerCase();
+    if (cleanVid.includes("qwen-audio-3.0-tts-plus")) {
+        targetModel = "qwen-audio-3.0-tts-plus";
+    } else if (cleanVid.includes("qwen-audio-3.0-tts-flash")) {
+        targetModel = "qwen-audio-3.0-tts-flash";
+    } else if (cleanVid.includes("cosyvoice-v3.5")) {
+        targetModel = "cosyvoice-v3.5-flash";
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-sm"></span> 官方实测发声校验中...`;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/voices/bind-id`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: voiceName,
+                voice_id: voiceId,
+                provider_name: provider,
+                target_model: targetModel,
+                speech_speed: 1.0,
+                volume_gain: 1.0
+            })
+        });
+        const json = await res.json();
+        if (res.ok && json.code === 0 && json.data) {
+            if (typeof showToast === "function") {
+                showToast(`🎉 已成功实测发声并绑定专属 Voice-ID: ${voiceId}`, "success");
+            }
+
+            // 注入上方音色药丸并选定试听
+            injectClonedVoicePill(voiceId, `👑 [专属绑定] ${voiceName}`);
+
+            if (nameInput) nameInput.value = "";
+            if (vidInput) vidInput.value = "";
+            if (typeof loadVoiceTable === "function") loadVoiceTable();
+            // 重新刷新上方音色药丸池，确保专属克隆持久置顶
+            const curMeta = resolveTTSProviderMeta(currentSelectedTTSProvider);
+            if (curMeta) fetchAndRenderTTSVoices(curMeta, voiceId);
+        } else {
+            const errDetail = json.detail || json.message || "服务商校验拒绝";
+            if (typeof showToast === "function") {
+                showToast(`登记失败: ${errDetail}`, "error", 8000);
+            }
+        }
+    } catch (e) {
+        if (typeof showToast === "function") showToast("绑定异常: " + e, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                一键绑定并 WebSocket 生成试听
+            `;
+        }
+    }
+}
+
+// 动态将新克隆的音色注入上方药丸容器首位并立即激活
+function injectClonedVoicePill(voiceVal, displayLabel) {
+    const container = document.getElementById("tts-fetched-voices-container");
+    if (!container) return;
+
+    // 清除容器中旧的“暂无音色”占位提示
+    const emptyNotice = container.querySelector("div");
+    if (emptyNotice && emptyNotice.innerText.includes("暂未获取音色")) {
+        container.innerHTML = "";
+    }
+
+    // 检查是否已存在相同 voiceVal 的药丸
+    let pill = container.querySelector(`[data-voice="${voiceVal}"]`);
+    if (!pill) {
+        pill = document.createElement("div");
+        pill.className = "fetched-model-pill";
+        pill.setAttribute("data-voice", voiceVal);
+        pill.setAttribute("title", `点击试听并选定专属克隆音色: ${displayLabel}`);
+        pill.style.borderColor = "#f59e0b";
+        pill.style.color = "#fbbf24";
+        pill.style.background = "rgba(245, 158, 11, 0.12)";
+        pill.style.fontWeight = "600";
+        pill.innerHTML = `
+            <svg class="pill-play-icon" viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: #fbbf24; fill: #fbbf24;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span class="pill-voice-name">${escapeHtml(displayLabel)}</span>
+        `;
+        pill.onclick = () => selectFetchedTTSVoice(voiceVal, displayLabel);
+        container.insertBefore(pill, container.firstChild);
+    }
+
+    // 彻底单选并选定该专属克隆音色！
+    selectFetchedTTSVoice(voiceVal, displayLabel);
+}
+
+// 选用第三方生效模型
+function selectTTSRealModel(modelName) {
+    if (!modelName) return;
+    const modelEl = document.getElementById("tts-thirdparty-active-model");
+    if (modelEl) {
+        modelEl.innerHTML = `<strong>${escapeHtml(modelName)}</strong>`;
+    }
+    document.querySelectorAll("#tts-thirdparty-models-pills .quick-pill").forEach(p => {
+        const isMatch = p.getAttribute("data-model") === modelName;
+        p.style.borderColor = isMatch ? "#38bdf8" : "";
+        p.style.background = isMatch ? "rgba(56, 189, 248, 0.2)" : "";
+        p.style.color = isMatch ? "#38bdf8" : "";
+    });
+    if (typeof showToast === "function") {
+        showToast(`已选用第三方底层生效模型: ${modelName}`, "info");
+    }
+}
+
+// 实时通过 API 获取并渲染第三方服务商真实模型与通道协议
+async function fetchAndRenderTTSThirdpartyModelInfo(baseUrl, apiKey, provider, configId) {
+    const modelEl = document.getElementById("tts-thirdparty-active-model");
+    const protoEl = document.getElementById("tts-thirdparty-protocol");
+    const badgeEl = document.getElementById("tts-thirdparty-status-badge");
+    const pillsContainer = document.getElementById("tts-thirdparty-models-pills");
+    const pillsRow = document.getElementById("tts-thirdparty-models-pills-row");
+    if (!modelEl) return;
+
+    const curProvider = (provider || currentSelectedTTSProvider || "edge_tts").toLowerCase();
+    const isCosy = curProvider.includes("cosy") || (baseUrl && (baseUrl.includes("aliyuncs") || baseUrl.includes("dashscope")));
+    const defaultModel = isCosy ? "cosyvoice-v3.5-flash" : (curProvider.includes("edge") ? "Microsoft Azure Neural Cloud TTS" : "tts-1");
+    const defaultProto = isCosy ? "阿里云百炼 DashScope 语音通道" : (curProvider.includes("edge") ? "微软 Edge 云端通道 (免Key)" : "标准语音通道协议");
+
+    modelEl.innerHTML = `<strong>${escapeHtml(defaultModel)}</strong>`;
+    if (protoEl) protoEl.innerText = defaultProto;
+    if (badgeEl) {
+        badgeEl.className = "brand-badge green";
+        badgeEl.innerText = apiKey ? "通道已就绪" : "预置模型就绪 · 免Key试听模式";
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/settings/tts/models`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                base_url: baseUrl || null,
+                api_key: apiKey || null,
+                provider_name: curProvider,
+                config_id: configId || null
+            })
+        });
+        const json = await res.json();
+
+        const activeModel = json.active_model || defaultModel;
+        modelEl.innerHTML = `<strong>${escapeHtml(activeModel)}</strong>`;
+        if (json.protocol && protoEl) protoEl.innerText = json.protocol;
+        if (badgeEl && json.status_text) badgeEl.innerText = json.status_text;
+
+        const modelsList = Array.isArray(json.models) && json.models.length > 0
+            ? json.models
+            : [activeModel];
+
+        if (pillsContainer && pillsRow) {
+            pillsRow.style.display = "flex";
+            pillsContainer.innerHTML = modelsList.map(m => `
+                <span class="quick-pill" data-model="${escapeHtml(m)}"
+                      style="cursor: pointer; ${m === activeModel ? 'border-color: #38bdf8; background: rgba(56, 189, 248, 0.2); color: #38bdf8;' : ''}"
+                      onclick="selectTTSRealModel('${escapeHtml(m)}')">
+                    ${escapeHtml(m)}
+                </span>
+            `).join("");
+        }
+    } catch (e) {
+        console.warn("探测第三方模型信息异常:", e);
+    }
+}
+
+// 全局试听音频与网络请求单例控制器（彻底杜绝并发竞争导致多个声音同时播放）
+window._ttsPreviewController = window._ttsPreviewController || {
+    audio: null,
+    abortController: null,
+    sessionId: 0,
+    stopAll() {
+        this.sessionId++;
+        if (this.abortController) {
+            try { this.abortController.abort(); } catch (e) { }
+            this.abortController = null;
+        }
+        if (this.audio) {
+            try {
+                this.audio.pause();
+                this.audio.currentTime = 0;
+                this.audio.src = "";
+            } catch (e) { }
+            this.audio = null;
+        }
+        if (typeof previewAudioEl !== "undefined" && previewAudioEl) {
+            try { previewAudioEl.pause(); previewAudioEl = null; } catch (e) { }
+        }
+        document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+    }
+};
+
+// 即时播放指定音色的专属试听音频
+async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
+    if (!voiceVal) return;
+
+    // 1. 强力终止任何正在播放的音频与仍在进行的异步网络请求
+    window._ttsPreviewController.stopAll();
+    const currentSession = window._ttsPreviewController.sessionId;
+    const abortCtrl = new AbortController();
+    window._ttsPreviewController.abortController = abortCtrl;
+
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
+    const providerInput = document.getElementById("tts-editor-provider");
+    const pingStatusEl = document.getElementById("tts-ping-latency-status");
+
+    const baseUrl = urlInput ? urlInput.value.trim() : "";
+    const apiKey = keyInput ? keyInput.value.trim() : "";
+    const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
+
+    // 标记当前正在播放的音色药丸动效
+    document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
+        el.classList.toggle("playing", el.getAttribute("data-voice") === voiceVal);
+    });
+
+    if (pingStatusEl) {
+        pingStatusEl.innerHTML = `
+            <span style="color: #38BDF8; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #38BDF8; box-shadow: 0 0 6px #38BDF8;"></span>
+                🔊 正在试听: <strong>${escapeHtml(voiceLabel || voiceVal)}</strong>...
+            </span>
+        `;
+    }
+
+    try {
+        const activeModelEl = document.getElementById("tts-thirdparty-active-model");
+        const currentActiveModel = activeModelEl ? activeModelEl.innerText.trim() : "";
+
+        const previewRes = await fetch(`${API_BASE}/settings/tts/preview`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: abortCtrl.signal,
+            body: JSON.stringify({
+                provider_name: provider,
+                model_name: currentActiveModel || null,
+                voice_name: voiceVal,
+                base_url: baseUrl || null,
+                api_key: apiKey || null
+            })
+        });
+
+        // 若网络返回时发现已经发起了新的试听请求，立即丢弃，绝不播放！
+        if (window._ttsPreviewController.sessionId !== currentSession) return;
+
+        if (previewRes.ok) {
+            const blob = await previewRes.blob();
+            if (window._ttsPreviewController.sessionId !== currentSession) return;
+
+            const audioUrl = URL.createObjectURL(blob);
+            const audio = new Audio(audioUrl);
+            window._ttsPreviewController.audio = audio;
+
+            audio.onended = () => {
+                document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+                if (pingStatusEl) {
+                    pingStatusEl.innerHTML = `
+                        <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981;"></span>
+                            试听完成 · 当前已选定: <strong>${escapeHtml(voiceLabel || voiceVal)}</strong>
+                        </span>
+                    `;
+                }
+            };
+
+            await audio.play();
+        } else {
+            const errJson = await previewRes.json().catch(() => ({}));
+            document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+            if (pingStatusEl) {
+                pingStatusEl.innerHTML = `
+                    <span style="color: #ef4444; font-size: 11.5px;">
+                        ⚠️ 试听受阻: ${escapeHtml(errJson.detail || "音色服务未响应")}
+                    </span>
+                `;
+            }
+        }
+    } catch (e) {
+        if (e.name === "AbortError") return; // 用户切换快速切换，正常中断
+        console.warn("音色试听播放受阻:", e);
+        document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+    }
+}
+
+// 异步拉取并渲染音色候选药丸（专属克隆音色档案与官方预设音色深度合并，专属克隆置顶展示）
+async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
+    const container = document.getElementById("tts-fetched-voices-container");
+    const countStatusEl = document.getElementById("tts-voices-count-status");
+    const voiceInput = document.getElementById("tts-input-voice");
+    if (!container || !meta) return { clonedVoices: [], recommendedVoices: [], currentSelected: "" };
+
+    // 1. 获取后端已登记/已克隆的所有专属声音档案 (VoiceProfile)
+    let clonedVoices = [];
+    try {
+        const res = await fetch(`${API_BASE}/voices/list`);
+        const json = await res.json();
+        if (json.code === 0 && Array.isArray(json.data)) {
+            // 过滤系统默认兜底项，保留所有真实克隆与绑定的主播专属声线
+            const rawClones = json.data.filter(v => (v.id || "").toLowerCase() !== "voice_default_female");
+            // 按 id 严格去重
+            const seen = new Set();
+            rawClones.forEach(v => {
+                if (!seen.has(v.id)) {
+                    seen.add(v.id);
+                    clonedVoices.push(v);
+                }
+            });
+        }
+    } catch (e) {
+        console.warn("获取克隆声音库列表异常:", e);
+    }
+
+    // 2. 获取该引擎的官方推荐音色
+    const recommendedVoices = meta.recommendedVoices || [];
+
+    // 3. 决定当前选定的音色
+    let currentSelected = selectedVoiceVal || (voiceInput ? voiceInput.value.trim() : "");
+    const isCurrentInClones = clonedVoices.some(v => v.id === currentSelected);
+    const isCurrentInRecs = recommendedVoices.some(v => v.val === currentSelected);
+
+    // 若当前选中的 ID 已失效/已从本地删除（不在克隆列表也不在推荐列表），自动重置选定有效音色
+    if (!currentSelected || (!isCurrentInClones && !isCurrentInRecs)) {
+        if (clonedVoices.length > 0) {
+            currentSelected = clonedVoices[0].id;
+        } else if (recommendedVoices.length > 0) {
+            currentSelected = recommendedVoices[0].val;
+        } else {
+            currentSelected = "";
+        }
+    }
+    if (voiceInput) voiceInput.value = currentSelected;
+
+    // 4. 构建药丸 DOM
+    let pillsHtml = "";
+
+    // 4.1 专属克隆音色（金色尊贵皇冠高亮，置顶显示，永不丢失，支持一键删除无效或重复项，只展示名称不展示超长ID）
+    clonedVoices.forEach(cv => {
+        const isSel = cv.id === currentSelected;
+        pillsHtml += `
+            <div class="fetched-model-pill cloned-voice-pill ${isSel ? 'selected' : ''}"
+                 data-voice="${escapeHtml(cv.id)}"
+                 data-is-clone="true"
+                 title="点击选定并试听专属克隆音色: ${escapeHtml(cv.name)} (ID: ${escapeHtml(cv.id)})"
+                 onclick="selectFetchedTTSVoice('${escapeHtml(cv.id)}', '${escapeHtml(cv.name)} (专属克隆)')"
+                 style="border-color: rgba(245, 158, 11, 0.65); background: ${isSel ? 'rgba(245, 158, 11, 0.28)' : 'rgba(245, 158, 11, 0.12)'}; color: #FBBF24; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px;">
+                <span style="font-size: 13px;">👑</span>
+                <span style="font-weight: 600;">${escapeHtml(cv.name)}</span>
+                <span class="btn-delete-clone-pill"
+                      title="删除此克隆音色档案"
+                      onclick="handleDeleteClonedVoice(event, '${escapeHtml(cv.id)}', '${escapeHtml(cv.name)}')"
+                      style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: rgba(239, 68, 68, 0.25); color: #f87171; margin-left: 4px; cursor: pointer; transition: all 0.2s;"
+                      onmouseover="this.style.background='#ef4444';this.style.color='#ffffff';"
+                      onmouseout="this.style.background='rgba(239, 68, 68, 0.25)';this.style.color='#f87171';">
+                    <svg viewBox="0 0 24 24" style="width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 3;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </span>
+            </div>
+        `;
+    });
+
+    // 4.2 引擎预设官方音色
+    recommendedVoices.forEach(v => {
+        const isSel = v.val === currentSelected;
+        pillsHtml += `
+            <div class="fetched-model-pill ${isSel ? 'selected' : ''}"
+                 data-voice="${escapeHtml(v.val)}"
+                 title="点击试听并选定官方音色: ${escapeHtml(v.text)}"
+                 onclick="selectFetchedTTSVoice('${escapeHtml(v.val)}', '${escapeHtml(v.text)}')">
+                ${escapeHtml(v.text)}
+            </div>
+        `;
+    });
+
+    if (!pillsHtml) {
+        container.innerHTML = `<div style="color: var(--text-muted); font-size: 12px;">暂无可用的发音音色，请点击上方「获取音色与模型」。</div>`;
+    } else {
+        container.innerHTML = pillsHtml;
+    }
+
+    // 5. 更新状态与计数
+    if (countStatusEl) {
+        const total = clonedVoices.length + recommendedVoices.length;
+        const selectedMatch = clonedVoices.find(v => v.id === currentSelected);
+        const selectedRec = recommendedVoices.find(v => v.val === currentSelected);
+        let displaySelectedName = "";
+        if (selectedMatch) {
+            displaySelectedName = `${selectedMatch.name} (专属克隆)`;
+        } else if (selectedRec) {
+            displaySelectedName = selectedRec.text;
+        } else {
+            displaySelectedName = currentSelected ? "已选定音色" : "未选定 (请点击下方音色)";
+        }
+
+        countStatusEl.innerHTML = `
+            <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
+                共 ${total} 款可用音色 ${clonedVoices.length > 0 ? `(含 <strong style="color:#FBBF24;">${clonedVoices.length} 款专属克隆</strong>)` : ''} · 当前选定: <strong>${escapeHtml(displaySelectedName)}</strong>
+            </span>
+        `;
+    }
+
+    return { clonedVoices, recommendedVoices, currentSelected };
+}
+
+// 兼容既有直接调用的音色药丸渲染入口
+function renderTTSVoicePills(meta, selectedVoiceVal) {
+    fetchAndRenderTTSVoices(meta, selectedVoiceVal);
+}
+
+// 删除指定专属克隆音色（阻止冒泡、确认提示、后端安全删除并实时刷新）
+async function handleDeleteClonedVoice(event, voiceId, voiceName) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    if (!voiceId) return;
+
+    if (!confirm(`确认彻底删除专属克隆音色【${voiceName}】吗？\nID: ${voiceId}\n删除后对应的本地音频与云端绑定将一并移除，不可恢复。`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/voices/${voiceId}`, { method: "DELETE" });
+        const json = await res.json();
+        if (json.code === 0) {
+            if (typeof showToast === "function") {
+                showToast(`已成功删除专属克隆音色【${voiceName}】`, "success");
+            }
+            // 若当前输入框选中的正是被删除的音色，清空并切换
+            const voiceInput = document.getElementById("tts-input-voice");
+            if (voiceInput && voiceInput.value === voiceId) {
+                voiceInput.value = "";
+            }
+            // 实时重新拉取与渲染药丸容器
+            const meta = resolveTTSProviderMeta(currentSelectedTTSProvider);
+            await fetchAndRenderTTSVoices(meta);
+            // 联动刷新下方音色资产库表格
+            if (typeof loadVoiceTable === "function") {
+                loadVoiceTable();
+            }
+        } else {
+            alert("删除失败: " + (json.detail || json.message));
+        }
+    } catch (e) {
+        alert("删除音色异常: " + e);
+    }
+}
+
+// 切换选定音色 (点击立即自动发起试听并单选)
+function selectFetchedTTSVoice(voiceVal, voiceLabel = "") {
+    if (!voiceVal) return;
+    const voiceInput = document.getElementById("tts-input-voice");
+    if (voiceInput) voiceInput.value = voiceVal;
+
+    // 清除全容器内所有药丸的 selected，只为当前匹配项保留 selected
+    document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
+        const isMatch = el.getAttribute("data-voice") === voiceVal;
+        el.classList.toggle("selected", isMatch);
+        if (!isMatch) el.classList.remove("playing");
+    });
+
+    const countStatusEl = document.getElementById("tts-voices-count-status");
+    if (countStatusEl) {
+        const total = document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").length;
+        let displayName = voiceLabel;
+        if (!displayName || displayName === voiceVal) {
+            const matchedPill = document.querySelector(`#tts-fetched-voices-container .fetched-model-pill[data-voice="${voiceVal}"]`);
+            if (matchedPill) {
+                const nameSpan = matchedPill.querySelector("span:not(.btn-delete-clone-pill)") || matchedPill;
+                displayName = nameSpan.textContent.trim();
+            } else {
+                displayName = "已选定音色";
+            }
+        }
+        countStatusEl.innerHTML = `
+            <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
+                共 ${total} 款可用音色 · 当前选定: <strong>${escapeHtml(displayName)}</strong>
+            </span>
+        `;
+    }
+
+    // 用户切换到任意音色时，立即通过单例控制器触发该音色专属声线的即时试听
+    playTTSVoicePreview(voiceVal, voiceLabel);
+}
+
+// 自动解密填入已配置过的 TTS 密钥并默认脱敏
+async function autoFillRealTTSKeyIfConfigured(configId = null, existingConfig = null, meta = null) {
+    const keyInput = document.getElementById("tts-input-key");
+    const eyeBtn = document.getElementById("btn-toggle-tts-key-eye");
+    const hintEl = document.getElementById("tts-key-status-hint");
+    const curIdInput = document.getElementById("tts-editor-config-id");
+    if (!keyInput) return "";
+
+    const curProvider = (meta && meta.id) ? meta.id : currentSelectedTTSProvider;
+    const isEdge = curProvider === "edge_tts";
+
+    // 若当前为免 Key 引擎（如 Edge-TTS），无需填充密钥
+    if (isEdge) {
+        keyInput.value = "";
+        keyInput.placeholder = "此引擎完全免 API 密钥，直接开箱即用";
+        if (hintEl) hintEl.innerText = "微软云端直连免密钥";
+        return "";
+    }
+
+    // 1. 尝试确定 configId
+    let targetConfigId = configId || (curIdInput ? curIdInput.value.trim() : "");
+    if (!targetConfigId && existingConfig && existingConfig.id) {
+        targetConfigId = existingConfig.id;
+    }
+
+    // 2. 若仍未拿到 configId，从 cachedAllConfigs 中定位当前引擎的配置（激活项优先）
+    if (!targetConfigId && typeof cachedAllConfigs !== "undefined" && Array.isArray(cachedAllConfigs) && cachedAllConfigs.length > 0) {
+        const foundActive = cachedAllConfigs.find(c => {
+            if (c.config_group !== "tts") return false;
+            const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+            return cMeta.id === curProvider && Boolean(c.is_active);
+        });
+        const foundAny = foundActive || cachedAllConfigs.find(c => {
+            if (c.config_group !== "tts") return false;
+            const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+            return cMeta.id === curProvider;
+        });
+        if (foundAny) {
+            targetConfigId = foundAny.id;
+        }
+    }
+
+    // 3. 若 cachedAllConfigs 此时为空，主动通过 API 异步拉取一次所有配置以防网络时序竞态
+    if (!targetConfigId) {
+        try {
+            const resConfigs = await fetch(`${API_BASE}/settings/configs`);
+            const jsonConfigs = await resConfigs.json();
+            if (jsonConfigs.code === 0 && Array.isArray(jsonConfigs.data)) {
+                if (typeof cachedAllConfigs !== "undefined") {
+                    cachedAllConfigs = jsonConfigs.data;
+                }
+                const hit = jsonConfigs.data.find(c => {
+                    if (c.config_group !== "tts") return false;
+                    const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+                    return cMeta.id === curProvider && Boolean(c.is_active);
+                }) || jsonConfigs.data.find(c => {
+                    if (c.config_group !== "tts") return false;
+                    const cMeta = resolveTTSProviderMeta(c.provider_name, c);
+                    return cMeta.id === curProvider;
+                });
+                if (hit) {
+                    targetConfigId = hit.id;
+                }
+            }
+        } catch (e) {
+            console.warn("自动补拉 TTS 配置列表异常:", e);
+        }
+    }
+
+    // 4. 若当前引擎尚未配置过，严格清空 Key 输入框并重置状态，绝不允许混入其他引擎的 Key
+    if (!targetConfigId) {
+        if (curIdInput) curIdInput.value = "";
+        keyInput.value = "";
+        keyInput.type = "password";
+        if (hintEl) {
+            hintEl.innerText = (meta && meta.needKey) ? "云端商用托管 (需硬件安全加密密钥)" : "此引擎免密钥";
+        }
+        return "";
+    }
+
+    if (curIdInput) {
+        curIdInput.value = targetConfigId;
+    }
+
+    keyInput.type = "password";
+    if (eyeBtn) {
+        eyeBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+        eyeBtn.title = "点击显示真实密钥明文";
+        eyeBtn.style.color = "";
+    }
+
+    // 5. 检查属于当前引擎 configId 的专属内存缓存
+    let realKey = (typeof cachedDecryptedKeys !== "undefined") ? (cachedDecryptedKeys[targetConfigId] || "") : "";
+    if (realKey) {
+        keyInput.value = realKey;
+        if (hintEl) hintEl.innerText = "已载入硬件加密密钥 (默认脱敏)";
+        return realKey;
+    }
+
+    // 6. 调用后端硬件级 AES 解密接口，拉取属于当前引擎自身的真实密钥
+    try {
+        const res = await fetch(`${API_BASE}/settings/configs/${targetConfigId}/raw-key`);
+        const json = await res.json();
+        if (json.code === 0 && json.raw_key) {
+            realKey = json.raw_key;
+            if (typeof cachedDecryptedKeys !== "undefined") {
+                cachedDecryptedKeys[targetConfigId] = realKey;
+            }
+            keyInput.value = realKey;
+            keyInput.type = "password";
+            if (hintEl) hintEl.innerText = "已载入硬件加密密钥 (默认脱敏)";
+
+            // 顺带触发底层模型架构探测
+            const urlInput = document.getElementById("tts-input-url");
+            fetchAndRenderTTSThirdpartyModelInfo(
+                urlInput ? urlInput.value : "",
+                realKey,
+                curProvider,
+                targetConfigId
+            );
+            return realKey;
+        }
+    } catch (e) {
+        console.warn("自动获取 TTS API Key 异常:", e);
+    }
+
+    // 若当前引擎有配置 ID 但未解析出 Key，保持输入框为空，严禁混用其他引擎 Key
+    keyInput.value = "";
+    return "";
+}
+
+// 切换 TTS 密钥眼睛图标
+async function toggleTTSKeyVisibility() {
+    const keyInput = document.getElementById("tts-input-key");
+    const eyeBtn = document.getElementById("btn-toggle-tts-key-eye");
+    const configIdInput = document.getElementById("tts-editor-config-id");
+    const hintEl = document.getElementById("tts-key-status-hint");
+    if (!keyInput || !eyeBtn) return;
+
+    const eyeShowSvg = `<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    const eyeHideSvg = `<svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
+    const isPassword = keyInput.type === "password";
+    const configId = configIdInput ? configIdInput.value.trim() : "";
+
+    if (isPassword) {
+        if (keyInput.value && keyInput.value.trim()) {
+            keyInput.type = "text";
+            eyeBtn.innerHTML = eyeHideSvg;
+            eyeBtn.style.color = "#10B981";
+            if (hintEl) hintEl.innerText = "已呈现输入明文";
+            return;
+        }
+
+        if (configId) {
+            if (cachedDecryptedKeys[configId]) {
+                keyInput.value = cachedDecryptedKeys[configId];
+                keyInput.type = "text";
+                eyeBtn.innerHTML = eyeHideSvg;
+                eyeBtn.style.color = "#10B981";
+                if (hintEl) hintEl.innerText = "已解密呈现真实密钥明文";
+                return;
+            }
+
+            eyeBtn.disabled = true;
+            try {
+                const res = await fetch(`${API_BASE}/settings/configs/${configId}/raw-key`);
+                const json = await res.json();
+                if (json.code === 0 && json.raw_key) {
+                    cachedDecryptedKeys[configId] = json.raw_key;
+                    keyInput.value = json.raw_key;
+                    keyInput.type = "text";
+                    eyeBtn.innerHTML = eyeHideSvg;
+                    eyeBtn.style.color = "#10B981";
+                    if (hintEl) hintEl.innerText = "已解密呈现真实密钥明文";
+                }
+            } catch (e) {
+                alert("请求解密密钥异常: " + e);
+            } finally {
+                eyeBtn.disabled = false;
+            }
+        } else {
+            keyInput.type = "text";
+            eyeBtn.innerHTML = eyeHideSvg;
+            eyeBtn.style.color = "#10B981";
+        }
+    } else {
+        keyInput.type = "password";
+        eyeBtn.innerHTML = eyeShowSvg;
+        eyeBtn.style.color = "";
+        if (hintEl) hintEl.innerText = "本地硬件级加密存储";
+    }
+}
+
+// 点击【获取音色与模型】
+async function handleFetchTTSVoices() {
+    const btn = document.getElementById("btn-fetch-tts-voices");
+    const meta = resolveTTSProviderMeta(currentSelectedTTSProvider);
+    const voiceInput = document.getElementById("tts-input-voice");
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
+    const configIdInput = document.getElementById("tts-editor-config-id");
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-sm"></span> 获取音色与模型中...`;
+    }
+
+    try {
+        const currentSelected = (voiceInput && voiceInput.value) ? voiceInput.value.trim() : "";
+        const result = await fetchAndRenderTTSVoices(meta, currentSelected);
+
+        const realKey = (keyInput ? keyInput.value.trim() : "") || (configIdInput && cachedDecryptedKeys[configIdInput.value]) || "";
+
+        // 联动发起第三方模型与协议信息探测
+        fetchAndRenderTTSThirdpartyModelInfo(
+            urlInput ? urlInput.value : "",
+            realKey,
+            meta.id,
+            configIdInput ? configIdInput.value : ""
+        );
+
+        const totalCount = (result.clonedVoices?.length || 0) + (result.recommendedVoices?.length || 0);
+        showTTSTestResult(true, `已成功加载【${meta.name}】可用音色（含 ${result.clonedVoices?.length || 0} 款专属克隆，共 ${totalCount} 款），并同步探测第三方底层模型架构！点击下方药丸即可自由试听与选定。`);
+    } catch (e) {
+        showTTSTestResult(false, "加载音色列表异常: " + e);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 获取音色与模型`;
+        }
+    }
+}
+
+// 点击【测试连通性与试听】
+async function handleTestTTSConnectivity() {
+    const btn = document.getElementById("btn-test-tts");
+    const urlInput = document.getElementById("tts-input-url");
+    const keyInput = document.getElementById("tts-input-key");
+    const voiceInput = document.getElementById("tts-input-voice");
+    const providerInput = document.getElementById("tts-editor-provider");
+    const configIdInput = document.getElementById("tts-editor-config-id");
+    const pingStatusEl = document.getElementById("tts-ping-latency-status");
+
+    const baseUrl = urlInput ? urlInput.value.trim() : "";
+    const apiKey = keyInput ? keyInput.value.trim() : "";
+    const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
+    const configId = configIdInput ? configIdInput.value : "";
+    const selectedVoice = voiceInput ? voiceInput.value.trim() : "";
+
+    // 停止上一次未播放完的试听
+    if (currentTTSPreviewAudio) {
+        try {
+            currentTTSPreviewAudio.pause();
+            currentTTSPreviewAudio = null;
+        } catch (e) { }
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-sm"></span> 探测握手中...`;
+    }
+    if (pingStatusEl) {
+        pingStatusEl.innerHTML = `握手测试: <span style="color: var(--sky);">探测中...</span>`;
+    }
+
+    try {
+        // 步骤 1: 探测网络连通性与网络延迟
+        const res = await fetch(`${API_BASE}/settings/test-connection`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                config_id: configId || null,
+                config_group: "tts",
+                provider_name: provider,
+                base_url: baseUrl,
+                api_key: apiKey || null
+            })
+        });
+        const json = await res.json();
+        showTTSTestResult(json.success, json.message);
+
+        if (pingStatusEl) {
+            if (json.success) {
+                pingStatusEl.innerHTML = `
+                    <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981;"></span>
+                        连通正常 · 延迟: ${json.latency_ms || 120}ms
+                    </span>
+                `;
+                fetchAndRenderTTSThirdpartyModelInfo(baseUrl, apiKey, provider, configId);
+            } else {
+                pingStatusEl.innerHTML = `
+                    <span style="color: #EF4444; font-weight: 500; display: inline-flex; align-items: center; gap: 5px;">
+                        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #EF4444;"></span>
+                        连通失败 (${json.http_status || '超时/不可达'})
+                    </span>
+                `;
+            }
+        }
+
+        // 步骤 2: 连通探测正常后，立即请求后端合成并播放试听语音
+        if (json.success) {
+            if (btn) {
+                btn.innerHTML = `<span class="spinner-sm"></span> 正在合成试听语音...`;
+            }
+            try {
+                const previewRes = await fetch(`${API_BASE}/settings/tts/preview`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        provider_name: provider,
+                        voice_name: selectedVoice || null,
+                        base_url: baseUrl || null,
+                        api_key: apiKey || null,
+                        text: "你好，欢迎来到直播间！这是当前语音引擎的实时试听效果，祝您开播顺利！"
+                    })
+                });
+
+                if (previewRes.ok) {
+                    if (window._ttsPreviewController && typeof window._ttsPreviewController.stopAll === "function") {
+                        window._ttsPreviewController.stopAll();
+                    }
+                    const blob = await previewRes.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    const audio = new Audio(audioUrl);
+                    if (window._ttsPreviewController) {
+                        window._ttsPreviewController.audio = audio;
+                    }
+
+                    if (btn) {
+                        btn.innerHTML = `🔊 正在试听播报中...`;
+                    }
+                    if (pingStatusEl) {
+                        pingStatusEl.innerHTML = `
+                            <span style="color: #38BDF8; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #38BDF8;"></span>
+                                正在播放试听效果 (${selectedVoice || '默认音色'}) · 延迟: ${json.latency_ms || 120}ms
+                            </span>
+                        `;
+                    }
+
+                    audio.onended = () => {
+                        if (pingStatusEl) {
+                            pingStatusEl.innerHTML = `
+                                <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
+                                    <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981;"></span>
+                                    试听播报完成 · 服务连通正常 (${json.latency_ms || 120}ms)
+                                </span>
+                            `;
+                        }
+                    };
+
+                    await audio.play();
+                } else {
+                    const err = await previewRes.json().catch(() => ({}));
+                    console.warn("试听音频生成提示:", err);
+                }
+            } catch (audioErr) {
+                console.warn("试听播放受阻 (如浏览器自动播放策略拦截):", audioErr);
+            }
+        }
+    } catch (e) {
+        showTTSTestResult(false, `测试 TTS 连通异常: ${e}`);
+        if (pingStatusEl) pingStatusEl.innerHTML = `<span style="color: #EF4444;">握手异常</span>`;
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 测试连通性与试听`;
+        }
+    }
+}
+
+// 提示结果条
+function showTTSTestResult(isSuccess, message) {
+    const box = document.getElementById("tts-test-result");
+    if (!box) return;
+    box.style.display = "flex";
+    box.className = "llm-test-result-box " + (isSuccess ? "success" : "error");
+    box.innerHTML = `
+        <span>${isSuccess ? '✔' : '✖'}</span>
+        <span>${message}</span>
+    `;
+}
+
+// 保存当前 TTS 配置
+async function handleSaveCurrentTTS() {
+    const urlInput = document.getElementById("tts-input-url");
+    const voiceInput = document.getElementById("tts-input-voice");
+    const keyInput = document.getElementById("tts-input-key");
+    const providerInput = document.getElementById("tts-editor-provider");
+    const configIdInput = document.getElementById("tts-editor-config-id");
+
+    const baseUrl = urlInput ? urlInput.value.trim() : "";
+    const voiceVal = voiceInput ? voiceInput.value.trim() : "";
+    const apiKey = keyInput ? keyInput.value.trim() : "";
+    const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
+    const configId = configIdInput ? configIdInput.value : "";
+
+    const meta = resolveTTSProviderMeta(provider);
+    if (meta.needUrl && !baseUrl) {
+        alert("该语音引擎需填写服务 Base URL 地址！");
+        return;
+    }
+    if (!voiceVal) {
+        alert("请先点击第三行「获取音色」，并在第五行选定要使用的发音音色后再进行保存！");
+        return;
+    }
+
+    const ttsConfigs = cachedAllConfigs.filter(c => c.config_group === "tts");
+    let isDefault = false;
+    if (configId) {
+        const exist = cachedAllConfigs.find(c => c.id === configId);
+        isDefault = exist ? Boolean(exist.is_active) : false;
+    } else {
+        isDefault = ttsConfigs.length === 0;
+    }
+
+    const payload = {
+        id: configId || null,
+        config_group: "tts",
+        provider_name: provider,
+        base_url: baseUrl,
+        model_name: voiceVal,
+        is_active: isDefault
+    };
+    if (apiKey) payload.api_key = apiKey;
+
+    try {
+        const res = await fetch(`${API_BASE}/settings/configs/save`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.code === 0) {
+            showTTSTestResult(true, `语音配置已成功保存！${isDefault ? '已设为当前直播默认发音。' : '可在下方列表卡片右上角随时设为默认发音。'}`);
+            await loadSettings();
+        } else {
+            showTTSTestResult(false, "保存失败: " + json.message);
+        }
+    } catch (e) {
+        showTTSTestResult(false, "保存语音引擎出错: " + e);
+    }
+}
+
+// 渲染已配置的 TTS 清单 (100% 真实数据驱动)
+function renderConfiguredTTS(configs) {
+    const container = document.getElementById("configured-tts-list");
+    const countBadge = document.getElementById("configured-tts-count");
+    if (!container) return;
+
+    container.style.display = "grid";
+    container.style.gridTemplateColumns = "repeat(auto-fill, minmax(320px, 1fr))";
+    container.style.gap = "14px";
+    container.style.marginTop = "14px";
+
+    const ttsConfigs = (configs || []).filter(c => c.config_group === "tts");
+    if (countBadge) countBadge.innerText = `${ttsConfigs.length} 个已配置`;
+
+    if (ttsConfigs.length === 0) {
+        container.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align: center; padding: 28px 20px; color: var(--text-muted); background: rgba(0,0,0,0.18); border-radius: 8px; border: 1px dashed var(--border-subtle);">
+                <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600;">暂无已配置的语音引擎</div>
+                <div style="font-size: 12px;">系统绝不预设虚假配置。请在上方选择语音引擎（如 Edge-TTS、CosyVoice 等），点击第三行「获取音色」选定声线后，点击「保存此语音配置」。</div>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = "";
+    ttsConfigs.forEach(cfg => {
+        const tMeta = resolveTTSProviderMeta(cfg.provider_name, cfg);
+        const card = document.createElement("div");
+        card.className = "configured-llm-card" + (cfg.is_active ? " is-active" : "");
+
+        const topCornerHtml = cfg.is_active
+            ? `<div class="badge-active-brain">★ 默认生效发音</div>`
+            : `<button class="btn-card-set-default-tts" onclick="handleSetActiveTTS('${cfg.id}')" title="设为当前直播默认发音">
+                 <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke-width: 2.2;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                 设为默认发音
+               </button>`;
+
+        const configuredLogoSrc = (tMeta.logoSvg || "").startsWith("http") ? tMeta.logoSvg : (tMeta.logoSvg + "?v=2.0.4");
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; width: 100%; min-width: 0; box-sizing: border-box;">
+                <div class="configured-llm-info">
+                    <img src="${configuredLogoSrc}" alt="${tMeta.name}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: contain; flex-shrink: 0; background: #090E17; border: 1px solid rgba(16, 185, 129, 0.25); padding: 4px;">
+                    <div style="min-width: 0; flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <strong style="font-size: 14px; color: #FFFFFF;">${tMeta.name}</strong>
+                            <span class="brand-badge green" style="font-size: 10.5px; padding: 2px 6px;">${escapeHtml(cfg.model_name || '默认音色')}</span>
+                        </div>
+                        <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(cfg.base_url || '内置直连')}">
+                            ${escapeHtml(cfg.base_url || '微软云端直连免配置')}
+                        </div>
+                    </div>
+                </div>
+                <div>${topCornerHtml}</div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(148, 163, 184, 0.15); width: 100%; box-sizing: border-box;">
+                <button class="btn btn-xs" onclick="handlePingSingleConfig('${cfg.id}', this)" style="display: inline-flex; align-items: center; gap: 4px;">
+                    <svg class="icon-sm" viewBox="0 0 24 24" style="width: 11px; height: 11px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    测速
+                </button>
+                <div style="display: flex; gap: 6px;">
+                    <button class="btn btn-xs" onclick="handleEditConfiguredTTS('${cfg.id}')" title="载入上方编辑面板">
+                        编辑
+                    </button>
+                    <button class="btn btn-xs" style="color: #F87171; border-color: rgba(248, 113, 113, 0.3);" onclick="handleDeleteConfig('${cfg.id}')" title="从数据库删除">
+                        删除
+                    </button>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// 切换默认激活的 TTS
+async function handleSetActiveTTS(configId) {
+    try {
+        const res = await fetch(`${API_BASE}/settings/configs/set-active`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ config_id: configId, config_group: "tts" })
+        });
+        const json = await res.json();
+        if (json.code === 0) {
+            showToast("已切换直播默认发音引擎！", "success");
+            await loadSettings();
+        } else {
+            alert("设置失败: " + json.message);
+        }
+    } catch (e) {
+        alert("操作异常: " + e);
+    }
+}
+
+// 编辑已配置的 TTS
+function handleEditConfiguredTTS(configId) {
+    const target = cachedAllConfigs.find(c => c.id === configId);
+    if (!target) return;
+    const tMeta = resolveTTSProviderMeta(target.provider_name, target);
+    selectTTSProvider(tMeta.id, target);
+
+    const editor = document.getElementById("tts-editor-box");
+    if (editor) editor.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// 展开/收起扩展自定义 / 远程 GPU 框
+function toggleAddCustomTTSForm() {
+    const box = document.getElementById("custom-tts-advanced-box");
+    if (!box) return;
+    box.style.display = box.style.display === "none" ? "block" : "none";
+}
+
+// 提交高级自定义服务商
+async function submitNewCustomProvider() {
+    const group = document.getElementById("new-cfg-group").value;
+    const name = document.getElementById("new-provider-name").value.trim();
+    const url = document.getElementById("new-base-url").value.trim();
+    const model = document.getElementById("new-model-name").value.trim();
+    const key = document.getElementById("new-api-key").value.trim();
+
+    if (!name) {
+        alert("请输入服务商标识（如 my_remote_gpu）");
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/settings/configs/save`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                config_group: group,
+                provider_name: name,
+                base_url: url,
+                model_name: model,
+                api_key: key || null,
+                is_active: true
+            })
+        });
+        const json = await res.json();
+        if (json.code === 0) {
+            alert("自定义节点配置已成功添加！");
+            toggleAddCustomTTSForm();
+            loadSettings();
+        } else {
+            alert("添加失败: " + json.message);
+        }
+    } catch (e) {
+        alert("提交异常: " + e);
+    }
+}

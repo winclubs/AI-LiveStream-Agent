@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from server.core.queue.priority_queue import PriorityBargeInQueue, LiveEventItem
+from server.adapters.danmaku.base_fetcher import FetcherHealth
 from server.adapters.danmaku.circuit_breaker import CircuitBreakerDanmakuFetcher, STATE_OPEN, STATE_HALF_OPEN, STATE_CLOSED
 from server.adapters.danmaku.douyin_fetcher import DouyinDanmakuFetcher
 from server.adapters.danmaku.bilibili_fetcher import BilibiliDanmakuFetcher
@@ -144,7 +145,15 @@ def test_circuit_breaker_single_failure_count_and_half_open_recovery():
     assert cb.consecutive_failures == 1
     assert cb.state == STATE_CLOSED
 
-    # 第二次底层错误，达到阈值 2，转为 OPEN
+    # 新连接 generation 开启独立故障 episode，但握手本身不清除累计失败
+    cb._on_underlying_health_change(
+        FetcherHealth(
+            connected=True,
+            worker_alive=True,
+            last_heartbeat_at=None,
+            connection_generation=1,
+        )
+    )
     cb._on_underlying_error(RuntimeError("再次网络中断"))
     assert cb.consecutive_failures == 2
     assert cb.state == STATE_OPEN
@@ -377,7 +386,7 @@ def test_obs_already_streaming_does_not_steal_ownership():
 def test_obs_stop_failed_records_cleanup_error():
     """验证 StopStream 明确返回失败时记入 cleanup_errors 并报告 stopped_with_errors"""
     async def _run():
-        from server.routes.live import global_live_controller
+        controller = LiveSessionController()
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=MagicMock())
         mock_db.commit = AsyncMock()
@@ -390,15 +399,18 @@ def test_obs_stop_failed_records_cleanup_error():
         mock_obs.stop_stream = AsyncMock(return_value={"result": False, "comment": "OBS Busy"})
 
         with patch("server.routes.live.global_obs_client", mock_obs), \
-             patch("server.routes.live.global_live_controller.stop", new_callable=AsyncMock, return_value=[]):
-            global_live_controller.session_id = "sess_test_obs_err"
-            global_live_controller.is_live = True
-            global_live_controller.obs_stream_started_by_agent = True
+             patch("server.routes.live.global_live_controller", controller), \
+             patch.object(controller, "stop", new_callable=AsyncMock, return_value=[]):
+            controller.session_id = "sess_test_obs_err"
+            controller.is_live = True
+            controller.obs_stream_started_by_agent = True
+            controller.obs_owner_session_id = controller.session_id
+            controller.obs_owner_connection_epoch = mock_obs.connection_epoch
 
             res = await _stop_live_unlocked(mock_db)
             assert res["status"] == "stopped_with_errors"
             assert any("obs_stop_rejected" in err for err in res["cleanup_errors"])
-            assert global_live_controller.obs_stream_started_by_agent is False
+            assert controller.obs_stream_started_by_agent is False
 
     asyncio.run(_run())
 
