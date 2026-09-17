@@ -1,17 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <defs>
+    <linearGradient id="chatttsBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#09261a"/>
+      <stop offset="50%" stop-color="#081b14"/>
+      <stop offset="100%" stop-color="#050e0a"/>
+    </linearGradient>
+    <linearGradient id="chatttsBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#059669" stop-opacity="0.25"/>
+    </linearGradient>
     <linearGradient id="chatttsGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#10B981"/>
       <stop offset="100%" stop-color="#059669"/>
     </linearGradient>
+    <linearGradient id="chatttsBarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#d1fae5"/>
+    </linearGradient>
   </defs>
-  <circle cx="24" cy="24" r="23" fill="#0c1017" stroke="rgba(16,185,129,0.35)" stroke-width="1.5"/>
-  <!-- 对话气泡与音符声纹 -->
-  <path d="M12 15C12 12.24 14.24 10 17 10H31C33.76 10 36 12.24 36 15V27C36 29.76 33.76 32 31 32H20L14 37V32H17C14.24 32 12 29.76 12 27V15Z" fill="url(#chatttsGrad)" opacity="0.9"/>
-  <!-- 内部音律条纹 -->
-  <g fill="#0c1017">
-    <rect x="18" y="18" width="2.5" height="6" rx="1.25"/>
-    <rect x="23" y="15" width="2.5" height="12" rx="1.25"/>
-    <rect x="28" y="19" width="2.5" height="5" rx="1.25"/>
+  <rect width="48" height="48" rx="12" fill="url(#chatttsBg)" stroke="url(#chatttsBorder)" stroke-width="1.2"/>
+  <!-- 对话气泡与音符声纹，居中放大盛满 -->
+  <g transform="translate(24, 24) scale(1.18) translate(-24, -23)">
+    <path d="M12 14C12 11.24 14.24 9 17 9H31C33.76 9 36 11.24 36 14V26C36 28.76 33.76 31 31 31H20L14 36V31H17C14.24 31 12 28.76 12 26V14Z" fill="url(#chatttsGrad)" opacity="0.95"/>
+    <!-- 内部音律条纹 -->
+    <g fill="url(#chatttsBarGrad)">
+      <rect x="18" y="17" width="2.5" height="6.5" rx="1.25"/>
+      <rect x="23" y="14" width="2.5" height="12.5" rx="1.25"/>
+      <rect x="28" y="18" width="2.5" height="5.5" rx="1.25"/>
+    </g>
   </g>
 </svg>

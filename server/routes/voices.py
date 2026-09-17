@@ -41,10 +41,31 @@ def _extract_and_save_features(sample_path: str, embedding_path: str) -> bool:
     feat = extract_voice_features(sample_path)
     return bool(feat.get("vector") and save_embedding(feat.get("vector"), embedding_path))
 
+class VoiceSyncItem(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
+    provider_name: Optional[str] = Field(default=None, max_length=64)
+    voice_type: Optional[str] = Field(default="preset", max_length=32)
+    speech_speed: Optional[float] = Field(default=1.0, ge=0.5, le=2.0)
+    volume_gain: Optional[float] = Field(default=1.0, ge=0.5, le=2.0)
+
+class VoiceBatchSyncRequest(BaseModel):
+    provider_name: str = Field(min_length=1, max_length=64)
+    voices: list[VoiceSyncItem]
+
 @router.get("/list")
-async def list_voices(db: AsyncSession = Depends(get_db)):
-    """获取所有已克隆的声音档案列表"""
-    result = await db.execute(select(VoiceProfile))
+async def list_voices(provider_name: Optional[str] = None, include_unassigned: bool = False, db: AsyncSession = Depends(get_db)):
+    """获取声音档案列表（支持按语音合成引擎 provider_name 精确过滤）"""
+    query = select(VoiceProfile)
+    if provider_name and provider_name.strip():
+        clean_p = provider_name.strip().lower()
+        if include_unassigned:
+            query = query.where(
+                (VoiceProfile.provider_name == clean_p) | (VoiceProfile.provider_name == "") | (VoiceProfile.provider_name.is_(None))
+            )
+        else:
+            query = query.where(VoiceProfile.provider_name == clean_p)
+    result = await db.execute(query)
     voices = result.scalars().all()
     return {
         "code": 0,
@@ -57,15 +78,69 @@ async def list_voices(db: AsyncSession = Depends(get_db)):
                 "speech_speed": _safe_float(v.speech_speed, 1.0),
                 "volume_gain": _safe_float(v.volume_gain, 1.0),
                 "status": str(v.status or "ready"),
+                "provider_name": str(getattr(v, "provider_name", "") or ""),
+                "voice_type": str(getattr(v, "voice_type", "preset") or "preset"),
+                "is_clone": str(getattr(v, "voice_type", "preset")) == "cloned",
                 "sample_status": "uploaded" if v.sample_wav_path and Path(str(v.sample_wav_path)).exists() else "missing",
                 "feature_status": "ready" if v.embedding_npy_path and Path(str(v.embedding_npy_path)).exists() else "pending",
-                "clone_engine": "local_features",
-                "synthesis_status": "not_available",
-                "preview_kind": "original_sample",
+                "clone_engine": "local_features" if str(v.id).startswith("clone_") else (str(getattr(v, "provider_name", "")) or "preset"),
+                "synthesis_status": "ready" if (str(getattr(v, "voice_type", "")) == "preset" or not str(v.id).startswith("clone_")) else "not_available",
+                "preview_kind": "clone_sample" if str(getattr(v, "voice_type", "")) == "cloned" else "preset_sample",
                 "created_at": v.created_at.isoformat() if v.created_at else ""
             }
             for v in voices
         ]
+    }
+
+@router.post("/batch-sync")
+async def batch_sync_voices(req: VoiceBatchSyncRequest, db: AsyncSession = Depends(get_db)):
+    """
+    保存语音引擎配置时，批量同步探测/获取到的全部发音音色到数据库（音色资产库）
+    保持幂等性：已存在的音色更新引擎归属与分类，若用户手动改过名则保留用户的自定义名称
+    """
+    default_provider = req.provider_name.strip().lower()
+    saved_count = 0
+    synced_items = []
+
+    for item in req.voices:
+        clean_id = item.id.strip()
+        clean_name = item.name.strip()
+        item_provider = (item.provider_name or default_provider).strip().lower()
+        clean_type = (item.voice_type or "preset").strip()
+        if not clean_id or not clean_name:
+            continue
+
+        res = await db.execute(select(VoiceProfile).where(VoiceProfile.id == clean_id))
+        record = res.scalar_one_or_none()
+
+        if not record:
+            record = VoiceProfile(
+                id=clean_id,
+                name=clean_name,
+                sample_wav_path="",
+                embedding_npy_path="",
+                speech_speed=item.speech_speed or 1.0,
+                volume_gain=item.volume_gain or 1.0,
+                status="ready",
+                provider_name=item_provider,
+                voice_type=clean_type,
+            )
+            db.add(record)
+            saved_count += 1
+        else:
+            record.provider_name = item_provider
+            record.voice_type = clean_type
+            saved_count += 1
+
+        synced_items.append({"id": clean_id, "name": record.name, "provider_name": item_provider, "voice_type": clean_type})
+
+    await db.commit()
+    logger.info(f"已为语音引擎【{default_provider}】批量同步入库 {saved_count} 款音色至音色资产库")
+    return {
+        "code": 0,
+        "message": f"成功同步入库 {saved_count} 款音色至音色资产库",
+        "total": saved_count,
+        "data": synced_items
     }
 
 class VoiceBindIdRequest(BaseModel):
@@ -154,10 +229,14 @@ async def bind_voice_id(req: VoiceBindIdRequest, db: AsyncSession = Depends(get_
             speech_speed=req.speech_speed or 1.0,
             volume_gain=req.volume_gain or 1.0,
             status="ready",
+            provider_name=provider,
+            voice_type="cloned",
         )
         db.add(record)
     else:
         record.name = clean_name
+        record.provider_name = provider
+        record.voice_type = "cloned"
         record.speech_speed = req.speech_speed or 1.0
         record.volume_gain = req.volume_gain or 1.0
 
@@ -356,6 +435,8 @@ async def clone_voice(
             speech_speed=speed,
             volume_gain=volume,
             status="ready",
+            provider_name=provider,
+            voice_type="cloned",
         )
         db.add(record)
         await db.commit()
@@ -536,21 +617,41 @@ async def preview_voice(voice_id: str, db: AsyncSession = Depends(get_db)):
             detail="当前音色仅具备本地声学特征，尚未在阿里云百炼完成云端声音复刻，暂无法在线试听。请先配置百炼 API Key 或完成复刻后使用「登记已有 Voice-ID」。"
         )
 
-    # 若为已登记/已复刻的第三方 Voice-ID 但试听文件尚未生成，现场尝试实时合成
-    try:
-        from server.core.audio.clone_preview import generate_cloned_voice_preview
-        p_file = await generate_cloned_voice_preview(
-            voice_id=voice_id,
-            voice_name=record.name,
-            sample_audio_path=record.sample_wav_path
-        )
-        if p_file and p_file.exists():
-            return FileResponse(p_file, media_type="audio/mpeg", filename=p_file.name)
-    except Exception as e:
-        logger.warning(f"克隆音色全新台词合成失败: {e}")
-        raise HTTPException(status_code=500, detail=f"百炼云端音色合成台词失败: {str(e)}")
+    # 若为克隆音色但试听文件尚未生成，现场尝试调用克隆模型实时合成台词
+    is_cloned = getattr(record, "voice_type", "") == "cloned" or voice_id.startswith("cosyvoice-") or voice_id.startswith("qwen-")
+    if is_cloned:
+        try:
+            from server.core.audio.clone_preview import generate_cloned_voice_preview
+            p_file = await generate_cloned_voice_preview(
+                voice_id=voice_id,
+                voice_name=record.name,
+                sample_audio_path=record.sample_wav_path
+            )
+            if p_file and p_file.exists():
+                return FileResponse(p_file, media_type="audio/mpeg", filename=p_file.name)
+        except Exception as e:
+            logger.warning(f"克隆音色全新台词合成失败: {e}")
+            raise HTTPException(status_code=500, detail=f"克隆音色台词试听合成失败: {str(e)}")
 
-    raise HTTPException(status_code=404, detail="未找到该专属音色的可用音频文件")
+    # 官方预设音色：通过对应 TTS 引擎实时在线合成专属问候试听音频流
+    try:
+        from server.routes.settings import TTSPreviewRequest, preview_tts_audio
+        prov = str(getattr(record, "provider_name", "") or ("edge_tts" if "zh-" in voice_id else "cosyvoice"))
+        req = TTSPreviewRequest(
+            provider_name=prov,
+            voice_name=voice_id
+        )
+        return await preview_tts_audio(req)
+    except Exception as e:
+        logger.warning(f"预设官方音色试听合成异常: {e}")
+
+    # 若有本地样本录音，降级回退播放原始样本
+    sample_path = Path(str(record.sample_wav_path or ""))
+    if sample_path.exists() and sample_path.stat().st_size > 0:
+        media_type = "audio/wav" if sample_path.suffix.lower() == ".wav" else "audio/mpeg"
+        return FileResponse(sample_path, media_type=media_type, filename=sample_path.name)
+
+    raise HTTPException(status_code=404, detail="未找到该音色的可用试听音频")
 
 @router.delete("/{voice_id}")
 async def delete_voice(voice_id: str, db: AsyncSession = Depends(get_db)):

@@ -45,7 +45,15 @@ def main() -> None:
     # 3. Mypy 检查
     run_step(
         "3/5 Mypy 核心架构类型检查",
-        [sys.executable, "-m", "mypy", "server/core/queue/priority_queue.py", "server/core/cpu_worker.py"],
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "server/core/queue/priority_queue.py",
+            "server/core/cpu_worker.py",
+            "server/core/audio/asr_engine.py",
+            "server/core/resource_limits.py",
+        ],
     )
 
     # 4. Node 前端语法 (node --check 一次只校验第一个文件, 多文件会静默忽略后续文件, 必须逐个检查)

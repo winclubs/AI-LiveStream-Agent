@@ -44,6 +44,8 @@ global_danmaku_registry = DanmakuFetcherRegistry()
 def _register_builtin():
     from server.adapters.danmaku.bilibili_fetcher import BilibiliDanmakuFetcher
     from server.adapters.danmaku.douyin_fetcher import DouyinDanmakuFetcher
+    from server.adapters.danmaku.kuaishou_fetcher import KuaishouDanmakuFetcher
+    from server.adapters.danmaku.wechat_fetcher import WechatDanmakuFetcher
 
     global_danmaku_registry.register(
         "bilibili",
@@ -52,6 +54,14 @@ def _register_builtin():
     global_danmaku_registry.register(
         "douyin",
         lambda room_id, on_event_callback, **kw: DouyinDanmakuFetcher(room_id, on_event_callback, **kw),
+    )
+    global_danmaku_registry.register(
+        "kuaishou",
+        lambda room_id, on_event_callback, **kw: KuaishouDanmakuFetcher(room_id, on_event_callback, **kw),
+    )
+    global_danmaku_registry.register(
+        "wechat",
+        lambda room_id, on_event_callback, **kw: WechatDanmakuFetcher(room_id, on_event_callback, **kw),
     )
 
 

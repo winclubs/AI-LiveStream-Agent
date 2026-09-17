@@ -16,6 +16,7 @@ function initNavigation() {
             if (tab === "gpu") { loadGpuAvatarProviders(); }
             if (tab === "wizard") { loadWizardAvatarProviders(); }
             if (tab === "knowledge") { loadKnowledgeList(); loadKnowledgeStatus(); }
+            if (tab === "anchors") { if (typeof loadAnchors === 'function') loadAnchors(); }
             if (tab === "voices") {
                 loadAudioDevices();
                 loadVoiceTable();

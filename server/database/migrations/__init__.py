@@ -194,6 +194,84 @@ MIGRATIONS = [
             "ALTER TABLE voice_profiles_schema_migrate RENAME TO voice_profiles",
         ],
     ),
+    (
+        "0007_voice_profiles_provider_and_type",
+        "voice_profiles 表新增 provider_name(所属引擎)与 voice_type(预设/克隆)",
+        [
+            "ALTER TABLE voice_profiles ADD COLUMN provider_name VARCHAR(64) DEFAULT ''",
+            "ALTER TABLE voice_profiles ADD COLUMN voice_type VARCHAR(32) DEFAULT 'preset'",
+        ],
+    ),
+    (
+        "0008_anchors_anchor_type",
+        "anchors 表新增 anchor_type (主播类型：ecommerce/entertainment/expert/chat)",
+        [
+            "ALTER TABLE anchors ADD COLUMN anchor_type VARCHAR(32) DEFAULT 'ecommerce'",
+        ],
+    ),
+    (
+        "0009_avatar_tasks_and_anchor_assets",
+        "anchors 表新增 avatar_asset_dir 与 source_video，并创建 avatar_tasks 异步任务管理表",
+        [
+            "ALTER TABLE anchors ADD COLUMN avatar_asset_dir VARCHAR(512) DEFAULT ''",
+            "ALTER TABLE anchors ADD COLUMN source_video VARCHAR(512) DEFAULT ''",
+            """
+            CREATE TABLE IF NOT EXISTS avatar_tasks (
+                id VARCHAR(64) PRIMARY KEY,
+                anchor_id VARCHAR(64),
+                name VARCHAR(128) NOT NULL,
+                status VARCHAR(32) DEFAULT 'pending' NOT NULL,
+                progress INTEGER DEFAULT 0 NOT NULL,
+                stage_message VARCHAR(256) DEFAULT '',
+                video_path VARCHAR(512) DEFAULT '',
+                output_dir VARCHAR(512) DEFAULT '',
+                error_message TEXT DEFAULT '',
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY(anchor_id) REFERENCES anchors(id) ON DELETE SET NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_avatar_tasks_anchor_id ON avatar_tasks(anchor_id)",
+            "CREATE INDEX IF NOT EXISTS ix_avatar_tasks_status ON avatar_tasks(status)",
+        ],
+    ),
+    (
+        "0010_avatar_actions",
+        "创建 avatar_actions 数字人动作状态机与带货场景绑定表并初始化默认规则",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS avatar_actions (
+                id VARCHAR(64) PRIMARY KEY,
+                anchor_id VARCHAR(64),
+                action_code INTEGER NOT NULL,
+                action_name VARCHAR(128) NOT NULL,
+                video_path VARCHAR(512) DEFAULT '',
+                frames_dir VARCHAR(512) DEFAULT '',
+                trigger_type VARCHAR(32) DEFAULT 'both',
+                trigger_keywords TEXT DEFAULT '',
+                trigger_events VARCHAR(128) DEFAULT '',
+                duration_sec FLOAT DEFAULT 3.5,
+                priority INTEGER DEFAULT 1,
+                mirror_loop INTEGER DEFAULT 1,
+                is_active INTEGER DEFAULT 1,
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY(anchor_id) REFERENCES anchors(id) ON DELETE CASCADE
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_avatar_actions_anchor_id ON avatar_actions(anchor_id)",
+            "CREATE INDEX IF NOT EXISTS ix_avatar_actions_action_code ON avatar_actions(action_code)",
+            """
+            INSERT OR IGNORE INTO avatar_actions (id, anchor_id, action_code, action_name, trigger_type, trigger_keywords, trigger_events, duration_sec, priority, mirror_loop, is_active)
+            VALUES
+                ('action_default_0', NULL, 0, '待机呼吸循环', 'manual', '', '', 0.0, 0, 1, 1),
+                ('action_default_1', NULL, 1, '热情挥手欢迎', 'both', '欢迎,来了,刚进,哈喽,晚上好', 'welcome', 3.0, 2, 1, 1),
+                ('action_default_2', NULL, 2, '求关注与点赞', 'both', '点赞,关注,粉丝团,灯牌,双击', 'follow', 3.5, 3, 1, 1),
+                ('action_default_3', NULL, 3, '促单指引购物车', 'both', '购物车,下单,左下角,抢购,手慢无,买一送,拍下', 'order', 4.0, 5, 1, 1),
+                ('action_default_4', NULL, 4, '大额打赏致谢', 'both', '感谢,礼物,破费,大气,老板大气', 'gift', 4.5, 9, 1, 1)
+            """,
+        ],
+    ),
 ]
 
 

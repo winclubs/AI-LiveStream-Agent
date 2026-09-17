@@ -45,6 +45,8 @@ class VoiceProfile(Base):
     speech_speed = Column(Float, default=1.0)
     volume_gain = Column(Float, default=1.0)
     status = Column(String(32), default="ready")  # pending / cloning / ready
+    provider_name = Column(String(64), default="", nullable=True)  # 所属语音合成引擎 (如 edge_tts, cosyvoice)
+    voice_type = Column(String(32), default="preset", nullable=True)  # preset(官方预设) / cloned(专属克隆)
     created_at = Column(DateTime, default=utc_now)
 
 class Anchor(Base):
@@ -53,13 +55,52 @@ class Anchor(Base):
 
     id = Column(String(64), primary_key=True)
     name = Column(String(128), nullable=False)
+    anchor_type = Column(String(32), default="ecommerce", nullable=False)  # ecommerce / entertainment / expert / chat
     voice_id = Column(String(64), ForeignKey("voice_profiles.id", ondelete="SET NULL"), nullable=True)  # 绑定音色档案
     remark = Column(Text, default="")                         # 备注信息
     photo_portrait = Column(String(512), default="")          # 形象照(正面)
     photo_full_body = Column(String(512), default="")         # 全身照
     photo_half_body = Column(String(512), default="")         # 半身照
     photo_side = Column(String(512), default="")              # 侧面照
+    avatar_asset_dir = Column(String(512), default="")        # 数字人切片资产目录
+    source_video = Column(String(512), default="")            # 原始训练视频
     created_at = Column(DateTime, default=utc_now)
+
+class AvatarTask(Base):
+    """数字人视频切片与训练异步任务表"""
+    __tablename__ = "avatar_tasks"
+
+    id = Column(String(64), primary_key=True)
+    anchor_id = Column(String(64), ForeignKey("anchors.id", ondelete="SET NULL"), nullable=True)
+    name = Column(String(128), nullable=False)
+    status = Column(String(32), default="pending", nullable=False)  # pending / processing / completed / failed
+    progress = Column(Integer, default=0, nullable=False)           # 0 ~ 100
+    stage_message = Column(String(256), default="")
+    video_path = Column(String(512), default="")
+    output_dir = Column(String(512), default="")
+    error_message = Column(Text, default="")
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+class AvatarAction(Base):
+    """数字人动作切片状态机与带货场景智能绑定表"""
+    __tablename__ = "avatar_actions"
+
+    id = Column(String(64), primary_key=True)
+    anchor_id = Column(String(64), ForeignKey("anchors.id", ondelete="CASCADE"), nullable=True)
+    action_code = Column(Integer, nullable=False)          # 0:待机, 1:欢迎, 2:点赞, 3:购物车, 4:致谢, 5+:自定义
+    action_name = Column(String(128), nullable=False)
+    video_path = Column(String(512), default="")
+    frames_dir = Column(String(512), default="")
+    trigger_type = Column(String(32), default="both")      # keyword / event / both / manual
+    trigger_keywords = Column(Text, default="")            # 逗号分隔触发关键词
+    trigger_events = Column(String(128), default="")       # gift / welcome / follow / order
+    duration_sec = Column(Float, default=3.5)              # 动作持续秒数 (超时自动平滑回待机)
+    priority = Column(Integer, default=1)                  # 动作优先级 (高优先可打断低优先)
+    mirror_loop = Column(Integer, default=1)               # 是否启用镜像无缝平滑往返循环 (1:是, 0:否)
+    is_active = Column(Integer, default=1)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 class AppSetting(Base):
     """应用级键值配置 (直播模式选择、向导完成标记等)"""

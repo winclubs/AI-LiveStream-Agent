@@ -151,6 +151,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def security_auth_middleware(request, call_next):
+    """
+    自适应安全鉴权中间件 (解决 7.4-13 服务非本地暴露裸奔风险)
+    - 本地单机回环 (127.0.0.1/::1/localhost/testclient) 零摩擦免密放行；
+    - 静态资源与健康探针 (/static, /health, /livez 等) 默认放行；
+    - 当设置环境变量 API_AUTH_TOKEN 或 LIVE_AGENT_TOKEN 时，对外部网络强制校验 Bearer 令牌。
+    """
+    client_host = request.client.host if request.client else ""
+    is_local = client_host in ("127.0.0.1", "::1", "localhost", "testclient")
+
+    path = request.url.path
+    if (
+        is_local
+        or path.startswith("/static")
+        or path in ("/health", "/livez", "/readyz", "/startupz", "/favicon.ico", "/console")
+    ):
+        return await call_next(request)
+
+    auth_token = os.getenv("API_AUTH_TOKEN", "").strip() or os.getenv("LIVE_AGENT_TOKEN", "").strip()
+    if auth_token:
+        header_auth = request.headers.get("Authorization", "")
+        api_key = request.headers.get("X-API-Key", "")
+        cookie_token = request.cookies.get("access_token", "")
+
+        token_provided = ""
+        if header_auth.startswith("Bearer "):
+            token_provided = header_auth[7:].strip()
+        elif api_key:
+            token_provided = api_key.strip()
+        elif cookie_token:
+            token_provided = cookie_token.strip()
+
+        if token_provided != auth_token:
+            return JSONResponse(
+                status_code=401,
+                content={"code": 401, "message": "未授权访问：请在请求头提供有效的 Bearer 令牌或 X-API-Key"}
+            )
+
+    return await call_next(request)
+
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -205,7 +247,23 @@ async def serve_console():
             build_index_html()
         except Exception:
             logger.exception("控制台 index.html 模板合成失败，继续返回现有静态产物")
-    return FileResponse(index_file)
+    return FileResponse(
+        index_file,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
+
+@app.get("/avatar-viewport")
+async def serve_avatar_viewport():
+    """专供抖音直播伴侣/快手直播伴侣/微信视频号窗口捕获的高清绿幕视窗"""
+    viewport_file = static_dir / "avatar_viewport.html"
+    if not viewport_file.exists():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="视窗模板文件不存在")
+    return FileResponse(viewport_file)
 
 @app.get("/static-file")
 async def serve_data_file(path: str):

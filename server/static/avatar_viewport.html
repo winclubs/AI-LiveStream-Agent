@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数字人高清渲染视窗 · 专供直播伴侣窗口捕获</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --chroma-key-color: #00FF00;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--chroma-key-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            user-select: none;
+            transition: background-color 0.2s ease;
+        }
+
+        /* 视窗核心显示容器 */
+        #viewport-feed {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            background: transparent;
+        }
+
+        /* 渲染画面画布与图像 */
+        .render-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            display: block;
+            pointer-events: none;
+        }
+
+        /* 浮动控制岛 (鼠标悬停或轻触时显示) */
+        .control-pill {
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.88);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 30px;
+            padding: 6px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+            z-index: 1000;
+            opacity: 0.25;
+            transition: opacity 0.3s ease, transform 0.2s ease;
+        }
+
+        .control-pill:hover,
+        .control-pill.active {
+            opacity: 1;
+            transform: translateX(-50%) translateY(2px);
+        }
+
+        .pill-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #38bdf8;
+            padding-right: 8px;
+            border-right: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .pill-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10B981;
+            box-shadow: 0 0 8px #10B981;
+            animation: pulse-dot 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.6; }
+        }
+
+        .pill-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .pill-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #f1f5f9;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .pill-btn:hover {
+            background: rgba(255, 255, 255, 0.18);
+            transform: translateY(-1px);
+        }
+
+        .pill-btn.active {
+            background: #0284c7;
+            border-color: #38bdf8;
+            color: #ffffff;
+        }
+
+        /* 捕获指引浮层模态窗 */
+        .guide-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .guide-modal.open {
+            display: flex;
+        }
+
+        .guide-card {
+            background: #0f172a;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 640px;
+            padding: 24px;
+            color: #e2e8f0;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+        }
+
+        .guide-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+        }
+
+        .guide-step-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .guide-step-item {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .guide-step-num {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            line-height: 20px;
+            text-align: center;
+            background: #0284c7;
+            color: #ffffff;
+            border-radius: 50%;
+            font-size: 11px;
+            font-weight: bold;
+            margin-right: 6px;
+        }
+
+        /* 待机微动态与空状态占位 */
+        .avatar-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .avatar-silhouette {
+            width: 280px;
+            height: 380px;
+            border-radius: 140px 140px 40px 40px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 100%);
+            border: 2px dashed rgba(255,255,255,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            animation: breathe 3.5s infinite ease-in-out;
+        }
+
+        @keyframes breathe {
+            0%, 100% { transform: translateY(0px) scale(1); }
+            50% { transform: translateY(-6px) scale(1.015); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 独立无边框控制岛 -->
+    <div class="control-pill" id="control-pill">
+        <div class="pill-badge">
+            <div class="pill-status-dot"></div>
+            <span>伴侣视窗</span>
+        </div>
+        <div class="pill-actions">
+            <button class="pill-btn active" onclick="setBgColor('#00FF00', this)" title="切换纯绿幕背景（最适合色度抠图）">🟢 绿幕</button>
+            <button class="pill-btn" onclick="setBgColor('#000000', this)" title="切换纯黑背景">⬛ 纯黑</button>
+            <button class="pill-btn" onclick="setBgColor('#0000FF', this)" title="切换纯蓝背景">🟦 纯蓝</button>
+            <button class="pill-btn" onclick="toggleFullscreen()" title="切换全屏/还原视窗">📐 全屏</button>
+            <button class="pill-btn" onclick="openGuideModal()" style="color:#38bdf8; font-weight:600;" title="查看三大伴侣窗口捕获指引">📖 伴侣捕获SOP</button>
+        </div>
+    </div>
+
+    <!-- 核心渲染视窗层 (直播伴侣窗口捕获锚点) -->
+    <div id="viewport-feed" ondblclick="toggleFullscreen()">
+        <!-- 实时推流画面载体 -->
+        <img id="render-stream" class="render-canvas" src="" alt="数字人推流画面" style="display: none;">
+        
+        <!-- 待机微动态呼吸兜底层 (防黑屏机制) -->
+        <div id="idle-layer" class="avatar-placeholder">
+            <div class="avatar-silhouette">
+                <div style="text-align: center; padding: 20px;">
+                    <div style="font-size: 32px; margin-bottom: 8px;">👤</div>
+                    <div style="font-size: 15px; font-weight: 700;">数字人待机微动态层</div>
+                    <div style="font-size: 12px; color: rgba(255,255,255,0.75); margin-top: 4px;">
+                        等待中控台开播推流...
+                    </div>
+                </div>
+            </div>
+            <div style="font-size: 12.5px; background: rgba(0,0,0,0.4); padding: 4px 12px; border-radius: 12px;">
+                💡 双击画面任意位置即可进入或退出全屏模式
+            </div>
+        </div>
+    </div>
+
+    <!-- 伴侣操作 SOP 指引弹窗 -->
+    <div class="guide-modal" id="guide-modal" onclick="closeGuideModal(event)">
+        <div class="guide-card" onclick="event.stopPropagation()">
+            <div class="guide-title">
+                <span>🎥 抖音 / 快手 / 视频号 直播伴侣 100% 免封禁捕获指引</span>
+            </div>
+            <ul class="guide-step-list">
+                <li class="guide-step-item">
+                    <span class="guide-step-num">1</span>
+                    <strong>打开直播伴侣：</strong>启动【抖音直播伴侣】、【快手直播伴侣】或【微信视频号助手】。
+                </li>
+                <li class="guide-step-item">
+                    <span class="guide-step-num">2</span>
+                    <strong>添加输入源：</strong>点击伴侣软件中的【添加素材】或【添加来源】 ➔ 选择<strong>【窗口】</strong>（切勿选择虚拟摄像头）。
+                </li>
+                <li class="guide-step-item">
+                    <span class="guide-step-num">3</span>
+                    <strong>选中本视窗：</strong>在窗口下拉列表中选择 <code>数字人高清渲染视窗</code>。
+                </li>
+                <li class="guide-step-item">
+                    <span class="guide-step-num">4</span>
+                    <strong>开启绿幕抠图：</strong>右键该画面素材 ➔ 选择【滤镜/效果】 ➔ 开启<strong>【色度抠图/绿幕抠图】</strong>（默认关键颜色为绿色 <code>#00FF00</code>），即可实现完美的无痕背景融入！
+                </li>
+            </ul>
+            <div style="display: flex; justify-content: flex-end;">
+                <button class="pill-btn active" style="padding: 8px 20px; font-size: 13px;" onclick="closeGuideModal()">我知道了，开始开播</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 背景颜色切换
+        function setBgColor(color, btn) {
+            document.documentElement.style.setProperty('--chroma-key-color', color);
+            document.body.style.backgroundColor = color;
+            document.querySelectorAll('.pill-actions .pill-btn').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+        }
+
+        // 全屏切换
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.warn("请求全屏被阻止:", err);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        // 指引弹窗
+        function openGuideModal() {
+            document.getElementById('guide-modal').classList.add('open');
+        }
+        function closeGuideModal() {
+            document.getElementById('guide-modal').classList.remove('open');
+        }
+
+        // 自动连接中控实时流与保活逻辑 (结合 MJPEG 视频流与状态自愈)
+        (function initFeedConnection() {
+            const streamImg = document.getElementById('render-stream');
+            const idleLayer = document.getElementById('idle-layer');
+            const statusDot = document.querySelector('.pill-status-dot');
+            let isCurrentlyLive = false;
+            let checkTimer = null;
+
+            async function syncLiveStatus() {
+                try {
+                    const res = await fetch('/api/v1/live/status');
+                    if (res.ok) {
+                        const json = await res.json();
+                        const live = json.code === 0 && Boolean(json.is_live);
+                        handleLiveState(live);
+                    } else {
+                        handleLiveState(false);
+                    }
+                } catch (e) {
+                    handleLiveState(false);
+                }
+            }
+
+            function handleLiveState(isLive) {
+                if (isLive === isCurrentlyLive) return;
+                isCurrentlyLive = isLive;
+
+                if (isLive) {
+                    console.log("[Viewport] 检测到开播，挂载数字人高清推流画面...");
+                    streamImg.src = `/api/v1/live/stream/preview?t=${Date.now()}`;
+                    streamImg.style.display = 'block';
+                    idleLayer.style.display = 'none';
+                    if (statusDot) {
+                        statusDot.style.background = '#10B981';
+                        statusDot.style.boxShadow = '0 0 8px #10B981';
+                    }
+                } else {
+                    console.log("[Viewport] 待机状态，展示微动态呼吸兜底层...");
+                    streamImg.style.display = 'none';
+                    streamImg.src = '';
+                    idleLayer.style.display = 'flex';
+                    if (statusDot) {
+                        statusDot.style.background = '#F59E0B';
+                        statusDot.style.boxShadow = '0 0 8px #F59E0B';
+                    }
+                }
+            }
+
+            // 图片加载失败保护 (流意外中断时切回待机)
+            streamImg.onerror = () => {
+                console.warn("[Viewport] 视频流连接断开，回退至待机兜底");
+                streamImg.style.display = 'none';
+                idleLayer.style.display = 'flex';
+                isCurrentlyLive = false;
+            };
+
+            // 启动定时巡检与即刻同步
+            syncLiveStatus();
+            checkTimer = setInterval(syncLiveStatus, 1500);
+
+            // 页面卸载时清理定时器
+            window.addEventListener('beforeunload', () => {
+                if (checkTimer) clearInterval(checkTimer);
+            });
+        })();
+    </script>
+</body>
+</html>

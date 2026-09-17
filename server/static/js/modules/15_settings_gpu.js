@@ -1020,38 +1020,83 @@ async function testCurrentGpuAvatarConnection(isAutoAfterSave = false) {
         });
         const json = await res.json();
         if (json.code === 0 && json.success) {
+            const latency = json.latency_ms ?? 0;
+            let latencyGrade = "🟢 极速流畅";
+            let latencyColor = "#10B981";
+            if (latency > 300) {
+                latencyGrade = "🟠 延迟较高";
+                latencyColor = "#F59E0B";
+            } else if (latency > 150) {
+                latencyGrade = "🟡 良好稳定";
+                latencyColor = "#FBBF24";
+            }
+
+            const device = json.device || "NVIDIA GPU 算力就绪";
             if (resultBox) {
-                resultBox.style.display = "flex";
-                resultBox.style.background = "rgba(16, 185, 129, 0.12)";
-                resultBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
-                resultBox.style.color = "#10B981";
+                resultBox.style.display = "block";
+                resultBox.style.background = "rgba(16, 185, 129, 0.08)";
+                resultBox.style.border = "1.5px solid rgba(16, 185, 129, 0.35)";
+                resultBox.style.padding = "14px";
+                resultBox.style.borderRadius = "8px";
                 resultBox.innerHTML = `
-                    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #10B981; fill: none; stroke-width: 2.5;"><polyline points="20 6 9 17 4 12"/></svg>
-                    <strong>通信对接成功！</strong>${escapeHtml(json.message)}
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid rgba(16,185,129,0.2); padding-bottom:6px;">
+                        <div style="font-weight:700; color:#10B981; display:flex; align-items:center; gap:6px;">
+                            <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:#10B981;fill:none;stroke-width:2.5;"><polyline points="20 6 9 17 4 12"/></svg>
+                            云端渲染节点通信对接成功
+                        </div>
+                        <span class="brand-badge green">全双工在线</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-top:8px;">
+                        <div style="background:rgba(15,23,42,0.6); padding:8px 12px; border-radius:6px; border:1px solid rgba(148,163,184,0.15);">
+                            <div style="font-size:11px; color:var(--text-muted);">🖥️ 远端 GPU 设备</div>
+                            <div style="font-size:13px; font-weight:600; color:#f8fafc; margin-top:2px;">${escapeHtml(device)}</div>
+                        </div>
+                        <div style="background:rgba(15,23,42,0.6); padding:8px 12px; border-radius:6px; border:1px solid rgba(148,163,184,0.15);">
+                            <div style="font-size:11px; color:var(--text-muted);">⚡ 端云往返时延 (Ping)</div>
+                            <div style="font-size:13px; font-weight:700; color:${latencyColor}; margin-top:2px;">
+                                ${latency}ms · ${latencyGrade}
+                            </div>
+                        </div>
+                        <div style="background:rgba(15,23,42,0.6); padding:8px 12px; border-radius:6px; border:1px solid rgba(148,163,184,0.15);">
+                            <div style="font-size:11px; color:var(--text-muted);">🛡️ 防黑屏保活状态</div>
+                            <div style="font-size:12px; font-weight:500; color:#10B981; margin-top:2px;">已就绪 · 本地微动态兜底</div>
+                        </div>
+                    </div>
                 `;
             }
-            showToast(`✅ 通信对接成功！${json.device ? '已识别到硬件：' + json.device : ''}（延迟: ${json.latency_ms}ms）`, "success");
+            showToast(`✅ 通信对接成功！${device}（延迟: ${latency}ms）`, "success");
         } else {
             const errMsg = json.message || "通信测试失败，请检查地址或网络端口";
             if (resultBox) {
-                resultBox.style.display = "flex";
-                resultBox.style.background = "rgba(239, 68, 68, 0.12)";
-                resultBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
-                resultBox.style.color = "#EF4444";
+                resultBox.style.display = "block";
+                resultBox.style.background = "rgba(239, 68, 68, 0.08)";
+                resultBox.style.border = "1.5px solid rgba(239, 68, 68, 0.35)";
+                resultBox.style.padding = "12px 14px";
+                resultBox.style.borderRadius = "8px";
                 resultBox.innerHTML = `
-                    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #EF4444; fill: none; stroke-width: 2.5;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    <strong>通信对接未通达：</strong>${escapeHtml(errMsg)}
+                    <div style="font-weight:700; color:#EF4444; display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                        <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:#EF4444;fill:none;stroke-width:2.5;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        通信对接未通达
+                    </div>
+                    <div style="font-size:12.5px; color:#cbd5e1; line-height:1.6;">${escapeHtml(errMsg)}</div>
+                    <div style="margin-top:8px; font-size:11.5px; color:#94a3b8; border-top:1px dashed rgba(148,163,184,0.2); padding-top:6px;">
+                        💡 <strong>排查建议：</strong>若使用云端 GPU，请确认云端终端已运行 <code>scripts/cloud_sidecar_bootstrap.py</code>，并且 Cloudflare 隧道已成功分配公网域名。
+                    </div>
                 `;
             }
             showToast(isAutoAfterSave ? `⚠️ 配置已保存，但通信握手未成功: ${errMsg}` : `❌ 连通失败: ${errMsg}`, "error");
         }
     } catch (e) {
         if (resultBox) {
-            resultBox.style.display = "flex";
-            resultBox.style.background = "rgba(239, 68, 68, 0.12)";
-            resultBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
-            resultBox.style.color = "#EF4444";
-            resultBox.innerHTML = `<strong>请求异常：</strong>${escapeHtml(String(e))}`;
+            resultBox.style.display = "block";
+            resultBox.style.background = "rgba(239, 68, 68, 0.08)";
+            resultBox.style.border = "1.5px solid rgba(239, 68, 68, 0.35)";
+            resultBox.style.padding = "12px 14px";
+            resultBox.style.borderRadius = "8px";
+            resultBox.innerHTML = `
+                <div style="font-weight:700; color:#EF4444; margin-bottom:4px;">请求异常</div>
+                <div style="font-size:12px; color:#cbd5e1;">${escapeHtml(String(e))}</div>
+            `;
         }
         showToast("连通测试异常: " + e, "error");
     } finally {
@@ -1062,7 +1107,22 @@ async function testCurrentGpuAvatarConnection(isAutoAfterSave = false) {
     }
 }
 
+// 复制云端 A100 一键启动命令
+function copyCloudBootstrapCommand() {
+    const cmd = "curl -sSL https://ghproxy.net/https://raw.githubusercontent.com/winclubs/AI-LiveStream-Agent/main/scripts/cloud_sidecar_bootstrap.py -o sidecar.py && python3 sidecar.py";
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(cmd).then(() => {
+            showToast("📋 已复制云端一键启动命令！直接在云端开发机终端粘贴回车即可。", "success");
+        }).catch(() => {
+            prompt("请复制以下命令在云主机终端中执行：", cmd);
+        });
+    } else {
+        prompt("请复制以下命令在云主机终端中执行：", cmd);
+    }
+}
+
 // 显式挂载到 window 全局，确保 HTML 内联 onclick 能够直接调用
+window.copyCloudBootstrapCommand = copyCloudBootstrapCommand;
 window.testCurrentGpuAvatarConnection = testCurrentGpuAvatarConnection;
 window.handleSaveGpuAvatarConfig = handleSaveGpuAvatarConfig;
 window.loadGpuAvatarProviders = loadGpuAvatarProviders;

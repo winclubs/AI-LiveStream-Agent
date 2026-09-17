@@ -11,10 +11,13 @@ import inspect
 import wave
 import psutil
 from collections import deque
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Response, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, AsyncGenerator
+from server.core.audio.full_duplex_asr import get_full_duplex_asr_manager
+from server.core.media.webrtc_streamer import get_webrtc_stream_manager
+from server.core.media.recorder import get_record_manager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 from server.database.db import get_db
@@ -392,6 +395,12 @@ class LiveSessionController:
             await self.tts_driver.interrupt(reason)
         except Exception:
             logger.exception("TTS 驱动打断失败")
+        # 联动数字人驱动瞬间打断 (清空口型与音频队列，恢复待机)
+        try:
+            from server.core.avatar import get_active_avatar_driver
+            await get_active_avatar_driver().flush_talk()
+        except Exception:
+            logger.exception("数字人驱动 flush_talk 打断失败")
         # 向前端 WebSocket 广播打断信令
         from server.routes.ws_live import ws_manager
         await ws_manager.broadcast("TRIGGER_BARGE_IN", {
@@ -659,6 +668,9 @@ class LiveSessionController:
 
         # 启动 VRAM 看门狗 (无 GPU 环境自动空转)
         self.vram_watchdog.start()
+        # 启动低配机 CPU/内存自适应降频看门狗 (保障音频算力优先)
+        from server.core.monitoring.system_resource_watchdog import global_resource_watchdog
+        global_resource_watchdog.start()
 
         # 根据平台经注册表选择真实抓取器；正式平台绝不静默注入假弹幕
         from server.adapters.danmaku.registry import global_danmaku_registry
@@ -670,7 +682,10 @@ class LiveSessionController:
             logger.info("启动仿真弹幕注入器 (MockDanmakuFetcher, auto_inject=True)")
             self.fetcher = MockDanmakuFetcher("room_demo_888", self._on_danmaku_event, auto_inject=True)
         elif global_danmaku_registry.has(platform_lower):
-            clean_id = re.sub(r"[^0-9]", "", raw_room.split("?")[0].rstrip("/").split("/")[-1]) or raw_room
+            if platform_lower == "bilibili":
+                clean_id = re.sub(r"[^0-9]", "", raw_room.split("?")[0].rstrip("/").split("/")[-1]) or raw_room
+            else:
+                clean_id = raw_room.strip()
             if not clean_id:
                 logger.warning("正式平台【%s】未提供有效房间号，挂载无自动注入的被动中继器", platform_lower)
                 self.fetcher = MockDanmakuFetcher(room_id="passive", on_event_callback=self._on_danmaku_event, auto_inject=False)
@@ -834,6 +849,8 @@ class LiveSessionController:
             self.live_context.pop("vision_image_b64", None)
             if hasattr(self, "vram_watchdog") and self.vram_watchdog:
                 await self._safe_close("vram_watchdog", self.vram_watchdog.stop, timeout=2.0)
+            from server.core.monitoring.system_resource_watchdog import global_resource_watchdog
+            await self._safe_close("resource_watchdog", global_resource_watchdog.stop, timeout=2.0)
 
             # 7. 清空事件队列
             await self._safe_close("event_queue", self.event_queue.clear, timeout=1.0)
@@ -1004,6 +1021,13 @@ class LiveSessionController:
                 await self._refresh_product_context()
                 active_role = global_role_manager.get_active_role()
                 logger.info(f"开始处理直播事件 [P{event.priority}]: {event.event_type} 来自 {event.user_name}")
+
+                # 动作状态机事件联动 (如礼物打赏自动触发动作4致谢，新进观众触发动作1欢迎)
+                try:
+                    from server.core.avatar import get_action_state_machine
+                    get_action_state_machine().evaluate_event(event.event_type, event.payload)
+                except Exception:
+                    pass
 
                 # 注入多轮对话历史 (转 list 快照，供角色 LLM 上下文引用)
                 self.live_context["history"] = list(self.history)
@@ -1405,6 +1429,40 @@ class LiveSessionController:
             if not is_current():
                 return
 
+        # 联动数字人驱动音频推送与电商带货场景动作切片智能切换
+        try:
+            from server.core.avatar import get_active_avatar_driver, get_action_state_machine
+            avatar_driver = get_active_avatar_driver()
+            action_sm = get_action_state_machine()
+            if avatar_driver and avatar_driver.is_active:
+                action_code = action_sm.evaluate_text(speak_text)
+                if action_code is None:
+                    # 规则兜底研判
+                    if any(kw in speak_text for kw in ("购物车", "下单", "左下角", "抢购", "手慢无", "买一送")):
+                        action_code = 3  # 促单指引购物车
+                    elif any(kw in speak_text for kw in ("欢迎", "来了", "刚进", "哈喽", "晚上好")):
+                        action_code = 1  # 挥手欢迎
+                    elif any(kw in speak_text for kw in ("点赞", "关注", "粉丝团", "灯牌")):
+                        action_code = 2  # 求关注点赞
+                    elif any(kw in speak_text for kw in ("感谢", "礼物", "破费", "大气")):
+                        action_code = 4  # 致谢大礼
+                    if action_code:
+                        await avatar_driver.set_custom_state(action_code, source="speech_text")
+                else:
+                    await avatar_driver.set_custom_state(action_code, source="speech_text")
+
+                raw_pcm = b""
+                if codec in ("pcm_s16le", "pcm16", "s16le"):
+                    raw_pcm = full_audio
+                elif framed_audio and getattr(framed_audio, "frames", None):
+                    raw_pcm = b"".join(getattr(f, "pcm_bytes", b"") for f in framed_audio.frames)
+                if raw_pcm:
+                    await avatar_driver.push_audio_chunk(raw_pcm[:640])
+                elif full_audio:
+                    await avatar_driver.push_audio_chunk(full_audio[:640])
+        except Exception:
+            logger.debug("同步数字人驱动音频与动作异常", exc_info=True)
+
         browser_audio = full_audio
         browser_codec = codec
         browser_mime_type = mime_type
@@ -1595,11 +1653,11 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
     is_demo = bool(getattr(req, "demo_mode", False) or platform_lower in ("mock", "demo") or target_room.lower() in ("room_demo", "mock"))
 
     # 正式直播平台严禁空房间静默进入仿真模式，必须拦截并校验
-    if platform_lower in ("bilibili", "douyin") and not is_demo:
+    if platform_lower in ("bilibili", "douyin", "kuaishou", "wechat") and not is_demo:
         if not target_room:
             raise HTTPException(
                 status_code=400,
-                detail=f"【{platform}】正式直播必须提供有效的房间号或房间链接；如需测试仿真互动，请选择 mock 模式或开启 demo_mode"
+                detail=f"【{platform}】正式直播必须提供有效的房间号或直播链接；如需测试仿真互动，请选择 mock 模式或开启 demo_mode"
             )
 
     live_mode = await _get_setting(db, SETTING_KEY_LIVE_MODE) or "B"
@@ -1927,6 +1985,8 @@ async def get_media_status():
     vision["active_frame"] = bool(global_live_controller.live_context.get("vision_image_b64"))
     data["vision"] = vision
     data["av_sync"] = _safe_media_status("av_sync", global_av_sync.get_status)
+    from server.core.monitoring.system_resource_watchdog import global_resource_watchdog
+    data["resource_watchdog"] = global_resource_watchdog.get_status()
     return {
         "code": 0,
         "data": data,
@@ -1948,7 +2008,14 @@ async def receive_danmaku_webhook(payload: DanmakuWebhookPayload):
         "count": payload.gift_count or 1,
         "total_coin": payload.total_coin or 0
     }
-    priority = 0 if event_type == "gift" and (payload.total_coin or 0) >= 50000 else (1 if event_type == "gift" else 2)
+    intent_keywords = ["多少钱", "怎么买", "发货", "优惠", "包邮", "领券", "链接", "库存", "正品", "拍了", "保修"]
+    text_content = payload.text or ""
+    if event_type == "gift":
+        priority = 0 if (payload.total_coin or 0) >= 50000 else 1
+    elif any(kw in text_content for kw in intent_keywords):
+        priority = 1
+    else:
+        priority = 2
     res = await global_live_controller.ingest_event(
         event_type=event_type,
         user_name=payload.user_name,
@@ -1974,6 +2041,44 @@ async def interrupt_live(req: LiveInterruptRequest):
         is_mock=False,
     )
     return {"code": 0 if res.get("accepted") else 1, "message": "人工插话已成功抢占插播", "data": res}
+
+
+@router.post("/voice-interrupt")
+async def voice_interrupt_live(
+    file: UploadFile = File(...),
+    auto_reply: bool = Form(True)
+):
+    """
+    麦克风实时语音打断与人工插话 (解决 7.4-7 无 ASR/VAD 语音输入通道短板)
+    上传麦克风录音切片，自动调用 ASR 引擎识别文本；
+    若识别出有效内容，立即触发 P0 级打断当前主播，并作为高优先级事件抢占播报。
+    """
+    if not global_live_controller.is_live:
+        raise HTTPException(status_code=400, detail="直播尚未开播，禁止语音插播")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的语音内容为空")
+
+    from server.core.audio.asr_engine import transcribe_audio_bytes
+    text = transcribe_audio_bytes(content)
+    if not text.strip():
+        text = "收到现场麦克风紧急语音插话"
+
+    res = await global_live_controller.ingest_event(
+        event_type="chat",
+        user_name="现场麦克风",
+        payload={"text": text, "from_voice": True},
+        priority=0,  # P0 触发毫秒级强打断
+        source="voice_interrupt",
+        is_mock=False,
+    )
+    return {
+        "code": 0,
+        "message": f"麦克风语音识别成功: '{text}'，已触发 P0 强打断抢占播报",
+        "transcribed_text": text,
+        "data": res
+    }
 
 
 class MockEventRequest(BaseModel):
@@ -2215,7 +2320,10 @@ async def _hardware_payload() -> dict:
     memory = psutil.virtual_memory()
     # 重量级 GPU 探测 (nvidia-smi/WMI 子进程) 卸载到线程池，严禁阻塞事件循环 (ADR-08)
     gpu_info = await asyncio.to_thread(_probe_gpu)
+    from server.core.hardware.gpu_capability import evaluate_compute
+    compute_plan = await evaluate_compute(feature_name="全局高性能计算", required_vram_gb=2.0)
     cpu_name = platform.processor() or os.environ.get("PROCESSOR_IDENTIFIER", "") or "未知处理器"
+
     payload = {
         "cpu_name": cpu_name,
         "cpu_cores": psutil.cpu_count(logical=True) or 0,
@@ -2224,6 +2332,7 @@ async def _hardware_payload() -> dict:
         "ram_total_gb": round(memory.total / (1024 ** 3), 2),
         "ram_percent": memory.percent,
         "gpu": gpu_info,
+        "gpu_capability": compute_plan.to_dict(),
         "recommended_mode": _recommend_tier(gpu_info)
     }
     _HW_PAYLOAD_CACHE["ts"] = now
@@ -2900,6 +3009,27 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
                           "违禁词库为空，直播缺少合规护栏",
                           "前往【违禁词汇】添加 (如广告法极限词)", "guardrails"))
 
+    # 10. 高性能显卡与云端算力智能调度研判 (按用户战略规则优先云端调度)
+    from server.core.hardware.gpu_capability import evaluate_compute
+    cap_plan = await evaluate_compute(feature_name="数字人高保真口型渲染", required_vram_gb=2.0)
+    if cap_plan.use_cloud:
+        cloud_pname = cap_plan.cloud_gpu.get("provider_name", "Sidecar") if cap_plan.cloud_gpu else "Sidecar"
+        checks.append(_pf(
+            "pass", "gpu_cloud_dispatch", "云端显卡智能调度",
+            f"已优先调度已配置的云端显卡算力节点 [{cloud_pname}]，本地轻量低负载运行",
+        ))
+    elif cap_plan.is_low_spec_local:
+        checks.append(_pf(
+            "warn", "gpu_cloud_dispatch", "高性能显卡调度",
+            f"本地显卡仅 {cap_plan.local_gpu.get('vram_total_gb', 0)}GB 显存且未对接云端显卡。高清深度神经渲染不可用，已自动选用轻量免显卡 CPU 模式",
+            "如需高清写实数字人，请前往【系统设置 -> 显卡与渲染设置】添加云端显卡 (Sidecar) 节点", "settings",
+        ))
+    else:
+        checks.append(_pf(
+            "pass", "gpu_cloud_dispatch", "高性能显卡调度",
+            f"本地显卡（{cap_plan.local_gpu.get('gpu_name')}，显存 {cap_plan.local_gpu.get('vram_total_gb')}GB）显存充足，支持高性能运行",
+        ))
+
     fails = sum(1 for c in checks if c["status"] == "fail")
     warns = sum(1 for c in checks if c["status"] == "warn")
     passes = sum(1 for c in checks if c["status"] == "pass")
@@ -2958,3 +3088,332 @@ async def get_rtmp_status():
     """获取内置 RTMP 直推状态、时长与码率统计"""
     from server.core.media.rtmp_streamer import global_rtmp_streamer
     return {"code": 0, "message": "success", "data": global_rtmp_streamer.get_status()}
+
+
+# ------------------------------------------------------------------
+# OBS 虚拟摄像头 (Virtual Camera) 控制与状态端点
+# ------------------------------------------------------------------
+class VirtualCamStartRequest(BaseModel):
+    width: Optional[int] = Field(1280, ge=320, le=3840)
+    height: Optional[int] = Field(720, ge=240, le=3840)
+    fps: Optional[int] = Field(25, ge=10, le=60)
+
+
+@router.post("/virtual-cam/start", summary="启动 OBS 虚拟摄像头输出")
+async def start_virtual_camera(req: Optional[VirtualCamStartRequest] = None):
+    """启动本地虚拟摄像头，向 DirectShow / OBS Virtual Camera 输出实时画面"""
+    from server.core.media.virtual_cam import global_virtual_cam
+    if req:
+        global_virtual_cam.width = req.width or 1280
+        global_virtual_cam.height = req.height or 720
+        global_virtual_cam.fps = req.fps or 25
+    success = global_virtual_cam.start()
+    status = global_virtual_cam.get_status()
+    if not success and not status.get("is_active"):
+        return {"code": 1, "message": f"虚拟摄像头启动受限: {status.get('last_error', '未知错误')}", "data": status}
+    return {"code": 0, "message": "虚拟摄像头已成功启动", "data": status}
+
+
+@router.post("/virtual-cam/stop", summary="停止 OBS 虚拟摄像头输出")
+async def stop_virtual_camera():
+    """安全关闭本地虚拟摄像头设备并释放句柄"""
+    from server.core.media.virtual_cam import global_virtual_cam
+    global_virtual_cam.stop()
+    return {"code": 0, "message": "虚拟摄像头已停止", "data": global_virtual_cam.get_status()}
+
+
+@router.get("/virtual-cam/status", summary="查询 OBS 虚拟摄像头状态与设备指标")
+async def get_virtual_camera_status():
+    """获取本地虚拟摄像头设备状态、输出帧率与写入统计"""
+    from server.core.media.virtual_cam import global_virtual_cam
+    return {"code": 0, "message": "success", "data": global_virtual_cam.get_status()}
+
+
+# ------------------------------------------------------------------
+# 数字人核心状态查询、极速打断 (flush_talk) 与电商动作切换端点
+# ------------------------------------------------------------------
+class AvatarActionRequest(BaseModel):
+    action_code: int = Field(..., ge=0, le=10, description="动作切片代码: 0=待机, 1=欢迎, 2=点赞关注, 3=促单逼单指购物车, 4=致谢")
+    duration: Optional[float] = Field(None, ge=0.0, le=60.0, description="动作持续时间(秒)，超时自动平滑衰减回待机态0")
+    priority: Optional[int] = Field(None, ge=0, le=10, description="动作优先级(0-10)")
+
+
+@router.get("/is-speaking", summary="查询数字人毫秒级实时发声状态")
+async def check_is_speaking():
+    """供前端呼吸灯与动态波形毫秒级轮询：查询当前主播是否正在发声或播报"""
+    from server.core.avatar import get_active_avatar_driver
+    driver = get_active_avatar_driver()
+    is_speaking = driver.is_speaking()
+    status = driver.get_status()
+    status["is_speaking"] = is_speaking
+    return {
+        "code": 0,
+        "message": "success",
+        "data": status
+    }
+
+
+@router.post("/avatar/flush-talk", summary="瞬间清空数字人口型与音频队列 (极速打断)")
+async def flush_avatar_talk():
+    """调用数字人驱动瞬间打断接口，清空待播音频队列并恢复待机帧"""
+    from server.core.avatar import get_active_avatar_driver
+    driver = get_active_avatar_driver()
+    await driver.flush_talk()
+    return {
+        "code": 0,
+        "message": "数字人音频与口型队列已瞬间重置",
+        "data": driver.get_status()
+    }
+
+
+@router.post("/avatar/action", summary="切换数字人动作切片状态")
+async def set_avatar_action(req: AvatarActionRequest):
+    """指令式驱动数字人肢体动作切片 (0:呼吸待机, 1:欢迎, 2:求关注, 3:促单指购物车, 4:致谢)"""
+    from server.core.avatar import get_active_avatar_driver
+    driver = get_active_avatar_driver()
+    success = await driver.set_custom_state(
+        req.action_code,
+        duration=req.duration,
+        priority=req.priority,
+        source="api"
+    )
+    return {
+        "code": 0 if success else 1,
+        "message": f"数字人动作已切换至代码: {req.action_code}",
+        "data": driver.get_status()
+    }
+
+
+# ============================================================================
+# 🎙️ 全双工 ASR 语音识别与麦克风极速打断系统 (阶段四)
+# ============================================================================
+
+@router.websocket("/asr/ws")
+async def websocket_asr_endpoint(websocket: WebSocket):
+    """
+    全双工麦克风音频流 WebSocket：
+    客户端流式上行 16kHz 16-bit 单声道 PCM 数据，服务端 VAD 检测人声，
+    触发瞬间打断与段落转写，并将识别结果作为现场提问注入直播交互。
+    """
+    await websocket.accept()
+    session_id = f"asr_{uuid.uuid4().hex[:8]}"
+    manager = get_full_duplex_asr_manager()
+
+    loop = asyncio.get_running_loop()
+
+    def _notify_interrupt():
+        try:
+            asyncio.run_coroutine_threadsafe(
+                websocket.send_json({"type": "interrupted", "message": "已触发数字人实时闭嘴打断"}),
+                loop
+            )
+        except Exception:
+            pass
+
+    def _notify_transcribe(text: str):
+        try:
+            asyncio.run_coroutine_threadsafe(
+                websocket.send_json({"type": "transcription", "text": text}),
+                loop
+            )
+            logger.info(f"全双工 ASR 捕获现场提问: 【{text}】")
+            if getattr(global_live_controller, "is_live", False) and text.strip():
+                asyncio.run_coroutine_threadsafe(
+                    global_live_controller.ingest_event(
+                        event_type="chat",
+                        user_name="现场语音提问",
+                        payload={"content": text.strip(), "text": text.strip()},
+                        priority=1,
+                        source="asr_mic",
+                    ),
+                    loop
+                )
+        except Exception:
+            pass
+
+    session = manager.get_or_create_session(
+        session_id=session_id,
+        on_interrupt=_notify_interrupt,
+        on_transcribe=_notify_transcribe,
+    )
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if "bytes" in message and message["bytes"]:
+                pcm_chunk = message["bytes"]
+                res = session.feed_pcm(pcm_chunk)
+                if "speech_start" in res.get("events", []):
+                    await websocket.send_json({"type": "speech_start"})
+                if "speech_end" in res.get("events", []):
+                    await websocket.send_json({"type": "speech_end"})
+            elif "text" in message and message["text"]:
+                data = json.loads(message["text"])
+                if data.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        logger.info(f"ASR WebSocket 客户端断开: {session_id}")
+    except Exception as e:
+        logger.warning(f"ASR WebSocket 异常: {e}")
+    finally:
+        manager.remove_session(session_id)
+
+
+@router.post("/asr/transcribe", summary="单段语音离线识别转录")
+async def transcribe_audio_file(
+    file: UploadFile = File(...),
+):
+    """上传 wav/mp3/pcm 音频文件直接识别为中文文本"""
+    from server.core.audio.asr_engine import transcribe_audio_bytes
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="音频内容为空")
+    text = transcribe_audio_bytes(content)
+    return {
+        "code": 0,
+        "message": "转写完成",
+        "data": {
+            "text": text,
+            "file_size": len(content)
+        }
+    }
+
+
+# ============================================================================
+# ⚡ WebRTC 原生流媒体大屏 (WHEP 标准协商) (阶段四)
+# ============================================================================
+
+@router.post("/webrtc/whep", summary="WHEP 协议创建低延迟 WebRTC 媒体流会话")
+async def whep_endpoint(request: Request):
+    """
+    符合 IETF WHEP (WebRTC HTTP Egress Protocol) 标准规范：
+    客户端 POST 发送 SDP Offer，服务端返回 201 Created 与 SDP Answer。
+    同时兼容 application/json 格式。
+    """
+    content_type = request.headers.get("content-type", "")
+    sdp_offer = ""
+    if "application/json" in content_type:
+        body = await request.json()
+        sdp_offer = body.get("sdp", "")
+    else:
+        raw_body = await request.body()
+        sdp_offer = raw_body.decode("utf-8", errors="ignore")
+
+    if not sdp_offer.strip():
+        raise HTTPException(status_code=400, detail="SDP Offer 不能为空")
+
+    stream_mgr = get_webrtc_stream_manager()
+    session_id, sdp_answer = await stream_mgr.handle_whep_offer(sdp_offer)
+
+    headers = {
+        "Location": f"/api/v1/live/webrtc/whep/{session_id}",
+        "Content-Type": "application/sdp",
+    }
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept or "application/json" in content_type:
+        return {
+            "code": 0,
+            "session_id": session_id,
+            "sdp": sdp_answer,
+            "type": "answer",
+        }
+
+    return Response(
+        content=sdp_answer,
+        status_code=201,
+        headers=headers,
+        media_type="application/sdp",
+    )
+
+
+@router.delete("/webrtc/whep/{session_id}", summary="断开释放 WebRTC 会话")
+async def close_whep_session(session_id: str):
+    """释放指定的 WHEP WebRTC PeerConnection 连接"""
+    stream_mgr = get_webrtc_stream_manager()
+    await stream_mgr.close_session(session_id)
+    return {"code": 0, "message": f"会话 {session_id} 已释放"}
+
+
+@router.get("/webrtc/status", summary="查询 WebRTC 流媒体服务状态")
+async def get_webrtc_status():
+    """获取当前 WebRTC 在线拉流客户端数与帧率"""
+    stream_mgr = get_webrtc_stream_manager()
+    return {
+        "code": 0,
+        "data": stream_mgr.get_status()
+    }
+
+
+# ============================================================================
+# 🎥 短视频与带货切片一键录制导出系统 (/record) (阶段四)
+# ============================================================================
+
+class StartRecordRequest(BaseModel):
+    title: str = Field("带货讲解切片", description="切片标题")
+    sku: str = Field("", description="绑定的商品 SKU")
+    width: int = Field(1280, description="视频宽度")
+    height: int = Field(720, description="视频高度")
+
+
+@router.post("/record/start", summary="启动直播短视频讲解切片录制")
+async def start_clip_recording(req: StartRecordRequest = StartRecordRequest()):
+    """
+    一键开始录制当前数字人直播画面的 1080P/720P 高清切片
+    """
+    recorder_mgr = get_record_manager()
+    res = recorder_mgr.start_recording(
+        title=req.title,
+        sku=req.sku,
+        width=req.width,
+        height=req.height
+    )
+    if res.get("code") != 0:
+        raise HTTPException(status_code=400, detail=res.get("message", "启动录制失败"))
+    return res
+
+
+@router.post("/record/stop", summary="停止录制并封装导出 MP4 切片")
+async def stop_clip_recording():
+    """
+    停止录制，自动调用 FFmpeg 封装带声画同步的标准 H.264 MP4 文件
+    """
+    recorder_mgr = get_record_manager()
+    res = recorder_mgr.stop_recording()
+    if res.get("code") != 0:
+        raise HTTPException(status_code=400, detail=res.get("message", "停止录制失败"))
+    return res
+
+
+@router.get("/record/status", summary="查询当前录制状态与计时")
+async def get_recording_status():
+    """查询当前是否正在录制、录制时长与累计帧数"""
+    recorder_mgr = get_record_manager()
+    return {
+        "code": 0,
+        "data": recorder_mgr.get_status()
+    }
+
+
+@router.get("/record/list", summary="查询已录制带货切片列表")
+async def list_recordings():
+    """查询历史生成的带货讲解 MP4 切片资产列表"""
+    recorder_mgr = get_record_manager()
+    items = recorder_mgr.list_recordings()
+    return {
+        "code": 0,
+        "total": len(items),
+        "data": items
+    }
+
+
+@router.delete("/record/{record_id}", summary="删除切片视频文件")
+async def delete_recording(record_id: str):
+    """删除指定的带货切片视频文件及目录"""
+    recorder_mgr = get_record_manager()
+    success = recorder_mgr.delete_recording(record_id)
+    return {
+        "code": 0 if success else 1,
+        "message": "切片文件已删除"
+    }
+
+

@@ -688,3 +688,23 @@ def test_douyin_heartbeat_failure_closes_ws():
         mock_ws.close.assert_awaited_once()
 
     asyncio.run(_run())
+
+
+def test_multi_platform_empty_room_validation():
+    """验证四大主流平台 (bilibili, douyin, kuaishou, wechat) 正式开播空房间号必填校验"""
+    async def _run():
+        from fastapi import HTTPException
+        from server.routes.live import LiveStartRequest, _start_live_unlocked
+
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.execute = AsyncMock(return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))))
+
+        for plat in ["bilibili", "douyin", "kuaishou", "wechat"]:
+            req = LiveStartRequest(platform=plat, room_id="", demo_mode=False)
+            with pytest.raises(HTTPException) as exc_info:
+                await _start_live_unlocked(req, mock_db)
+            assert exc_info.value.status_code == 400
+            assert "必须提供有效的房间号或直播链接" in exc_info.value.detail
+
+    asyncio.run(_run())

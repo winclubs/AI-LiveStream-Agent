@@ -65,9 +65,12 @@ def infer_model_from_voice_id(voice_id: str, default_model: Optional[str] = None
       qwen-audio-3.0-tts-plus-bailian-xxxx -> qwen-audio-3.0-tts-plus
       cosyvoice-v3.5-plus-xxxx -> cosyvoice-v3.5-plus
       cosyvoice-v3.5-flash-xxxx -> cosyvoice-v3.5-flash
-    若传错模型（如用 cosyvoice-v3.5-flash 调用 qwen-audio-3.0-tts-plus 音色），百炼会报 418。
+    官方预置系统音色 (如 longxiaochun, longanchong, longlaotie 等):
+      自动路由到 cosyvoice-v1 (声音复刻专属模型 cosyvoice-v3.5-flash 会直接报 418 拒绝非复刻音色)。
     """
     clean_vid = (voice_id or "").strip().lower()
+
+    # 1. 优先识别带有显式模型前缀的专属复刻音色
     for known in [
         "qwen-audio-3.0-tts-plus",
         "qwen-audio-3.0-tts-flash",
@@ -80,8 +83,18 @@ def infer_model_from_voice_id(voice_id: str, default_model: Optional[str] = None
     ]:
         if clean_vid.startswith(known):
             return known
+
+    # 2. 官方预置系统音色：以 long 或 loong 开头，且不属于用户自定义克隆 (未包含 cloned / custom)
+    is_preset_voice = (clean_vid.startswith("long") or clean_vid.startswith("loong")) and "cloned" not in clean_vid and "custom" not in clean_vid
+    if is_preset_voice:
+        return "cosyvoice-v1"
+
     if default_model and default_model.strip():
+        # 如果传入了 default_model，但该音色是预置音色，而 default_model 是复刻专属模型 (v3.5-flash/plus)，自动纠偏为 v1
+        if is_preset_voice and ("flash" in default_model.lower() or "plus" in default_model.lower()):
+            return "cosyvoice-v1"
         return default_model.strip()
+
     return "cosyvoice-v3.5-flash"
 
 

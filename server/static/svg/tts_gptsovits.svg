@@ -1,22 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <defs>
-    <linearGradient id="gptsovitsGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#06b6d4"/>
+    <linearGradient id="sovitsBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#082032"/>
+      <stop offset="50%" stop-color="#091827"/>
+      <stop offset="100%" stop-color="#050d17"/>
+    </linearGradient>
+    <linearGradient id="sovitsBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#0284c7" stop-opacity="0.25"/>
+    </linearGradient>
+    <linearGradient id="sovitsNodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
       <stop offset="100%" stop-color="#0284c7"/>
     </linearGradient>
   </defs>
-  <rect width="48" height="48" rx="12" fill="url(#gptsovitsGrad)"/>
+  <rect width="48" height="48" rx="12" fill="url(#sovitsBg)" stroke="url(#sovitsBorder)" stroke-width="1.2"/>
   <!-- Neural Network Nodes & Waves -->
-  <circle cx="15" cy="18" r="3.5" fill="#ffffff" opacity="0.95"/>
-  <circle cx="33" cy="18" r="3.5" fill="#ffffff" opacity="0.95"/>
-  <circle cx="24" cy="30" r="4" fill="#ffffff"/>
-  <circle cx="16" cy="38" r="2.5" fill="#e0f2fe" opacity="0.8"/>
-  <circle cx="32" cy="38" r="2.5" fill="#e0f2fe" opacity="0.8"/>
-  <line x1="15" y1="18" x2="24" y2="30" stroke="#ffffff" stroke-width="2" opacity="0.75"/>
-  <line x1="33" y1="18" x2="24" y2="30" stroke="#ffffff" stroke-width="2" opacity="0.75"/>
-  <line x1="15" y1="18" x2="33" y2="18" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.6"/>
-  <line x1="24" y1="30" x2="16" y2="38" stroke="#ffffff" stroke-width="1.8" opacity="0.7"/>
-  <line x1="24" y1="30" x2="32" y2="38" stroke="#ffffff" stroke-width="1.8" opacity="0.7"/>
-  <!-- Voice Wave Crests -->
-  <path d="M20 11 C22 9, 26 9, 28 11" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  <g transform="translate(24, 24) scale(1.08) translate(-24, -24)">
+    <circle cx="15" cy="18" r="3.5" fill="#38bdf8" opacity="0.95"/>
+    <circle cx="33" cy="18" r="3.5" fill="#38bdf8" opacity="0.95"/>
+    <circle cx="24" cy="30" r="4" fill="#ffffff"/>
+    <circle cx="16" cy="38" r="2.5" fill="#bae6fd" opacity="0.85"/>
+    <circle cx="32" cy="38" r="2.5" fill="#bae6fd" opacity="0.85"/>
+    <line x1="15" y1="18" x2="24" y2="30" stroke="#38bdf8" stroke-width="2" opacity="0.85"/>
+    <line x1="33" y1="18" x2="24" y2="30" stroke="#38bdf8" stroke-width="2" opacity="0.85"/>
+    <line x1="15" y1="18" x2="33" y2="18" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.6"/>
+    <line x1="24" y1="30" x2="16" y2="38" stroke="#bae6fd" stroke-width="1.8" opacity="0.8"/>
+    <line x1="24" y1="30" x2="32" y2="38" stroke="#bae6fd" stroke-width="1.8" opacity="0.8"/>
+    <!-- Voice Wave Crests -->
+    <path d="M19 11 C22 8, 26 8, 29 11" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  </g>
 </svg>

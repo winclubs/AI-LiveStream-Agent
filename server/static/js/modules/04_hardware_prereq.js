@@ -9,13 +9,21 @@ async function loadHardwareInfo() {
         const setText = (id, text) => { const el = document.getElementById(id); if (el) el.innerHTML = text; };
 
         // 显卡
+        const cap = d.gpu_capability || {};
         if (gpu.gpu_name) {
+            let statusSuffix = "";
+            if (cap.use_cloud) {
+                statusSuffix = ` · <span style="color: var(--accent-emerald); font-weight: 600;">⚡ 已优先调度云端显卡</span>`;
+            } else if (cap.is_low_spec_local) {
+                statusSuffix = ` · <span style="color: var(--accent-amber); font-weight: 600;">⚠️ 显存不足2G未配云端</span>`;
+            }
             setText("hw-panel-gpu", gpu.gpu_name);
             setText("hw-panel-gpu-sub",
-                `显存 ${gpu.vram_total_gb}GB${gpu.vram_total_gb > 0 ? ` · 已用 ${gpu.vram_used_gb}GB` : ""} · ${gpu.cuda_available ? '<span style="color: var(--accent-emerald);">CUDA 加速可用</span>' : '<span style="color: var(--accent-amber);">无 CUDA 加速</span>'}`);
+                `显存 ${gpu.vram_total_gb}GB${gpu.vram_total_gb > 0 ? ` · 已用 ${gpu.vram_used_gb}GB` : ""} · ${gpu.cuda_available ? '<span style="color: var(--accent-emerald);">CUDA 可用</span>' : '<span style="color: var(--accent-amber);">无 CUDA</span>'}${statusSuffix}`);
         } else {
-            setText("hw-panel-gpu", '<span style="color: var(--text-muted);">未检测到独立显卡</span>');
-            setText("hw-panel-gpu-sub", "将使用云端语音与轻量方案运行");
+            const cloudBadge = cap.use_cloud ? ' · <span style="color: var(--accent-emerald); font-weight: 600;">⚡ 已优先调度云端显卡</span>' : ' · <span style="color: var(--accent-amber);">⚠️ 未配置云端显卡</span>';
+            setText("hw-panel-gpu", '<span style="color: var(--text-muted);">核显 / 未检测到独显</span>');
+            setText("hw-panel-gpu-sub", `将使用轻量方案${cloudBadge}`);
         }
 
         // 处理器

@@ -23,6 +23,7 @@ def _response(ok: bool, probe: str, details: dict | None = None) -> JSONResponse
 
 
 @router.get("/livez")
+@router.get("/health")
 async def liveness():
     return _response(health_state.phase != "stopping", "liveness")
 

@@ -334,6 +334,29 @@ def test_settings_api(client):
     assert "audio" in preview_res.headers.get("content-type", "")
     assert len(preview_res.content) > 1000
 
+    # 10. 测试 CosyVoice 预置音色 (如 longanchong/longxiaochun) 试听容错与模型推导纠偏
+    from server.core.audio.cosyvoice_ws import infer_model_from_voice_id
+    assert infer_model_from_voice_id("longanchong") == "cosyvoice-v1"
+    assert infer_model_from_voice_id("longxiaochun", "cosyvoice-v3.5-flash") == "cosyvoice-v1"
+    assert infer_model_from_voice_id("cosyvoice-v3.5-flash-cloned-abc") == "cosyvoice-v3.5-flash"
+
+    # 验证百炼预置音色试听即使在百炼拒绝 (如 418 voice not found) 时亦能平滑降级至高保真试听，绝不向前端抛出 400 阻断错误
+    from unittest.mock import patch
+    from server.core.audio.clone_preview import DashscopeCloneError
+
+    with patch("server.core.audio.clone_preview.synthesize_dashscope_cosyvoice") as mock_synth:
+        mock_synth.side_effect = DashscopeCloneError("百炼 418 InvalidParameter: voice not found", status=400)
+        preview_cosy_preset = client.post("/api/v1/settings/tts/preview", json={
+            "provider_name": "cosyvoice",
+            "voice_name": "longanchong",
+            "base_url": "https://dashscope.aliyuncs.com/api/v1",
+            "api_key": "sk-mock-for-test-cosy",
+            "model_name": "cosyvoice-v3.5-flash"
+        })
+        assert preview_cosy_preset.status_code == 200
+        assert "audio" in preview_cosy_preset.headers.get("content-type", "")
+        assert len(preview_cosy_preset.content) > 500
+
 
 
 def test_console_ui_endpoint(client):
@@ -1184,6 +1207,30 @@ def test_anchor_voice_binding_and_danmaku_webhook(client):
     stop_res = client.post("/api/v1/live/stop")
     assert stop_res.status_code == 200
     assert client.delete(f"/api/v1/voices/{voice_id}").status_code == 200
+
+
+def test_live_start_kuaishou_and_wechat_platforms(client):
+    """验证通过 POST /api/v1/live/start 支持快手与微信视频号开播与自愈停止"""
+    # 1. 快手平台开播
+    client.post("/api/v1/live/stop")
+    start_ks = client.post("/api/v1/live/start", json={
+        "platform": "kuaishou",
+        "room_id": "https://live.kuaishou.com/u/kuaishou_room_123",
+    })
+    assert start_ks.status_code == 200
+    assert start_ks.json()["is_live"] is True
+    assert start_ks.json()["platform"] == "kuaishou"
+    client.post("/api/v1/live/stop")
+
+    # 2. 视频号平台开播
+    start_wx = client.post("/api/v1/live/start", json={
+        "platform": "wechat",
+        "room_id": "liveId=export_wx_live_456",
+    })
+    assert start_wx.status_code == 200
+    assert start_wx.json()["is_live"] is True
+    assert start_wx.json()["platform"] == "wechat"
+    client.post("/api/v1/live/stop")
 
 
 def test_system_version_and_shutdown(client):

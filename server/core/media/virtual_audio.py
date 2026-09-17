@@ -11,6 +11,7 @@ import logging
 import queue
 import threading
 import time
+import sys
 from typing import List, Dict, Any, Optional
 
 from server.core.media.audio_decode import decode_audio_to_float32
@@ -413,6 +414,12 @@ class VirtualAudioService:
 
     def _playback_loop(self):
         """单一播放线程：串行写流，并响应空闲关闭与 shutdown 信号。"""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.kernel32.SetThreadPriority(ctypes.windll.kernel32.GetCurrentThread(), 2)
+            except Exception:
+                pass
         try:
             while not self._shutdown_event.is_set():
                 if self._stream_refresh_event.is_set():

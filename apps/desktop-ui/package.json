@@ -1,7 +1,7 @@
 {
   "name": "ai-livestream-agent-desktop",
   "productName": "AI-LiveStream-Agent 专业版",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "AI 互动直播系统桌面控制台 (Electron 桌面壳 + 本地 Python 引擎托管)",
   "main": "main.js",
   "scripts": {

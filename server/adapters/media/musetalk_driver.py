@@ -180,6 +180,15 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         global_virtual_cam.stop()
         logger.info("MuseTalkMediaDriver 渲染引擎已停止")
 
+    def set_target_fps(self, fps: int) -> int:
+        """动态调节渲染帧率 (供低配机自适应资源看门狗动态降频让渡 CPU 算力)"""
+        clamped = max(10, min(60, int(fps)))
+        old_fps = getattr(self, "fps", 25)
+        self.fps = clamped
+        if old_fps != clamped:
+            logger.info(f"数字人渲染帧率自适应动态调整: {old_fps} FPS -> {clamped} FPS")
+        return self.fps
+
     def set_avatar(self, source_path: str, landmarks_path: Optional[str] = None):
         """动态切换数字人形象底图与人脸关键点缓存 (口型/眨眼定位)"""
         self.avatar_source_path = source_path
@@ -361,12 +370,13 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         logger.info(f"数字人驱动收到打断信号 [{reason}]，口型立即平滑归位")
 
     def _render_thread_loop(self):
-        """核心视频驱动主循环 (独立线程)：精确维持 25 FPS (40ms)，绝不阻塞事件循环"""
-        frame_interval = 1.0 / self.fps
+        """核心视频驱动主循环 (独立线程)：自适应维持目标 FPS，绝不阻塞事件循环"""
         t = 0.0
 
         while self.is_running:
             loop_start = time.time()
+            current_fps = max(10, min(60, int(getattr(self, "fps", 25))))
+            frame_interval = 1.0 / current_fps
             t += frame_interval
 
             # 1. audio_id 句子严格按提交顺序绑定共享绝对播放头；兼容队列仅处理无 audio_id。

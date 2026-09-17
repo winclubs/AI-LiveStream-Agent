@@ -288,25 +288,170 @@ body { display: flex; flex-direction: column; position: relative; z-index: 1; }
   letter-spacing: 0.04em;
 }
 
-.form-control {
+.form-control,
+#anchor-name,
+#anchor-remark {
   width: 100%;
-  padding: 10px 14px;
+  padding: 9px 14px !important;
   font-size: var(--text-base);
   font-family: inherit;
-  color: var(--text-primary);
-  background: rgba(7, 9, 13, 0.55);
-  border: 1px solid var(--border-subtle);
+  color: #f1f5f9 !important;
+  background-color: rgba(13, 19, 32, 0.85) !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
   border-radius: var(--radius-md);
   outline: none;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   line-height: 1.6;
+  box-sizing: border-box;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
 }
-.form-control:focus {
-  border-color: rgba(45, 212, 160, 0.55);
-  box-shadow: 0 0 0 3px rgba(45, 212, 160, 0.1);
+
+.form-control:hover,
+#anchor-name:hover,
+#anchor-remark:hover {
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  background-color: rgba(18, 26, 44, 0.95) !important;
 }
-.form-control::placeholder { color: var(--text-muted); }
-select.form-control { cursor: pointer; }
+
+.form-control:focus,
+#anchor-name:focus,
+#anchor-remark:focus {
+  border-color: #10B981 !important;
+  background-color: rgba(15, 23, 42, 0.98) !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16), 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* 彻底消灭浏览器自动填充 (Autofill) 产生的刺眼浅白/浅蓝覆盖底色 */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus,
+#anchor-name:-webkit-autofill,
+#anchor-name:-webkit-autofill:hover,
+#anchor-name:-webkit-autofill:focus,
+#anchor-name:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #0d1320 inset !important;
+  box-shadow: 0 0 0 1000px #0d1320 inset !important;
+  -webkit-text-fill-color: #f1f5f9 !important;
+  caret-color: #34d399 !important;
+  transition: background-color 5000s ease-in-out 0s !important;
+}
+/* 统一全局高质感深色微光下拉选择器 (消除原生粗糙灰黑弹窗与生硬蓝底) */
+select.form-control,
+#anchor-voice {
+  width: 100% !important;
+  cursor: pointer !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-color: rgba(13, 19, 32, 0.85) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2310B981' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: calc(100% - 14px) center !important;
+  background-size: 14px !important;
+  padding: 9px 38px 9px 14px !important;
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  border-radius: var(--radius-md) !important;
+  font-size: var(--text-base) !important;
+  font-family: inherit !important;
+  outline: none !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+
+select.form-control:hover,
+#anchor-voice:hover {
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  background-color: rgba(18, 26, 44, 0.95) !important;
+}
+
+select.form-control:focus,
+#anchor-voice:focus {
+  border-color: #10B981 !important;
+  background-color: rgba(15, 23, 42, 0.98) !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16), 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* 下拉菜单选项层 (解决 Windows / Chrome 原生灰底蓝亮不协调问题) */
+select.form-control option,
+#anchor-voice option {
+  background-color: #0c121e !important;
+  color: #f1f5f9 !important;
+  padding: 10px 14px !important;
+  font-size: 13.5px !important;
+  border: none !important;
+}
+
+select.form-control optgroup,
+#anchor-voice optgroup {
+  background-color: #070a12 !important;
+  color: #34d399 !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  padding: 8px 12px 4px 12px !important;
+  letter-spacing: 0.04em !important;
+}
+
+select.form-control option:checked,
+#anchor-voice option:checked {
+  background-color: #064e3b !important;
+  color: #34d399 !important;
+  font-weight: 600 !important;
+}
+
+/* 主播列表表格专属类型快速选择器 (独立定制，消除外部 form-control 挤压遮挡) */
+.anchor-table-type-select {
+  display: inline-flex !important;
+  align-items: center !important;
+  vertical-align: middle !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  line-height: 22px !important;
+  box-sizing: border-box !important;
+  padding: 4px 28px 4px 10px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  font-family: inherit !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  outline: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  white-space: nowrap !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  background-repeat: no-repeat !important;
+  background-position: calc(100% - 9px) center !important;
+  background-size: 11px !important;
+  width: auto !important;
+  min-width: 175px !important;
+}
+
+.anchor-table-type-select:hover {
+  filter: brightness(1.18);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.08);
+}
+
+.anchor-table-type-select:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35) !important;
+}
+
+.anchor-table-type-select option {
+  background-color: #0c121e !important;
+  color: #f1f5f9 !important;
+  padding: 8px 12px !important;
+  font-size: 12.5px !important;
+  font-weight: normal !important;
+}
+
 textarea.form-control { resize: vertical; min-height: 64px; }
 
 input[type="file"].form-control {
@@ -1969,6 +2114,18 @@ input[type="range"]::-webkit-slider-thumb {
   min-width: 0;
 }
 
+.configured-llm-info img {
+  width: 42px !important;
+  height: 42px !important;
+  border-radius: 10px !important;
+  object-fit: cover !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  flex-shrink: 0 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
 .badge-active-brain {
   background: #10B981;
   color: #062419;
@@ -2128,21 +2285,34 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .tts-provider-logo {
-  width: 44px !important;
-  height: 44px !important;
+  width: 48px !important;
+  height: 48px !important;
   margin-bottom: 10px !important;
-  border-radius: 10px !important;
-  padding: 4px !important;
-  background: #090e17 !important;
-  border: 1px solid rgba(148, 163, 184, 0.25) !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
-  object-fit: contain !important;
-  transition: transform 0.2s ease !important;
+  border-radius: 12px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45) !important;
+  object-fit: cover !important;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease !important;
   display: block !important;
 }
 
 .tts-provider-card:hover .tts-provider-logo {
-  transform: scale(1.1) !important;
+  transform: translateY(-2px) scale(1.08) !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6) !important;
+}
+
+#tts-editor-logo {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 11px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  object-fit: cover !important;
+  flex-shrink: 0 !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45) !important;
 }
 
 .tts-provider-name {

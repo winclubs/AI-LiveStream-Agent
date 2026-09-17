@@ -126,7 +126,7 @@ class PriorityBargeInQueue:
             event_id=event_id,
             event_type=event_type,
             user_name=user_name,
-            payload=payload,
+            payload=payload or {},
             seq=seq,
             ttl_seconds=ttl
         )

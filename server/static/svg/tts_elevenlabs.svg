@@ -1,12 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <defs>
-    <linearGradient id="elevenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#18181b"/>
-      <stop offset="100%" stop-color="#27272a"/>
+    <linearGradient id="elevenBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#221217"/>
+      <stop offset="50%" stop-color="#18181b"/>
+      <stop offset="100%" stop-color="#09090b"/>
+    </linearGradient>
+    <linearGradient id="elevenBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb7185" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#e11d48" stop-opacity="0.25"/>
     </linearGradient>
   </defs>
-  <rect width="48" height="48" rx="12" fill="url(#elevenGrad)" stroke="#3f3f46" stroke-width="1.5"/>
-  <!-- ElevenLabs Signature Dual Bar Minimal Icon -->
-  <rect x="17" y="12" width="5.5" height="24" rx="2.75" fill="#f43f5e"/>
-  <rect x="26.5" y="12" width="5.5" height="24" rx="2.75" fill="#ffffff"/>
+  <rect width="48" height="48" rx="12" fill="url(#elevenBg)" stroke="url(#elevenBorder)" stroke-width="1.2"/>
+  <!-- ElevenLabs Signature Dual Bar Minimal Icon (饱满居中) -->
+  <g transform="translate(24, 24) scale(1.15) translate(-24, -24)">
+    <rect x="15.5" y="11" width="6.5" height="26" rx="3.25" fill="#f43f5e"/>
+    <rect x="26" y="11" width="6.5" height="26" rx="3.25" fill="#ffffff"/>
+  </g>
 </svg>

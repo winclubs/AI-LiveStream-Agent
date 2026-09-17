@@ -1,57 +1,236 @@
+let currentVoiceTableEngineFilter = "";
+
+// 按引擎筛选音色资产库
+function filterVoiceTableByEngine(engine, btn) {
+    currentVoiceTableEngineFilter = (engine || "").trim().toLowerCase();
+    document.querySelectorAll("#voice-engine-filters .voice-filter-btn").forEach(b => {
+        b.classList.toggle("active", b === btn || (b.getAttribute("data-engine") || "") === currentVoiceTableEngineFilter);
+    });
+    renderVoiceTableRows();
+}
+
+// 格式化所属语音引擎徽标
+function formatVoiceEngineBadge(providerName) {
+    const p = (providerName || "").toLowerCase();
+    if (p.includes("edge")) {
+        return '<span class="brand-badge" style="background: rgba(2, 132, 199, 0.15); border: 1px solid rgba(2, 132, 199, 0.4); color: #38bdf8; font-size: 11px; padding: 2px 7px;">Edge-TTS</span>';
+    } else if (p.includes("cosy")) {
+        return '<span class="brand-badge" style="background: rgba(234, 88, 12, 0.15); border: 1px solid rgba(234, 88, 12, 0.4); color: #fb923c; font-size: 11px; padding: 2px 7px;">CosyVoice</span>';
+    } else if (p.includes("sovits") || p.includes("gpt")) {
+        return '<span class="brand-badge" style="background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.4); color: #7dd3fc; font-size: 11px; padding: 2px 7px;">GPT-SoVITS</span>';
+    } else if (p.includes("eleven")) {
+        return '<span class="brand-badge" style="background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.4); color: #fb7185; font-size: 11px; padding: 2px 7px;">ElevenLabs</span>';
+    } else if (p.includes("custom") || p.includes("local") || p.includes("自建")) {
+        return '<span class="brand-badge" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc; font-size: 11px; padding: 2px 7px;">本地自建</span>';
+    } else if (p.includes("chat")) {
+        return '<span class="brand-badge" style="background: rgba(5, 150, 105, 0.15); border: 1px solid rgba(5, 150, 105, 0.4); color: #34d399; font-size: 11px; padding: 2px 7px;">ChatTTS</span>';
+    } else if (p) {
+        return `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.3); color: #cbd5e1; font-size: 11px; padding: 2px 7px;">${escapeHtml(providerName)}</span>`;
+    }
+    return '<span style="color: var(--text-muted); font-size: 11px;">通用引擎</span>';
+}
+
+// 渲染音色表格行
+function renderVoiceTableRows() {
+    const tbody = document.getElementById("voices-tbody");
+    const countBadge = document.getElementById("voice-asset-count-badge");
+    if (!tbody) return;
+
+    let list = voiceCache || [];
+    if (currentVoiceTableEngineFilter) {
+        list = list.filter(v => {
+            const vp = (v.provider_name || "").toLowerCase();
+            const vid = (v.id || "").toLowerCase();
+            if (currentVoiceTableEngineFilter === "edge_tts") {
+                return vp.includes("edge") || vid.startsWith("zh-");
+            } else if (currentVoiceTableEngineFilter === "cosyvoice") {
+                return vp.includes("cosy") || vid.includes("bailian") || vid.includes("cosyvoice") || vid.startsWith("long");
+            } else if (currentVoiceTableEngineFilter === "gpt_sovits") {
+                return vp.includes("sovits") || vp.includes("gpt");
+            } else if (currentVoiceTableEngineFilter === "elevenlabs") {
+                return vp.includes("eleven");
+            } else if (currentVoiceTableEngineFilter === "custom_tts") {
+                return vp.includes("custom") || vp.includes("local") || vp.includes("自建");
+            } else if (currentVoiceTableEngineFilter === "chattts") {
+                return vp.includes("chat");
+            }
+            return vp === currentVoiceTableEngineFilter;
+        });
+    }
+
+    if (countBadge) {
+        countBadge.innerText = `${list.length} 款音色`;
+    }
+
+    tbody.innerHTML = "";
+    if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">暂无可显示的音色资产。请在「TTS配置」页面选定语音引擎并保存，即可自动批量同步入库！</td></tr>`;
+        return;
+    }
+
+    list.forEach(v => {
+        const isCloned = v.voice_type === "cloned" || v.is_clone || (v.id && (v.id.includes("bailian") || v.id.startsWith("clone_") || v.id.includes("cosyvoice-v")));
+        const typeBadge = isCloned
+            ? '<span style="color: #fbbf24; font-weight: 600; font-size: 11.5px; display: inline-flex; align-items: center; gap: 3px;"><span>👑</span> 专属克隆</span>'
+            : '<span style="color: #94a3b8; font-size: 11.5px;">官方预设</span>';
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td style="font-weight: 600; color: #FFFFFF;">
+                <span title="Voice-ID: ${escapeHtml(v.id)}">${escapeHtml(v.name)}</span>
+            </td>
+            <td>${formatVoiceEngineBadge(v.provider_name)}</td>
+            <td>${typeBadge}</td>
+            <td style="font-family: var(--font-mono);">${(v.speech_speed || 1.0).toFixed(2)}x</td>
+            <td style="white-space: nowrap; text-align: right;">
+                <div class="table-actions" style="justify-content: flex-end;">
+                    <button class="btn btn-xs" onclick="previewVoice('${v.id}')" title="在线合成试听此音色">
+                        ${typeof svg === "function" ? svg("play", "icon-sm") : "▶"} 试听
+                    </button>
+                    <button class="btn btn-xs" onclick="editVoice('${v.id}')" title="修改音色名称">
+                        改名
+                    </button>
+                    <button class="btn btn-xs btn-danger" onclick="deleteVoice('${v.id}', '${escapeHtml(v.name)}')" title="从音色资产库移除">
+                        删除
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// 主播管理页音色下拉框按当前生效的语音合成引擎精准填充
+async function populateAnchorVoiceSelect(voices) {
+    const anchorVoiceSel = document.getElementById("anchor-voice");
+    if (!anchorVoiceSel) return;
+
+    // 1. 确保全局 API 配置已就绪，实时获取当前默认生效的 TTS 语音引擎
+    if (typeof cachedAllConfigs === "undefined" || !Array.isArray(cachedAllConfigs) || cachedAllConfigs.length === 0) {
+        try {
+            const cfgRes = await fetch(`${API_BASE}/settings/configs`);
+            const cfgJson = await cfgRes.json();
+            if (cfgJson.code === 0 && Array.isArray(cfgJson.data)) {
+                cachedAllConfigs = cfgJson.data;
+            }
+        } catch (errCfg) {
+            console.warn("未能实时获取 TTS 生效配置:", errCfg);
+        }
+    }
+
+    let activeEngine = "";
+    let activeEngineLabel = "";
+
+    if (typeof cachedAllConfigs !== "undefined" && Array.isArray(cachedAllConfigs)) {
+        const activeTTSCfg = cachedAllConfigs.find(c => c.config_group === "tts" && c.is_active);
+        if (activeTTSCfg) {
+            const pMeta = (typeof resolveTTSProviderMeta === "function") ? resolveTTSProviderMeta(activeTTSCfg.provider_name, activeTTSCfg) : null;
+            activeEngine = pMeta ? pMeta.id : (activeTTSCfg.provider_name || "").toLowerCase();
+            activeEngineLabel = pMeta ? pMeta.name : (activeEngine.includes("cosy") ? "CosyVoice" : activeTTSCfg.provider_name);
+        }
+    }
+
+    // 若无明确激活项，取配置列表中的首个 TTS 项，最后才以 Edge-TTS 兜底
+    if (!activeEngine) {
+        const anyTTS = (typeof cachedAllConfigs !== "undefined" && Array.isArray(cachedAllConfigs))
+            ? cachedAllConfigs.find(c => c.config_group === "tts")
+            : null;
+        if (anyTTS) {
+            const pMeta = (typeof resolveTTSProviderMeta === "function") ? resolveTTSProviderMeta(anyTTS.provider_name, anyTTS) : null;
+            activeEngine = pMeta ? pMeta.id : (anyTTS.provider_name || "").toLowerCase();
+            activeEngineLabel = pMeta ? pMeta.name : (activeEngine.includes("cosy") ? "CosyVoice" : anyTTS.provider_name);
+        } else {
+            activeEngine = "edge_tts";
+            activeEngineLabel = "Edge-TTS";
+        }
+    }
+
+    // 2. 根据当前语音引擎过滤音色
+    const engineVoices = (voices || []).filter(v => {
+        const vp = (v.provider_name || "").toLowerCase();
+        if (activeEngine.includes("cosy")) {
+            return vp.includes("cosy") || (v.id && (v.id.includes("bailian") || v.id.includes("cosyvoice")));
+        } else if (activeEngine.includes("edge")) {
+            return vp.includes("edge") || (v.id && v.id.startsWith("zh-"));
+        } else if (activeEngine.includes("chattts")) {
+            return vp.includes("chattts") || (v.id && v.id.startsWith("seed_"));
+        } else if (activeEngine.includes("sovits")) {
+            return vp.includes("sovits");
+        } else if (activeEngine.includes("eleven")) {
+            return vp.includes("eleven");
+        } else if (vp) {
+            return vp === activeEngine;
+        }
+        return true;
+    });
+
+    const curSelected = anchorVoiceSel.value;
+    anchorVoiceSel.innerHTML = `<option value="">未绑定音色 (开播采用默认发音)</option>`;
+
+    // 若当前引擎下有音色，以分组方式填充
+    const listToRender = engineVoices.length > 0 ? engineVoices : (voices || []);
+    const clones = listToRender.filter(v => v.voice_type === "cloned" || v.is_clone);
+    const presets = listToRender.filter(v => !(v.voice_type === "cloned" || v.is_clone));
+
+    if (clones.length > 0) {
+        const grpClone = document.createElement("optgroup");
+        grpClone.label = "👑 专属声音克隆资产";
+        clones.forEach(v => {
+            const opt = document.createElement("option");
+            opt.value = v.id;
+            opt.innerText = `👑 ${v.name} (专属克隆)`;
+            grpClone.appendChild(opt);
+        });
+        anchorVoiceSel.appendChild(grpClone);
+    }
+
+    if (presets.length > 0) {
+        const grpPreset = document.createElement("optgroup");
+        grpPreset.label = `🎙️ ${activeEngineLabel} 官方预设音色`;
+        presets.forEach(v => {
+            const opt = document.createElement("option");
+            opt.value = v.id;
+            opt.innerText = `🎙️ ${v.name}`;
+            grpPreset.appendChild(opt);
+        });
+        anchorVoiceSel.appendChild(grpPreset);
+    }
+
+    // 维持原有选中状态
+    if (curSelected) {
+        anchorVoiceSel.value = curSelected;
+    }
+
+    // 提示当前绑定的所属引擎
+    const hintEl = document.getElementById("anchor-voice-engine-hint");
+    if (hintEl) {
+        hintEl.innerHTML = `<span style="color: var(--accent-emerald); font-size: 11px;">💡 当前直播语音引擎: <strong>${escapeHtml(activeEngineLabel)}</strong> (下拉仅列出该引擎的音色资产)</span>`;
+    }
+}
+
 async function loadVoiceTable() {
     try {
         const res = await fetch(`${API_BASE}/voices/list`);
         const json = await res.json();
         if (json.code !== 0) return;
         voiceCache = json.data || [];
+        window._voiceProfilesCache = voiceCache;
 
-        // 音色表格
-        const tbody = document.getElementById("voices-tbody");
-        if (tbody) {
-            tbody.innerHTML = "";
-            voiceCache.forEach(v => {
-                const statusBadge = v.synthesis_status === "reference_ready"
-                    ? '<span style="color: var(--accent-emerald);">● CosyVoice 参考已登记</span>'
-                    : (v.feature_status === "ready"
-                        ? '<span style="color: var(--accent-sky);">● 样本特征已就绪（非克隆）</span>'
-                        : '<span style="color: var(--accent-amber);">◌ 特征处理中...</span>');
-                const tr = document.createElement("tr");
-                tr.innerHTML = `
-                    <td style="font-weight: 600;">${v.name}</td>
-                    <td>${(v.speech_speed || 1.0).toFixed(2)}x</td>
-                    <td>${statusBadge}</td>
-                    <td style="white-space: nowrap;">
-                        <div class="table-actions">
-                            <button class="btn btn-sm" onclick="previewVoice('${v.id}')">${svg("play", "icon-sm")} 试听原始样本</button>
-                            <button class="btn btn-sm btn-primary" onclick="cloneVoice('${v.id}', '${v.name}')">登记参考音色</button>
-                            <button class="btn btn-sm" onclick="editVoice('${v.id}')">改名</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteVoice('${v.id}', '${v.name}')">删除</button>
-                        </div>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
+        // 1. 渲染音色资产表格
+        renderVoiceTableRows();
 
-        // 主播管理页的音色下拉
-        const anchorVoiceSel = document.getElementById("anchor-voice");
-        if (anchorVoiceSel) {
-            anchorVoiceSel.innerHTML = '<option value="">未绑定音色</option>';
-            voiceCache.forEach(v => {
-                const opt = document.createElement("option");
-                opt.value = v.id;
-                opt.innerText = v.name;
-                anchorVoiceSel.appendChild(opt);
-            });
-        }
+        // 2. 联动主播管理页的音色下拉（按当前生效引擎过滤）
+        await populateAnchorVoiceSelect(voiceCache);
     } catch (e) {
         console.error("加载音色失败", e);
     }
 }
 
 async function submitVoice() {
-    const editId = document.getElementById("voice-edit-id").value;
-    const name = document.getElementById("voice-name").value.trim();
+    const editIdEl = document.getElementById("voice-edit-id");
+    const editId = editIdEl ? editIdEl.value : "";
+    const nameEl = document.getElementById("voice-name");
+    const name = nameEl ? nameEl.value.trim() : "";
     const fileInput = document.getElementById("voice-file");
     if (!name) { alert("请输入音色名称"); return; }
 
@@ -70,17 +249,7 @@ async function submitVoice() {
             const json = await res.json();
             if (json.code !== 0) { alert("上传失败: " + (json.detail || json.message)); return; }
 
-            // 上传后尝试登记 CosyVoice 参考音色；无服务时仅保留本地声学特征
-            const voiceId = json.data.id;
-            showToast("样本与本地声学特征已保存，正在检查 CosyVoice 参考登记...", "info");
-            const cloneRes = await fetch(`${API_BASE}/voices/${voiceId}/clone`, { method: "POST" });
-            const cloneJson = await cloneRes.json();
-            if (cloneJson.code === 0) {
-                const kind = cloneJson.data.engine === "cosyvoice" ? "CosyVoice 参考音色已登记" : "本地声学特征已就绪（非克隆音色）";
-                showToast(`音色【${name}】${kind}。试听按钮播放的是原始样本`, "success", 5500);
-            } else {
-                alert("自动克隆未完成: " + (cloneJson.detail || cloneJson.message));
-            }
+            showToast(`音色【${name}】样本已成功保存至音色资产库。`, "success", 3000);
         } else {
             const res = await fetch(`${API_BASE}/voices/update`, {
                 method: "POST",
@@ -93,16 +262,6 @@ async function submitVoice() {
         resetVoiceForm();
         loadVoiceTable();
     } catch (e) { alert("操作异常: " + e); }
-}
-
-async function cloneVoice(voiceId, name) {
-    if (!confirm(`确认尝试在已配置的 CosyVoice 服务登记【${name}】为参考音色？未配置服务时只会保留本地声学特征。`)) return;
-    try {
-        const res = await fetch(`${API_BASE}/voices/${voiceId}/clone`, { method: "POST" });
-        const json = await res.json();
-        alert(json.message || (json.code === 0 ? "参考登记已处理" : "参考登记失败"));
-        loadVoiceTable();
-    } catch (e) { alert("克隆异常: " + e); }
 }
 
 // 在线试听：页内浮动播放器 (不新开标签页，即点即听)
@@ -126,22 +285,50 @@ function previewVoice(voiceId) {
 async function editVoice(voiceId) {
     const v = voiceCache.find(x => x.id === voiceId);
     if (!v) return;
-    document.getElementById("voice-edit-id").value = v.id;
-    document.getElementById("voice-name").value = v.name;
-    document.getElementById("voice-speed").value = v.speech_speed || 1.0;
-    document.getElementById("voice-speed-val").innerText = (v.speech_speed || 1.0).toFixed(2) + "x";
-    document.getElementById("voice-edit-hint").innerText = `(正在编辑: ${v.name})`;
-    document.getElementById("voice-reset-btn").style.display = "inline-block";
+    const newName = prompt(`请输入音色【${v.name}】的新名称:`, v.name);
+    if (newName === null) return;
+    const cleanName = newName.trim();
+    if (!cleanName) {
+        if (typeof showToast === "function") showToast("音色名称不能为空", "warning");
+        return;
+    }
+    try {
+        const res = await fetch(`${API_BASE}/voices/update`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: voiceId, name: cleanName })
+        });
+        const json = await res.json();
+        if (json.code === 0) {
+            if (typeof showToast === "function") showToast(`已成功将音色重命名为【${cleanName}】`, "success");
+            await loadVoiceTable();
+            // 联动刷新已配置的 TTS 引擎卡片，立即呈现新音色名
+            if (typeof renderConfiguredTTS === "function" && typeof cachedAllConfigs !== "undefined") {
+                renderConfiguredTTS(cachedAllConfigs);
+            }
+        } else {
+            alert("修改失败: " + (json.detail || json.message));
+        }
+    } catch (e) {
+        alert("改名异常: " + e);
+    }
 }
 
 function resetVoiceForm() {
-    document.getElementById("voice-edit-id").value = "";
-    document.getElementById("voice-name").value = "";
-    document.getElementById("voice-file").value = "";
-    document.getElementById("voice-speed").value = 1.0;
-    document.getElementById("voice-speed-val").innerText = "1.0x";
-    document.getElementById("voice-edit-hint").innerText = "";
-    document.getElementById("voice-reset-btn").style.display = "none";
+    const editIdEl = document.getElementById("voice-edit-id");
+    if (editIdEl) editIdEl.value = "";
+    const nameEl = document.getElementById("voice-name");
+    if (nameEl) nameEl.value = "";
+    const fileEl = document.getElementById("voice-file");
+    if (fileEl) fileEl.value = "";
+    const speedEl = document.getElementById("voice-speed");
+    if (speedEl) speedEl.value = 1.0;
+    const speedValEl = document.getElementById("voice-speed-val");
+    if (speedValEl) speedValEl.innerText = "1.0x";
+    const hintEl = document.getElementById("voice-edit-hint");
+    if (hintEl) hintEl.innerText = "";
+    const resetBtn = document.getElementById("voice-reset-btn");
+    if (resetBtn) resetBtn.style.display = "none";
 }
 
 async function deleteVoice(voiceId, name) {

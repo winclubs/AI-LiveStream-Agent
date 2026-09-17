@@ -380,5 +380,14 @@ class MediaDriverRouter(BaseMediaDriver):
             return global_procedural_avatar_driver.get_latest_jpeg()
         return b""
 
+    def set_render_fps(self, fps: int) -> int:
+        """动态调节活动渲染驱动的目标帧率 (支持 CPU 过载自适应降频)"""
+        clamped = max(10, min(60, int(fps)))
+        if hasattr(self.active_driver, "set_target_fps"):
+            return self.active_driver.set_target_fps(clamped)
+        if hasattr(global_procedural_avatar_driver, "set_target_fps"):
+            return global_procedural_avatar_driver.set_target_fps(clamped)
+        return clamped
+
 # 全局媒体中枢单例
 global_media_router = MediaDriverRouter()

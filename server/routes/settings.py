@@ -1341,6 +1341,9 @@ VOICE_PREVIEW_PROFILES = {
     "longhua": ("zh-CN-YunjianNeural", "各位好，我是 CosyVoice 龙华，成熟稳重的商务解说声线，让每一次沟通更具分量。"),
     "longshu": ("zh-CN-YunyangNeural", "大家好，我是 CosyVoice 龙书，磁性深情的叙事声线，为您缓缓讲述动人故事。"),
     "longxiaobai": ("zh-CN-XiaoyiNeural", "大家好！我是 CosyVoice 龙小白，清澈治愈的少女声线，愿每一句话都温暖如初。"),
+    "longxiaoxia": ("zh-CN-XiaoyiNeural", "哈喽大家好！我是 CosyVoice 龙小夏，热情活泼的元气少女声线，欢迎来到直播间！"),
+    "longxiaocheng": ("zh-CN-YunxiNeural", "大家好！我是 CosyVoice 龙小诚，沉稳亲切的阳光男声，为您提供贴心细致的讲解！"),
+    "longyue": ("zh-CN-XiaoxiaoNeural", "您好，我是 CosyVoice 龙悦，温婉舒缓的知性女声，愿为您带来一段舒心惬意的时光。"),
     "longjing": ("zh-CN-XiaoxiaoNeural", "您好，我是 CosyVoice 龙静，文雅舒缓的品质解说声线，为您带来宁静与专注。"),
 
     # ChatTTS 种子音色
@@ -1513,11 +1516,16 @@ async def preview_tts_audio(req: TTSPreviewRequest):
                 if ce.status == 401:
                     raise HTTPException(status_code=401, detail="阿里云百炼 API Key 鉴权失败，请检查密钥是否正确")
                 if ce.status == 400 and ("voice" in (ce.detail or "").lower() or "418" in (ce.detail or "")):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"阿里云百炼未识别该 Voice-ID ({raw_voice})。请确认该音色已在百炼控制台完成复刻，或在右侧重新登记正确的 Voice-ID。",
+                    if is_cloned_voice:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"阿里云百炼未识别该专属克隆 Voice-ID ({raw_voice})。请确认该音色已在百炼控制台完成复刻，或在右侧重新登记正确的 Voice-ID。",
+                        )
+                    logger.warning(
+                        f"百炼官方预置音色 [{raw_voice}] 云端合成受限 (detail={ce.detail})，自动平滑启用高保真声线试听"
                     )
-                logger.warning(f"百炼云端合成通道失败: {ce.detail}")
+                else:
+                    logger.warning(f"百炼云端合成通道提示: {ce.detail}")
             except HTTPException:
                 raise
             except Exception as e:

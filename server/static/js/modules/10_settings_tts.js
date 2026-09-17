@@ -38,28 +38,31 @@ const BUILTIN_TTS_ECOSYSTEM = [
         getKeyUrl: "https://bailian.console.aliyun.com/",
         cardDocTitle: "前往阿里云百炼声音复刻中心 (在线录制/上传音频复刻并获取专属 Voice-ID)",
         brandColor: "#EA580C",
-        logoSvg: "https://img.alicdn.com/imgextra/i2/O1CN01TOFMg022PLymzwaSX_!!6000000007112-55-tps-40-40.svg",
+        logoSvg: "/static/svg/tts_cosyvoice.svg",
         defaultBaseUrl: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1",
         placeholderUrl: "选择云端商用 API (填Key即用) 或 本地自建推理端口 (如 http://127.0.0.1:9233)",
         needKey: true,
         needUrl: true,
         recommendedVoices: [
             { text: "龙小春 (知性女声 · 电商带货推荐)", val: "longxiaochun" },
+            { text: "龙小白 (清澈邻家 · 治愈少女)", val: "longxiaobai" },
+            { text: "龙小夏 (元气少女 · 语音助手)", val: "longxiaoxia" },
+            { text: "龙小诚 (阳光男声 · 沉稳专业)", val: "longxiaocheng" },
             { text: "龙老铁 (东北老铁 · 互动爆款)", val: "longlaotie" },
-            { text: "Stella (自然解说 · 品质女主播)", val: "loongstella" },
-            { text: "Bella (温柔知性 · 服饰带货)", val: "loongbella" },
+            { text: "龙婉 (温和对话 · 亲切邻家)", val: "longwan" },
+            { text: "龙书 (磁性叙事 · 情感故事)", val: "longshu" },
+            { text: "龙悦 (文雅舒缓 · 品质解说)", val: "longyue" },
+            { text: "龙安冲 (活力带货 · 食品零食)", val: "longanchong" },
             { text: "龙安然 (燃播带货 · 激情促单)", val: "longanran" },
             { text: "龙安萱 (亲和带货 · 美妆日用)", val: "longanxuan" },
-            { text: "龙安冲 (活力带货 · 食品零食)", val: "longanchong" },
             { text: "龙安平 (科技沉稳 · 数码家电)", val: "longanping" },
             { text: "龙硕 (质感男声 · 品牌带货)", val: "longshuo" },
             { text: "杰力豆 (活泼童声 · 母婴玩具)", val: "longjielidou" },
-            { text: "龙婉 (温和对话 · 亲切邻家)", val: "longwan" },
             { text: "龙橙 (阳光朝气 · 青春男声)", val: "longcheng" },
             { text: "龙华 (成熟稳重 · 商务男声)", val: "longhua" },
-            { text: "龙书 (磁性叙事 · 情感故事)", val: "longshu" },
-            { text: "龙小白 (清澈邻家 · 少女女声)", val: "longxiaobai" },
-            { text: "龙静 (文雅解说 · 舒缓女声)", val: "longjing" }
+            { text: "龙静 (文雅解说 · 舒缓女声)", val: "longjing" },
+            { text: "Stella (自然解说 · 品质女主播)", val: "loongstella" },
+            { text: "Bella (温柔知性 · 服饰带货)", val: "loongbella" }
         ],
         desc: "阿里通义开源大模型语音合成。商业云端调用推荐使用【阿里云百炼平台】开通账号并创建 API Key（Base URL 为 https://dashscope.aliyuncs.com/api/v1 或您的百炼专属服务端点），亦支持本地或局域网私有化 GPU 部署。",
         urlPills: [
@@ -188,7 +191,7 @@ function renderTTSEcosystemGrid(selectedId = "edge_tts") {
         card.setAttribute("data-provider", item.id);
         card.onclick = () => selectTTSProvider(item.id);
 
-        const logoSrc = (item.logoSvg || "").startsWith("http") ? item.logoSvg : (item.logoSvg + "?v=2.0.4");
+        const logoSrc = (item.logoSvg || "").startsWith("http") ? item.logoSvg : (item.logoSvg + "?v=20260917_v6");
         card.innerHTML = `
                 <a href="${item.officialUrl}" target="_blank" rel="noopener noreferrer" class="tts-card-official-link" title="${item.cardDocTitle}" onclick="event.stopPropagation();">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
@@ -330,7 +333,7 @@ async function selectTTSProvider(providerId, existingConfig = null) {
 
     const officialLinkEl = document.getElementById("tts-editor-official-link");
 
-    if (logoEl) logoEl.src = (meta.logoSvg || "").startsWith("http") ? meta.logoSvg : (meta.logoSvg + "?v=2.0.4");
+    if (logoEl) logoEl.src = (meta.logoSvg || "").startsWith("http") ? meta.logoSvg : (meta.logoSvg + "?v=20260917_v6");
     if (titleEl) titleEl.innerText = `配置 ${meta.name}`;
     if (badgeEl) badgeEl.innerText = (meta.tagline || "").includes("·") ? meta.tagline.split("·")[0].trim() : (meta.tagline || "官方推荐");
     if (descEl) descEl.innerText = meta.desc || "";
@@ -990,7 +993,13 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
 
     try {
         const activeModelEl = document.getElementById("tts-thirdparty-active-model");
-        const currentActiveModel = activeModelEl ? activeModelEl.innerText.trim() : "";
+        let currentActiveModel = activeModelEl ? activeModelEl.innerText.trim() : "";
+
+        // 若是 CosyVoice 官方系统预置音色，自动纠偏模型为 cosyvoice-v1 (避免复刻专属模型 v3.5-flash 报 418)
+        const isPreset = (voiceVal.startsWith("long") || voiceVal.startsWith("loong")) && !voiceVal.includes("cloned") && !voiceVal.includes("custom");
+        if (provider === "cosyvoice" && isPreset) {
+            currentActiveModel = "cosyvoice-v1";
+        }
 
         const previewRes = await fetch(`${API_BASE}/settings/tts/preview`, {
             method: "POST",
@@ -1054,36 +1063,58 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
     const voiceInput = document.getElementById("tts-input-voice");
     if (!container || !meta) return { clonedVoices: [], recommendedVoices: [], currentSelected: "" };
 
-    // 1. 获取后端已登记/已克隆的所有专属声音档案 (VoiceProfile)
+    // 1. 获取该引擎的官方推荐音色
+    const recommendedVoices = (meta.recommendedVoices || []).map(r => ({ ...r }));
+    const recommendedIdSet = new Set(recommendedVoices.map(r => (r.val || "").trim().toLowerCase()));
+
+    // 2. 获取后端已登记的声音档案 (VoiceProfile)，严格按引擎和类型进行区分，绝不把官方预设重复当成克隆音色
     let clonedVoices = [];
     try {
         const res = await fetch(`${API_BASE}/voices/list`);
         const json = await res.json();
         if (json.code === 0 && Array.isArray(json.data)) {
-            // 过滤系统默认兜底项，保留所有真实克隆与绑定的主播专属声线
-            const rawClones = json.data.filter(v => (v.id || "").toLowerCase() !== "voice_default_female");
-            // 按 id 严格去重
-            const seen = new Set();
-            rawClones.forEach(v => {
-                if (!seen.has(v.id)) {
-                    seen.add(v.id);
+            const currentProvider = (meta.id || "").toLowerCase();
+            const seenCloneIds = new Set();
+
+            json.data.forEach(v => {
+                const vid = (v.id || "").trim();
+                const vidLower = vid.toLowerCase();
+                if (!vid || vidLower === "voice_default_female") return;
+
+                // 若该音色是官方预设音色（在官方预设推荐表中，或者 voice_type === 'preset'）
+                if (recommendedIdSet.has(vidLower) || v.voice_type === "preset") {
+                    // 若用户在音色资产库中为该官方音色改了名，同步更新推荐药丸的展示名称
+                    const recItem = recommendedVoices.find(r => (r.val || "").trim().toLowerCase() === vidLower);
+                    if (recItem && v.name && !v.name.startsWith("zh-CN-")) {
+                        const oldDesc = recItem.text.includes("(") || recItem.text.includes("（")
+                            ? (recItem.text.split(/[\(\（]/)[1] || "")
+                            : "";
+                        recItem.text = oldDesc ? `${v.name} (${oldDesc}` : v.name;
+                    }
+                    return; // 严禁将官方预设音色放入专属克隆列表！
+                }
+
+                // 所属引擎过滤：仅保留属于当前引擎的真正专属克隆音色
+                const vProv = (v.provider_name || "").toLowerCase();
+                const isMatchProvider = !vProv || vProv === currentProvider || (currentProvider === "cosyvoice" && (vid.includes("cosy") || vid.includes("bailian")));
+                const isCloned = v.voice_type === "cloned" || v.is_clone || vid.startsWith("clone_") || vid.includes("bailian") || vid.includes("cloned");
+
+                if (isMatchProvider && isCloned && !seenCloneIds.has(vid)) {
+                    seenCloneIds.add(vid);
                     clonedVoices.push(v);
                 }
             });
         }
     } catch (e) {
-        console.warn("获取克隆声音库列表异常:", e);
+        console.warn("获取声音档案库列表异常:", e);
     }
-
-    // 2. 获取该引擎的官方推荐音色
-    const recommendedVoices = meta.recommendedVoices || [];
 
     // 3. 决定当前选定的音色
     let currentSelected = selectedVoiceVal || (voiceInput ? voiceInput.value.trim() : "");
     const isCurrentInClones = clonedVoices.some(v => v.id === currentSelected);
     const isCurrentInRecs = recommendedVoices.some(v => v.val === currentSelected);
 
-    // 若当前选中的 ID 已失效/已从本地删除（不在克隆列表也不在推荐列表），自动重置选定有效音色
+    // 若当前选中的 ID 已失效/不在列表中，自动选定有效音色
     if (!currentSelected || (!isCurrentInClones && !isCurrentInRecs)) {
         if (clonedVoices.length > 0) {
             currentSelected = clonedVoices[0].id;
@@ -1095,11 +1126,15 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
     }
     if (voiceInput) voiceInput.value = currentSelected;
 
-    // 4. 构建药丸 DOM
+    // 4. 构建药丸 DOM (引入全局 ID 防重锁，100% 确保每个音色只呈现一次)
     let pillsHtml = "";
+    const renderedVoiceIds = new Set();
 
-    // 4.1 专属克隆音色（金色尊贵皇冠高亮，置顶显示，永不丢失，支持一键删除无效或重复项，只展示名称不展示超长ID）
+    // 4.1 专属克隆音色（金色尊贵皇冠高亮，置顶显示，只展示真实专属克隆，绝不混入官方音色）
     clonedVoices.forEach(cv => {
+        if (!cv.id || renderedVoiceIds.has(cv.id)) return;
+        renderedVoiceIds.add(cv.id);
+
         const isSel = cv.id === currentSelected;
         pillsHtml += `
             <div class="fetched-model-pill cloned-voice-pill ${isSel ? 'selected' : ''}"
@@ -1122,8 +1157,11 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
         `;
     });
 
-    // 4.2 引擎预设官方音色
+    // 4.2 引擎预设官方音色（严格排重，已作为克隆展示的绝不在此重复）
     recommendedVoices.forEach(v => {
+        if (!v.val || renderedVoiceIds.has(v.val)) return;
+        renderedVoiceIds.add(v.val);
+
         const isSel = v.val === currentSelected;
         pillsHtml += `
             <div class="fetched-model-pill ${isSel ? 'selected' : ''}"
@@ -1143,7 +1181,7 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
 
     // 5. 更新状态与计数
     if (countStatusEl) {
-        const total = clonedVoices.length + recommendedVoices.length;
+        const total = renderedVoiceIds.size;
         const selectedMatch = clonedVoices.find(v => v.id === currentSelected);
         const selectedRec = recommendedVoices.find(v => v.val === currentSelected);
         let displaySelectedName = "";
@@ -1162,6 +1200,14 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
             </span>
         `;
     }
+
+    const filteredRecs = recommendedVoices.filter(v => v.val && !clonedVoices.some(c => c.id === v.val));
+    window._latestFetchedVoices = {
+        provider: meta.id,
+        clonedVoices,
+        recommendedVoices: filteredRecs,
+        currentSelected
+    };
 
     return { clonedVoices, recommendedVoices, currentSelected };
 }
@@ -1224,6 +1270,8 @@ function selectFetchedTTSVoice(voiceVal, voiceLabel = "") {
     });
 
     const countStatusEl = document.getElementById("tts-voices-count-status");
+    let pureVoiceName = "";
+    let fullVoiceLabel = voiceLabel;
     if (countStatusEl) {
         const total = document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").length;
         let displayName = voiceLabel;
@@ -1236,12 +1284,39 @@ function selectFetchedTTSVoice(voiceVal, voiceLabel = "") {
                 displayName = "已选定音色";
             }
         }
+        fullVoiceLabel = displayName;
+        pureVoiceName = displayName.replace(/^[👑\s]+/, "").split(/[\(\（]/)[0].trim() || displayName;
         countStatusEl.innerHTML = `
             <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
                 <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
                 共 ${total} 款可用音色 · 当前选定: <strong>${escapeHtml(displayName)}</strong>
             </span>
         `;
+    } else if (voiceLabel) {
+        pureVoiceName = voiceLabel.replace(/^[👑\s]+/, "").split(/[\(\（]/)[0].trim() || voiceLabel;
+    }
+
+    // 记录选中的纯净音色名称与完整标签，供保存配置时持久化
+    window._currentSelectedTTSVoiceMeta = {
+        voiceVal: voiceVal,
+        voiceName: pureVoiceName || voiceVal,
+        voiceLabel: fullVoiceLabel || voiceVal
+    };
+
+    const activeModelEl = document.getElementById("tts-thirdparty-active-model");
+    if (activeModelEl && currentSelectedTTSProvider === "cosyvoice") {
+        const matchedPill = document.querySelector(`#tts-fetched-voices-container .fetched-model-pill[data-voice="${voiceVal}"]`);
+        const isClone = matchedPill && matchedPill.getAttribute("data-is-clone") === "true";
+        const autoModel = isClone ? "cosyvoice-v3.5-flash" : "cosyvoice-v1";
+        activeModelEl.innerHTML = `<strong>${autoModel}</strong>`;
+        // 同步更新模型药丸高亮
+        document.querySelectorAll("#tts-thirdparty-models-pills .quick-pill").forEach(p => {
+            const pModel = p.getAttribute("data-model");
+            const isMatch = pModel === autoModel;
+            p.style.borderColor = isMatch ? "#38bdf8" : "";
+            p.style.background = isMatch ? "rgba(56, 189, 248, 0.2)" : "";
+            p.style.color = isMatch ? "#38bdf8" : "";
+        });
     }
 
     // 用户切换到任意音色时，立即通过单例控制器触发该音色专属声线的即时试听
@@ -1633,8 +1708,66 @@ function showTTSTestResult(isSuccess, message) {
     `;
 }
 
+// 全局内置知名 TTS 引擎音色友好中文映射字典（彻底屏蔽底层英文/拼音 ID）
+const TTS_VOICE_FRIENDLY_NAMES = {
+    // Edge-TTS 官方音色
+    "zh-CN-XiaoxiaoNeural": "晓晓 (超自然知性女声)",
+    "zh-CN-YunxiNeural": "云希 (活力阳光男声)",
+    "zh-CN-YunjianNeural": "云健 (激情带货男声)",
+    "zh-CN-XiaoyiNeural": "晓伊 (亲切带货女声)",
+    "zh-CN-YunyangNeural": "云扬 (专业新闻男声)",
+    "zh-CN-XiaochenNeural": "晓辰 (开朗自然女声)",
+    "zh-CN-XiaohanNeural": "晓涵 (知性温柔女声)",
+    "zh-CN-XiaomengNeural": "晓梦 (甜美软萌女声)",
+    "zh-CN-XiaomoNeural": "晓墨 (生动故事女声)",
+    "zh-CN-XiaoqiuNeural": "晓秋 (沉稳知性女声)",
+    "zh-CN-XiaoruiNeural": "晓睿 (阳光少儿女声)",
+    "zh-CN-XiaoxuanNeural": "晓萱 (元气自信女声)",
+    "zh-CN-XiaoyanNeural": "晓颜 (清脆悦耳女声)",
+    "zh-CN-XiaoyouNeural": "晓悠 (灵动可爱童声)",
+    "zh-CN-YunfengNeural": "云枫 (年轻阳光男声)",
+    "zh-CN-YunhaoNeural": "云皓 (稳重磁性男声)",
+    "zh-CN-YunxiaNeural": "云夏 (朝气清爽男声)",
+    "zh-CN-YunyeNeural": "云野 (成熟沉稳男声)",
+    "zh-CN-YunzeNeural": "云泽 (磁性故事男声)",
+    "zh-HK-HiuMaanNeural": "晓曼 (粤语女声)",
+    "zh-HK-WanLungNeural": "云龙 (粤语男声)",
+    "zh-TW-HsiaoChenNeural": "晓臻 (台湾国语女声)",
+    "zh-TW-YunJheNeural": "云哲 (台湾国语男声)",
+
+    // 阿里云百炼 / CosyVoice
+    "longxiaochun": "龙小春 (知性女声)",
+    "longxiaoxia": "龙小夏 (甜美直播女声)",
+    "longwan": "龙婉 (温柔女主播)",
+    "longcheng": "龙诚 (稳重大气男声)",
+    "longhua": "龙华 (阳光亲切男声)",
+    "longshu": "龙书 (温和沉稳男声)",
+    "longshuo": "龙硕 (激情带货男声)",
+    "longjing": "龙静 (知性解说女声)",
+    "longmiao": "龙妙 (甜美萌音女声)",
+    "longyue": "龙悦 (温暖阳光女声)",
+    "longyuan": "龙渊 (沉稳旁白男声)",
+    "longfei": "龙飞 (活力主持男声)",
+    "longjie": "龙杰 (干练解说男声)",
+    "longling": "龙玲 (亲切客服女声)",
+    "longtian": "龙天 (活力带货男声)",
+
+    // ChatTTS
+    "female_warm": "温暖知性女主播",
+    "female_sweet": "甜美活力带货女声",
+    "male_magnetic": "低沉磁性男主播",
+    "male_narrator": "质感旁白男主播",
+
+    // 系统通用
+    "voice_default_female": "通用播报女声"
+};
+
 // 保存当前 TTS 配置
 async function handleSaveCurrentTTS() {
+    const saveBtn = document.getElementById("btn-save-tts");
+    const statusTip = document.getElementById("tts-save-btn-status");
+    const origBtnHtml = saveBtn ? saveBtn.innerHTML : "保存此语音配置";
+
     const urlInput = document.getElementById("tts-input-url");
     const voiceInput = document.getElementById("tts-input-voice");
     const keyInput = document.getElementById("tts-input-key");
@@ -1642,19 +1775,48 @@ async function handleSaveCurrentTTS() {
     const configIdInput = document.getElementById("tts-editor-config-id");
 
     const baseUrl = urlInput ? urlInput.value.trim() : "";
-    const voiceVal = voiceInput ? voiceInput.value.trim() : "";
+    let voiceVal = voiceInput ? voiceInput.value.trim() : "";
     const apiKey = keyInput ? keyInput.value.trim() : "";
     const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
     const configId = configIdInput ? configIdInput.value : "";
 
     const meta = resolveTTSProviderMeta(provider);
     if (meta.needUrl && !baseUrl) {
-        alert("该语音引擎需填写服务 Base URL 地址！");
+        if (typeof showToast === "function") showToast("该语音引擎需填写服务 Base URL 地址！", "warning");
+        else alert("该语音引擎需填写服务 Base URL 地址！");
         return;
     }
+
+    // 若未选定音色，自动智能从页面药丸或预设推荐列表中选取第一个，杜绝拦截卡死
     if (!voiceVal) {
-        alert("请先点击第三行「获取音色」，并在第五行选定要使用的发音音色后再进行保存！");
+        const activePill = document.querySelector("#tts-fetched-voices-container .fetched-model-pill.selected") ||
+                           document.querySelector("#tts-fetched-voices-container .fetched-model-pill");
+        if (activePill) {
+            voiceVal = activePill.getAttribute("data-voice") || "";
+            activePill.classList.add("selected");
+        } else if (meta.recommendedVoices && meta.recommendedVoices.length > 0) {
+            voiceVal = meta.recommendedVoices[0].val;
+        }
+        if (voiceInput && voiceVal) {
+            voiceInput.value = voiceVal;
+        }
+    }
+
+    if (!voiceVal) {
+        if (typeof showToast === "function") showToast("请先点击上方「获取音色与模型」加载可用音色后再进行保存！", "warning");
+        else alert("请先点击上方「获取音色与模型」加载可用音色后再进行保存！");
         return;
+    }
+
+    // 切换按钮加载态
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = `<span style="display:inline-block;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px;vertical-align:middle;"></span> 正在保存配置并同步入库...`;
+    }
+    if (statusTip) {
+        statusTip.style.display = "inline";
+        statusTip.style.color = "#38BDF8";
+        statusTip.innerText = "正在保存并同步入库中...";
     }
 
     const ttsConfigs = cachedAllConfigs.filter(c => c.config_group === "tts");
@@ -1666,13 +1828,29 @@ async function handleSaveCurrentTTS() {
         isDefault = ttsConfigs.length === 0;
     }
 
+    // 智能解析选定音色的纯净中文名称与完整标签，存入 extra_params 持久化
+    let chosenVoiceName = "";
+    let chosenVoiceLabel = "";
+    if (window._currentSelectedTTSVoiceMeta && window._currentSelectedTTSVoiceMeta.voiceVal === voiceVal) {
+        chosenVoiceName = window._currentSelectedTTSVoiceMeta.voiceName;
+        chosenVoiceLabel = window._currentSelectedTTSVoiceMeta.voiceLabel;
+    } else {
+        const resolved = resolveTTSVoiceInfo({ model_name: voiceVal, provider_name: provider });
+        chosenVoiceName = resolved.name;
+        chosenVoiceLabel = resolved.fullName;
+    }
+
     const payload = {
         id: configId || null,
         config_group: "tts",
         provider_name: provider,
         base_url: baseUrl,
         model_name: voiceVal,
-        is_active: isDefault
+        is_active: isDefault,
+        extra_params: {
+            voice_name: chosenVoiceName || "",
+            voice_label: chosenVoiceLabel || ""
+        }
     };
     if (apiKey) payload.api_key = apiKey;
 
@@ -1684,14 +1862,276 @@ async function handleSaveCurrentTTS() {
         });
         const json = await res.json();
         if (json.code === 0) {
-            showTTSTestResult(true, `语音配置已成功保存！${isDefault ? '已设为当前直播默认发音。' : '可在下方列表卡片右上角随时设为默认发音。'}`);
+            // 同步将获取到的全部具体音色（官方自带 + 专属克隆）批量保存到数据库（音色资产库）
+            let syncedCount = 0;
+            try {
+                const voicesToSync = [];
+                const seenIds = new Set();
+
+                // 1. 优先从 window._latestFetchedVoices 收集
+                const latest = window._latestFetchedVoices;
+                if (latest && latest.provider === provider) {
+                    (latest.clonedVoices || []).forEach(cv => {
+                        if (cv.id && !seenIds.has(cv.id)) {
+                            seenIds.add(cv.id);
+                            voicesToSync.push({
+                                id: cv.id,
+                                name: cv.name || cv.id,
+                                provider_name: provider,
+                                voice_type: "cloned"
+                            });
+                        }
+                    });
+                    (latest.recommendedVoices || []).forEach(rv => {
+                        if (rv.val && !seenIds.has(rv.val)) {
+                            seenIds.add(rv.val);
+                            const cleanName = (rv.text || "").replace(/^[👑\s]+/, "").split(/[\(\（]/)[0].trim() || rv.text;
+                            voicesToSync.push({
+                                id: rv.val,
+                                name: cleanName || rv.val,
+                                provider_name: provider,
+                                voice_type: "preset"
+                            });
+                        }
+                    });
+                }
+
+                // 2. 补漏：从 meta.recommendedVoices 收集官方预设
+                (meta.recommendedVoices || []).forEach(rv => {
+                    if (rv.val && !seenIds.has(rv.val)) {
+                        seenIds.add(rv.val);
+                        const cleanName = (rv.text || "").replace(/^[👑\s]+/, "").split(/[\(\（]/)[0].trim() || rv.text;
+                        voicesToSync.push({
+                            id: rv.val,
+                            name: cleanName || rv.val,
+                            provider_name: provider,
+                            voice_type: "preset"
+                        });
+                    }
+                });
+
+                // 3. 从 DOM 药丸中收集用户专属绑定的音色
+                document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(p => {
+                    const vid = p.getAttribute("data-voice");
+                    if (vid && !seenIds.has(vid)) {
+                        seenIds.add(vid);
+                        const isClone = p.getAttribute("data-is-clone") === "true";
+                        const nameSpan = p.querySelector("span:not(.btn-delete-clone-pill)") || p;
+                        const rawText = nameSpan.textContent.trim();
+                        const cleanName = rawText.replace(/^[👑\s]+/, "").split(/[\(\（]/)[0].trim() || rawText;
+                        voicesToSync.push({
+                            id: vid,
+                            name: cleanName || vid,
+                            provider_name: provider,
+                            voice_type: isClone ? "cloned" : "preset"
+                        });
+                    }
+                });
+
+                if (voicesToSync.length > 0) {
+                    const syncRes = await fetch(`${API_BASE}/voices/batch-sync`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            provider_name: provider,
+                            voices: voicesToSync
+                        })
+                    });
+                    const syncJson = await syncRes.json();
+                    if (syncJson.code === 0) {
+                        syncedCount = syncJson.total || voicesToSync.length;
+                    }
+                }
+            } catch (errSync) {
+                console.warn("同步保存音色资产库异常:", errSync);
+            }
+
+            const syncTip = syncedCount > 0 ? `，并已同步 ${syncedCount} 款音色入库至【音色资产库】` : "";
+            const successMsg = `语音配置已成功保存${syncTip}！${isDefault ? '已设为当前直播默认发音。' : '可在下方列表卡片右上角随时设为默认发音。'}`;
+            showTTSTestResult(true, successMsg);
+            if (typeof showToast === "function") {
+                showToast(successMsg, "success", 4500);
+            }
+            if (statusTip) {
+                statusTip.style.color = "#10B981";
+                statusTip.innerHTML = `✓ 语音配置已保存${syncedCount > 0 ? ` (已同步 ${syncedCount} 款音色)` : ''}`;
+                setTimeout(() => { if (statusTip) statusTip.style.display = "none"; }, 6000);
+            }
+
             await loadSettings();
+            if (typeof loadVoiceTable === "function") {
+                await loadVoiceTable();
+            }
+            if (typeof populateAnchorVoiceSelect === "function") {
+                await populateAnchorVoiceSelect(window._voiceProfilesCache || (typeof voiceCache !== "undefined" ? voiceCache : []));
+            }
         } else {
             showTTSTestResult(false, "保存失败: " + json.message);
+            if (typeof showToast === "function") showToast("保存失败: " + json.message, "danger");
+            if (statusTip) {
+                statusTip.style.color = "#EF4444";
+                statusTip.innerText = "保存失败: " + json.message;
+            }
         }
     } catch (e) {
         showTTSTestResult(false, "保存语音引擎出错: " + e);
+        if (typeof showToast === "function") showToast("保存语音引擎出错: " + e, "danger");
+        if (statusTip) {
+            statusTip.style.color = "#EF4444";
+            statusTip.innerText = "保存异常: " + e;
+        }
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = origBtnHtml;
+        }
     }
+}
+
+// ============================================================================
+// 全局解析指定 TTS 配置项的友好音色名称（彻底隐藏底层机器ID，以中文优雅名称展示）
+// ============================================================================
+function resolveTTSVoiceInfo(cfg, voiceProfiles = null) {
+    const voiceVal = (cfg && cfg.model_name ? cfg.model_name : "").trim();
+    const provider = (cfg && cfg.provider_name ? cfg.provider_name : "").toLowerCase();
+
+    // 1. 优先读取 extra_params 中显式保存的友好名称
+    let extra = {};
+    if (cfg && cfg.extra_params) {
+        try {
+            extra = typeof cfg.extra_params === "string" ? JSON.parse(cfg.extra_params) : cfg.extra_params;
+        } catch (e) { }
+    }
+    if (extra && extra.voice_name && typeof extra.voice_name === "string" && extra.voice_name.trim()) {
+        const savedName = extra.voice_name.trim();
+        if (!savedName.startsWith("zh-CN-") && !savedName.startsWith("zh-HK-") && !savedName.startsWith("zh-TW-")) {
+            const isCloneVoice = Boolean(extra.is_clone || (voiceVal && (voiceVal.includes("cloned") || voiceVal.includes("bailian"))));
+            return {
+                name: savedName,
+                fullName: extra.voice_label || savedName,
+                isClone: isCloneVoice,
+                voiceId: voiceVal
+            };
+        }
+    }
+
+    // 2. 尝试从系统登记的声音档案库 (VoiceProfile) 中匹配
+    const profiles = Array.isArray(voiceProfiles) && voiceProfiles.length > 0
+        ? voiceProfiles
+        : (Array.isArray(window._voiceProfilesCache) && window._voiceProfilesCache.length > 0
+            ? window._voiceProfilesCache
+            : (typeof voiceCache !== "undefined" && Array.isArray(voiceCache) ? voiceCache : []));
+
+    if (voiceVal) {
+        const matchedProfile = profiles.find(v => (v.id && v.id === voiceVal) || (v.voice_id && v.voice_id === voiceVal));
+        if (matchedProfile && matchedProfile.name && !matchedProfile.name.startsWith("zh-CN-")) {
+            const isClone = matchedProfile.voice_type === "cloned" || matchedProfile.is_clone;
+            return {
+                name: matchedProfile.name.trim(),
+                fullName: `${matchedProfile.name.trim()}${isClone ? ' (专属克隆)' : ' (官方预设)'}`,
+                isClone: Boolean(isClone),
+                voiceId: voiceVal
+            };
+        }
+    }
+
+    // 3. 从全局友好音色字典匹配 (TTS_VOICE_FRIENDLY_NAMES)
+    if (voiceVal && TTS_VOICE_FRIENDLY_NAMES[voiceVal]) {
+        const fullDesc = TTS_VOICE_FRIENDLY_NAMES[voiceVal];
+        const cleanName = fullDesc.split(/[\(\（]/)[0].trim();
+        return {
+            name: cleanName,
+            fullName: fullDesc,
+            isClone: false,
+            voiceId: voiceVal
+        };
+    }
+
+    // 4. 尝试从预设生态推荐音色库中匹配 (recommendedVoices)
+    const pMeta = typeof resolveTTSProviderMeta === "function" ? resolveTTSProviderMeta(provider, cfg) : null;
+    const recs = (pMeta && pMeta.recommendedVoices) ? pMeta.recommendedVoices : [];
+    let matchedRec = recs.find(v => v.val === voiceVal);
+
+    if (!matchedRec && typeof BUILTIN_TTS_ECOSYSTEM !== "undefined") {
+        for (const eco of BUILTIN_TTS_ECOSYSTEM) {
+            matchedRec = (eco.recommendedVoices || []).find(v => v.val === voiceVal);
+            if (matchedRec) break;
+        }
+    }
+
+    if (matchedRec) {
+        const cleanName = (matchedRec.text || "").replace(/^[👑\s]+/, "").split(/[\(\（]/)[0].trim() || matchedRec.text;
+        return {
+            name: cleanName,
+            fullName: matchedRec.text,
+            isClone: false,
+            voiceId: voiceVal
+        };
+    }
+
+    // 5. 针对 Edge-TTS 的正则中文名称智能提取 (例如 zh-CN-XiaoxiaoNeural -> 晓晓)
+    if (voiceVal.startsWith("zh-")) {
+        const matchZh = voiceVal.match(/zh-[A-Za-z]+-([A-Za-z]+)Neural/i);
+        if (matchZh && matchZh[1]) {
+            const nameRaw = matchZh[1];
+            const pinyinMap = {
+                "Xiaoxiao": "晓晓", "Yunxi": "云希", "Yunjian": "云健", "Xiaoyi": "晓伊",
+                "Yunyang": "云扬", "Xiaochen": "晓辰", "Xiaohan": "晓涵", "Xiaomeng": "晓梦",
+                "Xiaomo": "晓墨", "Xiaoqiu": "晓秋", "Xiaorui": "晓睿", "Xiaoxuan": "晓萱",
+                "Xiaoyan": "晓颜", "Xiaoyou": "晓悠", "Yunfeng": "云枫", "Yunhao": "云皓",
+                "Yunxia": "云夏", "Yunye": "云野", "Yunze": "云泽"
+            };
+            const zhName = pinyinMap[nameRaw] || nameRaw;
+            return {
+                name: zhName,
+                fullName: `${zhName} (超自然微软云语音)`,
+                isClone: false,
+                voiceId: voiceVal
+            };
+        }
+    }
+
+    // 6. 针对百炼/CosyVoice 专属 Voice-ID 的智能语义识别
+    const isBailianOrCosy = provider.includes("cosy") || voiceVal.includes("bailian") || voiceVal.includes("cosyvoice") || voiceVal.includes("qwen-audio");
+    if (isBailianOrCosy && voiceVal) {
+        const realClones = profiles.filter(v => (v.id || "").toLowerCase() !== "voice_default_female");
+        if (realClones.length > 0) {
+            if (realClones.length === 1 && realClones[0].name) {
+                return {
+                    name: realClones[0].name.trim(),
+                    fullName: `${realClones[0].name.trim()} (专属克隆)`,
+                    isClone: true,
+                    voiceId: voiceVal
+                };
+            }
+            const similar = realClones.find(v => (v.id && voiceVal.includes(v.id.substring(0, 16))) || (v.id && v.id.includes(voiceVal.substring(0, 16))));
+            if (similar && similar.name) {
+                return {
+                    name: similar.name.trim(),
+                    fullName: `${similar.name.trim()} (专属克隆)`,
+                    isClone: true,
+                    voiceId: voiceVal
+                };
+            }
+        }
+        return {
+            name: "专属克隆音色",
+            fullName: "百炼专属克隆音色",
+            isClone: true,
+            voiceId: voiceVal
+        };
+    }
+
+    // 7. 终极保护：杜绝暴露生硬代码
+    if (!voiceVal) {
+        return { name: "默认音色", fullName: "默认音色", isClone: false, voiceId: "" };
+    }
+    return {
+        name: "官方推荐音色",
+        fullName: `官方推荐音色 (${voiceVal})`,
+        isClone: false,
+        voiceId: voiceVal
+    };
 }
 
 // 渲染已配置的 TTS 清单 (100% 真实数据驱动)
@@ -1699,6 +2139,24 @@ function renderConfiguredTTS(configs) {
     const container = document.getElementById("configured-tts-list");
     const countBadge = document.getElementById("configured-tts-count");
     if (!container) return;
+
+    // 异步确保声音档案库缓存就绪并静默更新
+    if (!window._voiceProfilesCache && !window._fetchingVoiceProfiles) {
+        window._fetchingVoiceProfiles = true;
+        fetch(`${API_BASE}/voices/list`)
+            .then(res => res.json())
+            .then(json => {
+                if (json.code === 0 && Array.isArray(json.data)) {
+                    window._voiceProfilesCache = json.data;
+                    if (typeof voiceCache !== "undefined") voiceCache = json.data;
+                    renderConfiguredTTS(configs);
+                }
+            })
+            .catch(() => {})
+            .finally(() => {
+                window._fetchingVoiceProfiles = false;
+            });
+    }
 
     container.style.display = "grid";
     container.style.gridTemplateColumns = "repeat(auto-fill, minmax(320px, 1fr))";
@@ -1724,6 +2182,8 @@ function renderConfiguredTTS(configs) {
         const card = document.createElement("div");
         card.className = "configured-llm-card" + (cfg.is_active ? " is-active" : "");
 
+        const voiceInfo = resolveTTSVoiceInfo(cfg, window._voiceProfilesCache || (typeof voiceCache !== "undefined" ? voiceCache : []));
+
         const topCornerHtml = cfg.is_active
             ? `<div class="badge-active-brain">★ 默认生效发音</div>`
             : `<button class="btn-card-set-default-tts" onclick="handleSetActiveTTS('${cfg.id}')" title="设为当前直播默认发音">
@@ -1731,15 +2191,26 @@ function renderConfiguredTTS(configs) {
                  设为默认发音
                </button>`;
 
-        const configuredLogoSrc = (tMeta.logoSvg || "").startsWith("http") ? tMeta.logoSvg : (tMeta.logoSvg + "?v=2.0.4");
+        const configuredLogoSrc = (tMeta.logoSvg || "").startsWith("http") ? tMeta.logoSvg : (tMeta.logoSvg + "?v=20260917_v6");
+        
+        // 音色名称药丸徽标：专属克隆使用尊贵金色高亮并带皇冠，官方使用自然微光绿徽标，悬停展示完整音色名与底层 ID
+        const voiceBadgeHtml = voiceInfo.isClone
+            ? `<span class="brand-badge green" style="font-size: 11px; padding: 2px 7px; font-weight: 600; border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.12); color: #FBBF24; display: inline-flex; align-items: center; gap: 4px;" title="专属声音克隆: ${escapeHtml(voiceInfo.fullName)} | Voice-ID: ${escapeHtml(voiceInfo.voiceId || cfg.model_name)}">
+                 <span style="font-size: 11px; line-height: 1;">👑</span>
+                 <span>${escapeHtml(voiceInfo.name)}</span>
+               </span>`
+            : `<span class="brand-badge green" style="font-size: 11px; padding: 2px 7px; font-weight: 600;" title="发音音色: ${escapeHtml(voiceInfo.fullName)} | ID: ${escapeHtml(voiceInfo.voiceId || cfg.model_name)}">
+                 ${escapeHtml(voiceInfo.name)}
+               </span>`;
+
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; width: 100%; min-width: 0; box-sizing: border-box;">
                 <div class="configured-llm-info">
-                    <img src="${configuredLogoSrc}" alt="${tMeta.name}" style="width: 38px; height: 38px; border-radius: 8px; object-fit: contain; flex-shrink: 0; background: #090E17; border: 1px solid rgba(16, 185, 129, 0.25); padding: 4px;">
+                    <img src="${configuredLogoSrc}" alt="${tMeta.name}" style="width: 42px; height: 42px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: transparent; border: none; padding: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
                     <div style="min-width: 0; flex: 1;">
                         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                             <strong style="font-size: 14px; color: #FFFFFF;">${tMeta.name}</strong>
-                            <span class="brand-badge green" style="font-size: 10.5px; padding: 2px 6px;">${escapeHtml(cfg.model_name || '默认音色')}</span>
+                            ${voiceBadgeHtml}
                         </div>
                         <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(cfg.base_url || '内置直连')}">
                             ${escapeHtml(cfg.base_url || '微软云端直连免配置')}
@@ -1780,6 +2251,9 @@ async function handleSetActiveTTS(configId) {
         if (json.code === 0) {
             showToast("已切换直播默认发音引擎！", "success");
             await loadSettings();
+            if (typeof populateAnchorVoiceSelect === "function") {
+                await populateAnchorVoiceSelect(window._voiceProfilesCache || (typeof voiceCache !== "undefined" ? voiceCache : []));
+            }
         } else {
             alert("设置失败: " + json.message);
         }

@@ -7,18 +7,30 @@
               <span id="anchor-edit-hint" style="font-size:12px;color:var(--amber);font-weight:500;"></span>
             </span>
           </div>
-          <div class="grid-2" style="margin-bottom: 16px;">
+          <div class="grid-3" style="margin-bottom: 16px;">
             <div>
               <label class="form-label" for="anchor-name">主播姓名 <span style="color:var(--red)">*</span></label>
-              <input type="text" id="anchor-name" class="form-control" placeholder="如：金牌带货推荐官·艾米" title="主播姓名" aria-label="主播姓名">
+              <input type="text" id="anchor-name" class="form-control" placeholder="如：金牌带货推荐官·艾米" title="主播姓名" aria-label="主播姓名" autocomplete="off" spellcheck="false">
             </div>
             <div>
-              <label class="form-label" for="anchor-voice">绑定音色</label>
+              <label class="form-label" for="anchor-type">主播类型 <span style="color:var(--text-muted);font-size:11px;font-weight:normal;">(核心话术与风格)</span></label>
+              <select id="anchor-type" class="form-control" title="主播类型" aria-label="主播类型">
+                <option value="ecommerce">🛍️ 带货主播（促单逼单）</option>
+                <option value="entertainment">🎭 娱乐主播（逗梗陪伴）</option>
+                <option value="expert">⚖️ 专业专家（咨询法理前置免责）</option>
+                <option value="chat">☕ 闲聊扯淡（唠嗑搭子）</option>
+              </select>
+            </div>
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="form-label" for="anchor-voice" style="margin-bottom: 0;">绑定音色</label>
+                <span id="anchor-voice-engine-hint" style="font-size: 11px;"></span>
+              </div>
               <select id="anchor-voice" class="form-control" title="绑定音色" aria-label="绑定音色"></select>
             </div>
           </div>
           <label class="form-label" for="anchor-remark">备注信息</label>
-          <input type="text" id="anchor-remark" class="form-control" placeholder="如：主打美妆个护品类，风格热情高亢" title="备注信息" aria-label="备注信息">
+          <input type="text" id="anchor-remark" class="form-control" placeholder="如：主打美妆个护品类，风格热情高亢" title="备注信息" aria-label="备注信息" autocomplete="off" spellcheck="false">
           <div class="grid-4" style="margin-top: 16px;">
             <div><label class="form-label" for="anchor-photo-portrait">形象照（正面）</label><input type="file" id="anchor-photo-portrait" class="form-control" accept="image/*" title="形象照（正面）" aria-label="形象照（正面）"></div>
             <div><label class="form-label" for="anchor-photo-full_body">全身照</label><input type="file" id="anchor-photo-full_body" class="form-control" accept="image/*" title="全身照" aria-label="全身照"></div>
@@ -44,8 +56,242 @@
             </button>
           </div>
           <table class="data-table">
-            <thead><tr><th>姓名</th><th>绑定音色</th><th>照片</th><th>备注</th><th>操作</th></tr></thead>
+            <thead><tr><th>姓名</th><th>主播类型</th><th>绑定音色</th><th>照片/数字人</th><th>备注</th><th>操作</th></tr></thead>
             <tbody id="anchors-tbody"></tbody>
           </table>
+        </div>
+
+        <!-- ========================================================== -->
+        <!-- 阶段二：真人视频制作数字人资产工场 (Avatar Video Slice Studio) -->
+        <!-- ========================================================== -->
+        <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(16, 185, 129, 0.25);">
+          <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
+                <svg class="icon" viewBox="0 0 24 24" style="color: #34d399;"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+                🎬 真人视频制作数字人资产工场
+              </span>
+              <span class="badge-recommend" style="font-size:11px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">
+                25 FPS 连续帧切片 · 口型关键点对齐
+              </span>
+            </div>
+            <button class="btn btn-sm" onclick="loadAvatarTasks()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              刷新任务
+            </button>
+          </div>
+
+          <p style="font-size: 13px; color: var(--text-muted); margin: 12px 0 16px 0; line-height: 1.5;">
+            上传一段 1~2 分钟真人说话的高清视频 (MP4/MOV)，系统将自动完成视频逐帧切片提取 (<code style="color:#34d399;">full_imgs/</code>)、面部特征对齐与平滑包围盒计算 (<code style="color:#34d399;">coords.pkl</code>) 以及音频伴音分离 (<code style="color:#34d399;">audio.wav</code>)，制作专属真人级唇形同步数字人资产。
+          </p>
+
+          <!-- 视频上传与参数配置表单 -->
+          <div class="grid-3" style="margin-bottom: 16px;">
+            <div>
+              <label class="form-label" for="avatar-task-anchor">关联主播</label>
+              <select id="avatar-task-anchor" class="form-control" title="关联目标主播" aria-label="关联目标主播">
+                <option value="">-- 暂不绑定 (仅生成通用模型资产) --</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="avatar-task-name">数字人资产名称 <span style="color:var(--red)">*</span></label>
+              <input type="text" id="avatar-task-name" class="form-control" placeholder="如：艾米·高清带货数字人" title="数字人资产名称" aria-label="数字人资产名称" autocomplete="off">
+            </div>
+            <div>
+              <label class="form-label" for="avatar-task-video">真人录像视频 <span style="color:var(--red)">*</span> <span style="color:var(--text-muted); font-size:11px;">(MP4/MOV, &lt;200MB)</span></label>
+              <input type="file" id="avatar-task-video" class="form-control" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" title="选择真人视频文件" aria-label="选择真人视频文件">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px;">
+            <button class="btn btn-primary" id="btn-submit-avatar-task" onclick="submitAvatarTask()">
+              <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              🎬 立即启动切片与训练
+            </button>
+            <span id="avatar-task-hint" style="font-size: 12px; color: var(--text-muted);"></span>
+          </div>
+
+          <!-- 实时进度卡片 (有活动任务时展示) -->
+          <div id="avatar-task-active-box" style="display: none; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 14px; font-weight: 600; color: #34d399; display: flex; align-items: center; gap: 6px;">
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
+                <span id="active-task-title">正在处理任务...</span>
+              </span>
+              <span id="active-task-percent" style="font-size: 16px; font-weight: 700; color: #34d399;">0%</span>
+            </div>
+            <!-- 进度条 -->
+            <div style="width: 100%; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+              <div id="active-task-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #059669, #10b981); transition: width 0.3s ease;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted);">
+              <span id="active-task-stage">准备中...</span>
+              <button class="btn btn-sm btn-danger" id="active-task-cancel-btn" onclick="cancelActiveAvatarTask()" style="padding: 2px 10px; font-size: 11px;">取消任务</button>
+            </div>
+          </div>
+
+          <!-- 历史切片资产库与任务列表 -->
+          <div style="margin-top: 16px;">
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">
+              已训练数字人资产列表
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>缩略图</th>
+                  <th>模型资产名称</th>
+                  <th>关联主播</th>
+                  <th>切片帧数</th>
+                  <th>状态</th>
+                  <th>创建时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="avatar-tasks-tbody">
+                <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载数字人任务...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ========================================================== -->
+        <!-- 阶段三：动作视频状态机与电商带货场景智能绑定 (Action State Machine) -->
+        <!-- ========================================================== -->
+        <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(245, 158, 11, 0.25);">
+          <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
+                <svg class="icon" viewBox="0 0 24 24" style="color: #f59e0b;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                🎭 动作视频状态机与电商带货智能绑定 (阶段三)
+              </span>
+              <span class="badge-recommend" style="font-size:11px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">
+                双轨智能驱动 · 优先级抢占 · 镜像无缝往返
+              </span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-sm" onclick="loadAvatarActions()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                刷新动作
+              </button>
+            </div>
+          </div>
+
+          <!-- 状态机实时遥测仪表条 -->
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; border: 1px solid rgba(255,255,255,0.06);">
+            <div>
+              <div style="font-size: 11px; color: var(--text-muted);">当前动作状态</div>
+              <div id="action-telemetry-current" style="font-size: 14px; font-weight: 600; color: #34d399; margin-top: 2px;">Action 0: 待机呼吸</div>
+            </div>
+            <div>
+              <div style="font-size: 11px; color: var(--text-muted);">运行中优先级</div>
+              <div id="action-telemetry-priority" style="font-size: 14px; font-weight: 600; color: #fbbf24; margin-top: 2px;">P0 (待机)</div>
+            </div>
+            <div>
+              <div style="font-size: 11px; color: var(--text-muted);">持续倒计时 (自动衰减)</div>
+              <div id="action-telemetry-countdown" style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-top: 2px;">循环常驻</div>
+            </div>
+            <div>
+              <div style="font-size: 11px; color: var(--text-muted);">平滑算法</div>
+              <div style="font-size: 14px; font-weight: 600; color: #38bdf8; margin-top: 2px;">Mirror Index 镜像无缝</div>
+            </div>
+          </div>
+
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5;">
+            数字人状态机支持由<strong>主播口播话术关键词</strong>（如“购物车/下单”触发动作 3 指引）与<strong>直播间实时场控事件</strong>（如“收到大额礼物”触发动作 4 鞠躬致谢）双轨触发，动作执行结束后超时自动平滑回待机态 0。
+          </p>
+
+          <!-- 动作配置列表 -->
+          <table class="data-table" style="margin-bottom: 16px;">
+            <thead>
+              <tr>
+                <th style="width: 70px;">槽位</th>
+                <th style="width: 140px;">动作名称</th>
+                <th style="width: 100px;">关联主播</th>
+                <th>触发机制与关键词</th>
+                <th>场控事件</th>
+                <th style="width: 90px;">持续/优先级</th>
+                <th style="width: 110px;">切片资产</th>
+                <th style="width: 180px;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="avatar-actions-tbody">
+              <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载动作状态机配置...</td></tr>
+            </tbody>
+          </table>
+
+          <!-- 动作快速编辑面板 (展开/折叠) -->
+          <div id="action-edit-card" style="display: none; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 16px; margin-top: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <span id="action-edit-title" style="font-weight: 600; font-size: 14px; color: #fbbf24;">编辑动作参数</span>
+              <button class="btn btn-sm" onclick="closeActionEditCard()">关闭</button>
+            </div>
+            <div class="grid-3" style="margin-bottom: 12px;">
+              <div>
+                <label class="form-label" for="edit-action-code">动作槽位 Code <span style="color:var(--red)">*</span></label>
+                <input type="number" id="edit-action-code" class="form-control" placeholder="0:待机, 1:欢迎, 2:关注, 3:逼单, 4:致谢" title="动作槽位 Code" aria-label="动作槽位 Code">
+              </div>
+              <div>
+                <label class="form-label" for="edit-action-name">动作名称 <span style="color:var(--red)">*</span></label>
+                <input type="text" id="edit-action-name" class="form-control" placeholder="如：促单指引购物车" title="动作名称" aria-label="动作名称">
+              </div>
+              <div>
+                <label class="form-label" for="edit-action-anchor">所属主播</label>
+                <select id="edit-action-anchor" class="form-control" title="所属主播" aria-label="所属主播">
+                  <option value="">-- 全局通用 (所有主播生效) --</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid-3" style="margin-bottom: 12px;">
+              <div>
+                <label class="form-label" for="edit-action-trigger-type">触发类型</label>
+                <select id="edit-action-trigger-type" class="form-control" title="触发类型" aria-label="触发类型">
+                  <option value="both">双轨触发 (关键词 + 场控事件)</option>
+                  <option value="keyword">仅关键词触发 (话术匹配)</option>
+                  <option value="event">仅场控事件触发 (礼物/欢迎/下单)</option>
+                  <option value="manual">仅手动触发</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label" for="edit-action-duration">持续时长 (秒)</label>
+                <input type="number" step="0.5" id="edit-action-duration" class="form-control" value="3.5" title="持续时长" aria-label="持续时长">
+              </div>
+              <div>
+                <label class="form-label" for="edit-action-priority">优先级 (P0~P9，高优先抢占)</label>
+                <input type="number" id="edit-action-priority" class="form-control" value="3" title="优先级" aria-label="优先级">
+              </div>
+            </div>
+            <div class="grid-2" style="margin-bottom: 12px;">
+              <div>
+                <label class="form-label" for="edit-action-keywords">话术触发关键词 (逗号分隔)</label>
+                <input type="text" id="edit-action-keywords" class="form-control" placeholder="例如：购物车,下单,左下角,手慢无" title="话术触发关键词" aria-label="话术触发关键词">
+              </div>
+              <div>
+                <label class="form-label" for="edit-action-events">关联场控事件</label>
+                <select id="edit-action-events" class="form-control" title="关联场控事件" aria-label="关联场控事件">
+                  <option value="">-- 无事件绑定 --</option>
+                  <option value="welcome">进房欢迎 (welcome)</option>
+                  <option value="follow">点赞关注 (follow)</option>
+                  <option value="order">下单成交 (order)</option>
+                  <option value="gift">礼物打赏致谢 (gift)</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px;">
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer;">
+                <input type="checkbox" id="edit-action-mirror" checked> 启用 Mirror Index 镜像平滑往返循环 (消除画面跳变)
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; margin-left: 16px;">
+                <input type="checkbox" id="edit-action-active" checked> 启用该动作槽位
+              </label>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 16px;">
+              <button class="btn btn-primary" onclick="submitSaveAvatarAction()">保存配置</button>
+              <button class="btn" onclick="closeActionEditCard()">取消</button>
+            </div>
+            <input type="hidden" id="edit-action-id" value="">
+          </div>
+
+          <!-- 隐藏的文件上传控件 (点击各动作上传切片时调用) -->
+          <input type="file" id="action-clip-uploader" accept="video/mp4,video/quicktime,video/webm" style="display:none;" onchange="handleActionClipFileSelected(this)" title="上传切片文件" aria-label="上传切片文件">
         </div>
       </div>

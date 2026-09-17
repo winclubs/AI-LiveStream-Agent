@@ -129,3 +129,131 @@ def test_circuit_breaker_automatic_fallback_and_recovery():
         await breaker.stop()
 
     asyncio.run(_test())
+
+
+def test_kuaishou_contract_replay_dispatch_and_intent():
+    """契约测试：快手弹幕适配器消息解析、高意图促单提权与大额礼物 P0 打断"""
+    from server.adapters.danmaku.kuaishou_fetcher import KuaishouDanmakuFetcher
+
+    events = []
+
+    def on_event(event_type, user_name, payload, priority):
+        events.append({"type": event_type, "user": user_name, "payload": payload, "priority": priority})
+
+    fetcher = KuaishouDanmakuFetcher("https://live.kuaishou.com/u/kuaishou_streamer_888", on_event)
+    assert fetcher.clean_room_id == "kuaishou_streamer_888"
+
+    # 1. 普通聊天发言 -> P2
+    fetcher._dispatch_event({
+        "type": "chat",
+        "userName": "老铁666",
+        "content": "主播好呀！今天天气不错",
+        "userId": "1001",
+    })
+    assert len(events) == 1
+    assert events[0]["priority"] == 2
+    assert events[0]["user"] == "老铁666"
+
+    # 2. 促单高意图关键词（多少钱）-> 自动提权 P1
+    fetcher._dispatch_event({
+        "type": "comment",
+        "userName": "想买的粉丝",
+        "content": "请问一号链接多少钱？包邮吗？",
+        "userId": "1002",
+    })
+    assert len(events) == 2
+    assert events[1]["priority"] == 1
+    assert events[1]["payload"]["text"] == "请问一号链接多少钱？包邮吗？"
+
+    # 3. 普通礼物 -> P1
+    fetcher._dispatch_event({
+        "type": "gift",
+        "userName": "路人甲",
+        "giftName": "荧光棒",
+        "count": 10,
+        "totalCoin": 100,
+        "userId": "1003",
+    })
+    assert len(events) == 3
+    assert events[2]["priority"] == 1
+
+    # 4. 超级大礼 (穿云箭 50000 币) -> P0 强打断
+    fetcher._dispatch_event({
+        "type": "gift",
+        "userName": "榜一大哥",
+        "giftName": "穿云箭",
+        "count": 1,
+        "totalCoin": 66666,
+        "userId": "1004",
+    })
+    assert len(events) == 4
+    assert events[3]["priority"] == 0
+    assert events[3]["payload"]["gift_name"] == "穿云箭"
+
+
+def test_wechat_contract_replay_dispatch_and_intent():
+    """契约测试：微信视频号弹幕适配器解析、专业咨询提权与高额打赏 P0 打断"""
+    from server.adapters.danmaku.wechat_fetcher import WechatDanmakuFetcher
+
+    events = []
+
+    def on_event(event_type, user_name, payload, priority):
+        events.append({"type": event_type, "user": user_name, "payload": payload, "priority": priority})
+
+    fetcher = WechatDanmakuFetcher("liveId=export_wx_channel_live_99", on_event)
+    assert fetcher.clean_room_id == "export_wx_channel_live_99"
+
+    # 1. 普通留言 -> P2
+    fetcher._dispatch_event({
+        "type": "chat",
+        "nickname": "视频号观众",
+        "content": "打卡签到",
+        "fromUsername": "wx_user_1",
+    })
+    assert len(events) == 1
+    assert events[0]["priority"] == 2
+
+    # 2. 专业咨询高意图（老师/咨询）-> P1 提权
+    fetcher._dispatch_event({
+        "type": 1,
+        "nickname": "咨询客户",
+        "content": "老师您好，请问这类案件怎么联系咨询？",
+        "fromUsername": "wx_user_2",
+    })
+    assert len(events) == 2
+    assert events[1]["priority"] == 1
+
+    # 3. 微信大额礼物 -> P0 强打断
+    fetcher._dispatch_event({
+        "type": 2,
+        "nickname": "热情老铁",
+        "giftName": "璀璨爱心",
+        "count": 1,
+        "totalCoin": 58888,
+        "fromUsername": "wx_user_3",
+    })
+    assert len(events) == 3
+    assert events[2]["priority"] == 0
+
+
+def test_danmaku_registry_multi_platform_support():
+    """契约测试：验证 DanmakuFetcherRegistry 成功注册并支持四大核心直播平台"""
+    from server.adapters.danmaku.registry import global_danmaku_registry
+
+    platforms = global_danmaku_registry.list_platforms()
+    assert "bilibili" in platforms
+    assert "douyin" in platforms
+    assert "kuaishou" in platforms
+    assert "wechat" in platforms
+
+    # 验证能成功创建快手和视频号适配器
+    def dummy_cb(*args, **kwargs):
+        pass
+
+    ks_fetcher = global_danmaku_registry.create("kuaishou", "ks_room_101", dummy_cb)
+    assert ks_fetcher is not None
+    assert ks_fetcher.platform_name == "kuaishou"
+
+    wx_fetcher = global_danmaku_registry.create("wechat", "wx_live_202", dummy_cb)
+    assert wx_fetcher is not None
+    assert wx_fetcher.platform_name == "wechat"

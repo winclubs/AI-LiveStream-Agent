@@ -138,6 +138,20 @@ def bump_version(new_version: str) -> None:
         else:
             print("  [WARN] console.js 未找到 FRONTEND_VERSION 常量, 请人工确认", file=sys.stderr)
 
+    # 5. 更新 modules/00_core.js 前端模块源码版本常量
+    core_js = REPO_ROOT / "server" / "static" / "js" / "modules" / "00_core.js"
+    if core_js.exists():
+        c_content = core_js.read_text(encoding="utf-8")
+        new_c_content, c_count = re.subn(
+            r'FRONTEND_VERSION\s*=\s*"[^"]+"',
+            f'FRONTEND_VERSION = "{new_version}"',
+            c_content,
+            count=1,
+        )
+        if c_count > 0:
+            core_js.write_text(new_c_content, encoding="utf-8")
+            print(f"  [OK] [server/static/js/modules/00_core.js] FRONTEND_VERSION -> {new_version}")
+
     print("\n[OK] 版本号同步完毕！")
 
 

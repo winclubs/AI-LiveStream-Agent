@@ -96,6 +96,10 @@ def build_index_html() -> str:
     compiled_content = pattern.sub(_replace_include, template_content)
 
     OUTPUT_FILE.write_text(compiled_content, encoding="utf-8")
+    try:
+        build_console_js()
+    except Exception:
+        pass
     return compiled_content
 
 
@@ -134,5 +138,9 @@ if __name__ == "__main__":
     print("[*] 正在执行组件模板合并构建 (HTML)...")
     built_html = build_index_html()
     print(f"[OK] HTML 合成完成，文件大小: {len(built_html)} 字节，行数: {len(built_html.splitlines())}")
-    print("[OK] 前端模块化脚本就绪，由 index.html 直接按序加载 modules/*.js，console.js 保持轻量入口。")
+
+    print("[*] 正在执行 JS 模块合并构建 (console.js)...")
+    built_js = build_console_js()
+    print(f"[OK] console.js 合成完成，文件大小: {len(built_js)} 字节，行数: {len(built_js.splitlines())}")
+    print("[OK] 前端模块化脚本就绪，由 index.html 直接按序加载 modules/*.js，console.js 保持聚合打包备份。")
 

@@ -48,6 +48,12 @@ async function loadSettings() {
                 }
             }
 
+            // 联动刷新主播管理页的绑定音色下拉列表与当前生效引擎提示
+            if (typeof populateAnchorVoiceSelect === "function") {
+                const vList = window._voiceProfilesCache || (typeof voiceCache !== "undefined" ? voiceCache : []);
+                populateAnchorVoiceSelect(vList);
+            }
+
             // 3. 渲染其他高级/扩展服务商卡片（如远程 GPU 渲染节点等）
             const container = document.getElementById("settings-configs-container");
             if (!container) return;

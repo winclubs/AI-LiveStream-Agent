@@ -58,11 +58,22 @@
             </span>
             <div style="display: flex; align-items: center; gap: 10px;">
               <select id="live-platform-select" class="form-control" style="width: 128px; padding: 7px 8px; font-size: 12px;" title="选择直播平台" aria-label="选择直播平台">
+                <option value="douyin" selected>抖音直播</option>
+                <option value="kuaishou">快手直播</option>
+                <option value="wechat">微信视频号</option>
                 <option value="bilibili">B站直播</option>
-                <option value="douyin">抖音直播</option>
-                <option value="relay">其他平台(中继)</option>
+                <option value="relay">通用Webhook中继</option>
+                <option value="demo">离线演练模式</option>
               </select>
-              <input type="text" id="live-room-input" class="form-control" style="width: 160px; padding: 7px 11px; font-size: 12px;" placeholder="房间号/链接（留空仿真）" title="房间号或直播链接" aria-label="房间号或直播链接">
+              <input type="text" id="live-room-input" class="form-control" style="width: 160px; padding: 7px 11px; font-size: 12px;" placeholder="房间号/直播链接(演练免填)" title="房间号或直播链接" aria-label="房间号或直播链接">
+              <button class="btn btn-sm" onclick="openAvatarViewport()" title="弹出独立无边框绿幕视窗，供抖音/快手/视频号直播伴侣窗口捕获与色度抠图" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #10B981; font-weight: 600; padding: 5px 10px; display: inline-flex; align-items: center; gap: 5px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px; stroke: #10B981;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                🎥 独立绿幕视窗
+              </button>
+              <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; user-select: none; margin: 0 4px;" title="离线演练：无需真实直播间，自动生成模拟观众、弹幕互动与大额礼物">
+                <input type="checkbox" id="demo-mode-check" style="cursor: pointer;">
+                <span style="color: #38BDF8; font-weight: 600;">离线演练</span>
+              </label>
               <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; user-select: none; margin: 0 4px;" title="开播时通过 OBS WebSocket 联动开启 OBS 推流">
                 <input type="checkbox" id="obs-auto-link-check" style="cursor: pointer;">
                 <span style="color: var(--text-secondary);">OBS联动</span>
@@ -71,6 +82,24 @@
                 <input type="checkbox" id="rtmp-auto-link-check" style="cursor: pointer;">
                 <span style="color: #10B981; font-weight: 600;">内置直推</span>
               </label>
+              <!-- 流媒体协议选择 -->
+              <select id="stream-protocol-select" class="form-control" style="width: 110px; padding: 5px 6px; font-size: 11px;" onchange="changeStreamProtocol(this.value)" title="选择控制台大屏流媒体协议">
+                <option value="webrtc" selected>⚡ WebRTC (200ms)</option>
+                <option value="mjpeg">🖼️ MJPEG 兼容流</option>
+              </select>
+              <!-- 麦克风全双工实时打断按钮 -->
+              <button id="btn-toggle-mic-asr" class="btn btn-sm" onclick="toggleFullDuplexMic()" title="开启麦克风全双工监听与极速打断" style="padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px; stroke: #60a5fa;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                <span id="mic-asr-btn-text">🎙️ 麦克风打断</span>
+              </button>
+              <!-- 切片录制按钮 -->
+              <button id="btn-toggle-recording" class="btn btn-sm" onclick="toggleRecording()" title="一键开始录制当前讲解短视频切片" style="padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171;">
+                <span id="recording-dot" style="display:none; width:8px; height:8px; border-radius:50%; background:#ef4444;"></span>
+                <span id="recording-btn-text">🎥 录制切片</span>
+              </button>
+              <button class="btn btn-sm" onclick="openRecordingsModal()" title="查看已录制带货切片列表并下载" style="padding: 5px 8px;">
+                🗂️ 切片库
+              </button>
               <button class="btn btn-sm" onclick="toggleRtmpModal()" title="设置 RTMP 直推服务器地址与推流码" style="padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px;">
                 <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 直推设置
@@ -87,7 +116,9 @@
           </div>
 
           <div class="monitor-screen" style="position: relative; overflow: hidden; background: #000; min-height: 420px; display: flex; align-items: center; justify-content: center;">
-            <!-- 实时数字人视频流 / 待机图 -->
+            <!-- 原生 WebRTC 视频流播放器 (毫秒级超低延迟) -->
+            <video id="digital-human-webrtc-video" autoplay playsinline muted style="display:none; width: 100%; height: 100%; max-height: 480px; object-fit: contain;"></video>
+            <!-- 实时数字人备用视频流 (MJPEG) / 待机图 -->
             <img id="digital-human-video-feed" src="/static/svg/standby_monitor.svg" alt="数字人监视画面" style="width: 100%; height: 100%; max-height: 480px; object-fit: contain; transition: opacity 0.3s ease;">
 
             <!-- 商品业务场景画层：仅表示控制台真实渲染，不冒充平台推流切镜 -->
@@ -107,6 +138,8 @@
                 <span id="cam-status-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #fff;">摄像头状态检测中</span>
                 <span id="stream-fps-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #fff; font-family: var(--font-mono);">25.0 FPS</span>
                 <span id="obs-status-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: #94A3B8; font-family: var(--font-mono); pointer-events: auto; cursor: pointer;" onclick="promptObsConnect()" title="点击连接/刷新 OBS-WebSocket 状态">OBS: 未连接</span>
+                <span id="rec-duration-badge" class="brand-badge" style="display:none; background: rgba(239, 68, 68, 0.85); color: #fff; font-family: var(--font-mono);">REC 00:00</span>
+                <span id="mic-active-badge" class="brand-badge" style="display:none; background: rgba(59, 130, 246, 0.85); color: #fff;">麦克风打断监听中</span>
               </div>
               <span id="stream-mode-badge" class="brand-badge" style="background: rgba(0,0,0,0.6); color: var(--signal); font-family: var(--font-mono);">数字人渲染</span>
             </div>
@@ -215,6 +248,38 @@
               <button type="button" id="btn-toggle-rtmp" class="btn btn-primary" onclick="toggleRtmpStreaming()" style="background: #10B981; border-color: #10B981; font-weight: 600;">
                 ▶ 立即开始直推
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================================== -->
+        <!-- 阶段四：短视频与带货切片归档管理弹窗 (Recordings Modal) -->
+        <!-- ========================================================== -->
+        <div id="recordings-modal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 9999; align-items: center; justify-content: center;">
+          <div style="background: #18181b; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; width: 780px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
+            <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
+                <svg class="icon" viewBox="0 0 24 24" style="color: #ef4444;"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+                🎥 已录制带货口播与短视频切片库
+              </span>
+              <button type="button" class="btn btn-sm" onclick="closeRecordingsModal()">关闭</button>
+            </div>
+            <div style="padding: 16px 20px; overflow-y: auto; flex: 1;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th style="width: 80px;">封面</th>
+                    <th>切片标题 / SKU</th>
+                    <th>时长</th>
+                    <th>体积</th>
+                    <th>录制时间</th>
+                    <th style="width: 130px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="recordings-tbody">
+                  <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载切片列表...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

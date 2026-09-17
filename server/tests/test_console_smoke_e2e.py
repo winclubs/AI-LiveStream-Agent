@@ -56,6 +56,16 @@ def test_metrics_and_health_summary_endpoints(client):
     assert "circuit_state" in data["data"]
 
 
+def test_avatar_viewport_endpoint(client):
+    """验证专供伴侣捕获的独立绿幕视窗 /avatar-viewport 端点正常工作"""
+    resp = client.get("/avatar-viewport")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "viewport-feed" in html
+    assert "#00FF00" in html
+    assert "直播伴侣" in html
+
+
 def test_all_tab_html_components_exist_on_disk():
     """E2E组件测试：验证 static/components/ 目录下所有 HTML 片段文件均存在且非空"""
     comp_dir = Path(__file__).resolve().parents[1] / "static" / "components"
