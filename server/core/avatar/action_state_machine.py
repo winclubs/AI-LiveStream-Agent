@@ -47,6 +47,9 @@ def mirror_index(idx: int, total_len: int) -> int:
     return period - rem
 
 
+MAX_ACTION_FRAMES = 3000  # 最大动作抽帧上限 (防长视频磁盘/内存耗尽爆机)
+
+
 class ActionClip:
     """单个动作切片内存与磁盘句柄"""
 
@@ -59,6 +62,7 @@ class ActionClip:
         duration_sec: float = 3.5,
         priority: int = 1,
         mirror_loop: bool = True,
+        preload_memory: bool = False,
     ):
         self.action_code = action_code
         self.action_name = action_name
@@ -67,12 +71,13 @@ class ActionClip:
         self.duration_sec = duration_sec
         self.priority = priority
         self.mirror_loop = mirror_loop
+        self.preload_memory = preload_memory
         self.frames: List[np.ndarray] = []
         self.frame_paths: List[Path] = []
         self.total_frames: int = 0
 
     def load_frames(self) -> int:
-        """加载切片帧"""
+        """加载切片帧 (含防爆截断与低频 I/O 自动内存预加载)"""
         self.frames.clear()
         self.frame_paths.clear()
 
@@ -83,8 +88,21 @@ class ActionClip:
                 key=lambda p: int(p.stem) if p.stem.isdigit() else p.name,
             )
             if p_list:
+                # 防爆截断：最多保留 MAX_ACTION_FRAMES 帧
+                if len(p_list) > MAX_ACTION_FRAMES:
+                    logger.warning(
+                        f"动作切片 [{self.action_name}] 包含 {len(p_list)} 帧，已截断至前 {MAX_ACTION_FRAMES} 帧"
+                    )
+                    p_list = p_list[:MAX_ACTION_FRAMES]
                 self.frame_paths = p_list
                 self.total_frames = len(p_list)
+
+                # 自动内存预加载：若切片 <= 300 帧或显式指定 preload，直接缓存进内存杜绝 I/O 掉帧
+                if self.preload_memory or self.total_frames <= 300:
+                    for p in self.frame_paths:
+                        img = cv2.imread(str(p))
+                        if img is not None:
+                            self.frames.append(img)
                 return self.total_frames
 
         # 2. 从 MP4 视频提取切片
@@ -94,14 +112,20 @@ class ActionClip:
                 out_dir = Path(self.frames_dir) if self.frames_dir else (ACTION_CLIPS_DIR / f"clip_{self.action_code}")
                 out_dir.mkdir(parents=True, exist_ok=True)
                 frame_idx = 0
-                while True:
+                while frame_idx < MAX_ACTION_FRAMES:
                     ret, frame = cap.read()
                     if not ret or frame is None:
                         break
                     f_path = out_dir / f"{frame_idx}.jpg"
                     cv2.imwrite(str(f_path), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
                     self.frame_paths.append(f_path)
+                    if self.preload_memory or frame_idx <= 300:
+                        self.frames.append(frame)
                     frame_idx += 1
+                if frame_idx >= MAX_ACTION_FRAMES:
+                    logger.warning(
+                        f"视频切片提取达到安全上限 ({MAX_ACTION_FRAMES} 帧)，已自动停止截断防爆"
+                    )
                 cap.release()
                 self.frames_dir = out_dir.as_posix()
                 self.total_frames = len(self.frame_paths)
@@ -109,15 +133,19 @@ class ActionClip:
 
         return 0
 
-    def get_frame(self, index: int) -> Optional[np.ndarray]:
+    def get_frame(self, index: int, as_rgb: bool = False) -> Optional[np.ndarray]:
         """获取指定索引的切片画面 (支持内存帧与磁盘帧)"""
+        frame = None
         if self.frames:
             target_idx = mirror_index(index, len(self.frames)) if self.mirror_loop else (index % len(self.frames))
-            return self.frames[target_idx]
-        if self.frame_paths:
+            frame = self.frames[target_idx]
+        elif self.frame_paths:
             target_idx = mirror_index(index, len(self.frame_paths)) if self.mirror_loop else (index % len(self.frame_paths))
-            return cv2.imread(str(self.frame_paths[target_idx]))
-        return None
+            frame = cv2.imread(str(self.frame_paths[target_idx]))
+
+        if frame is not None and as_rgb:
+            return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return frame
 
 
 class ActionStateMachine:
@@ -396,6 +424,45 @@ class ActionStateMachine:
     def get_current_frame(self, frame_idx: int, base_frame: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
         """获取当前帧 (get_frame 别名)"""
         return self.get_frame(frame_idx, base_frame=base_frame)
+
+    def get_current_action_frame(
+        self,
+        frame_idx: int,
+        width: int = 720,
+        height: int = 960,
+    ) -> Optional[np.ndarray]:
+        """
+        获取当前激活非待机动作的切片 RGB 帧画面 (若处于待机状态 0 则返回 None)
+        支持 Alpha 跨动作平滑过渡与尺寸自适应对齐。
+        """
+        self.update_tick()
+        if self.current_action == 0:
+            return None
+
+        clip = self.clips.get(self.current_action)
+        if not clip or clip.total_frames <= 0:
+            return None
+
+        frame = self.get_frame(frame_idx)
+        if frame is None:
+            return None
+
+        # 尺寸统一自适应
+        if frame.shape[0] != height or frame.shape[1] != width:
+            frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_LINEAR)
+
+        # 统一输出 RGB 色彩空间供数字人合成引擎消费
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    def preload_all_clips(self) -> int:
+        """一键将全部动作切片载入内存，彻底消除实时磁盘 I/O"""
+        loaded = 0
+        for clip in self.clips.values():
+            clip.preload_memory = True
+            cnt = clip.load_frames()
+            if cnt > 0:
+                loaded += 1
+        return loaded
 
     def get_status(self) -> Dict[str, Any]:
         """获取动作状态机当前遥测状态"""

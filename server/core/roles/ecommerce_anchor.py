@@ -124,7 +124,24 @@ class EcommerceAnchorRole(BaseAnchorRole):
 
         if event_type == "idle_filler":
             state = self.transition("idle_filler", {})
-            if state == EcommerceState.URGENCY:
+            is_urgency = (state == EcommerceState.URGENCY)
+
+            # P2-1: 商业化预算熔断与节能冷场判定
+            from server.core.llm.budget_manager import get_llm_budget_manager
+            budget_mgr = get_llm_budget_manager()
+
+            if budget_mgr.should_use_local_filler():
+                local_speech = budget_mgr.generate_local_carousel_speech(current_product, is_urgency=is_urgency)
+                for i in range(0, len(local_speech), 4):
+                    yield local_speech[i:i+4]
+                if is_urgency:
+                    self.current_state = EcommerceState.CAROUSEL
+                    self.qa_streak = 0
+                elif products:
+                    self.carousel_index = (self.carousel_index + 1) % len(products)
+                return
+
+            if is_urgency:
                 # §5.2 URGENCY_BURST：发券倒计时逼单高潮
                 async for chunk in self._emit_urgency_pitch(current_product, live_context):
                     yield chunk

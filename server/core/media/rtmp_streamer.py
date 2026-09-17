@@ -12,6 +12,7 @@ import socket
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 try:
@@ -25,10 +26,28 @@ logger = logging.getLogger("LiveAgent.RtmpStreamer")
 
 
 def find_ffmpeg_binary() -> Optional[str]:
-    """探测系统中的 ffmpeg 可执行文件路径"""
+    """探测系统或内置便携目录中的 ffmpeg 可执行文件路径"""
+    # 1. 优先读取自定义环境变量
     custom = os.getenv("LIVE_AGENT_FFMPEG_PATH")
     if custom and os.path.isfile(custom):
         return custom
+
+    # 2. 探测本地桌面端内置与项目相对便携目录
+    from server.config import ROOT_DIR, DATA_DIR
+    exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    candidates = [
+        ROOT_DIR / "apps" / "desktop-ui" / "resources" / "ffmpeg" / "bin" / exe_name,
+        ROOT_DIR / "resources" / "ffmpeg" / "bin" / exe_name,
+        DATA_DIR / "bin" / exe_name,
+        ROOT_DIR / "bin" / exe_name,
+        ROOT_DIR / exe_name,
+        Path("C:/ffmpeg/bin/ffmpeg.exe"),
+    ]
+    for cand in candidates:
+        if cand.exists() and cand.is_file():
+            return cand.as_posix()
+
+    # 3. 回退系统全局 PATH
     return shutil.which("ffmpeg")
 
 

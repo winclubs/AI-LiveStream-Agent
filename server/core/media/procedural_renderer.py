@@ -142,6 +142,8 @@ def synth_frame(base_portrait, width: int, height: int, t: float, mouth_open: fl
         return np.zeros((height, width, 3), dtype=np.uint8)
 
     frame = base_portrait.copy()
+    if frame.shape[0] != height or frame.shape[1] != width:
+        frame = cv2.resize(frame, (width, height))
 
     # 口型/眼睛定位
     if face_box and face_box[2] > 0 and face_box[3] > 0:

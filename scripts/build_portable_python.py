@@ -151,10 +151,30 @@ def verify_runtime() -> bool:
         return False
 
     env = {**os.environ, "PYTHONUTF8": "1", "LIVE_AGENT_DATA_DIR": str(PROJECT_ROOT / "data")}
+    check_script = (
+        "import sys\n"
+        "core_deps = ['fastapi', 'uvicorn', 'sqlalchemy', 'aiosqlite', 'pydantic', 'httpx', 'numpy', 'cv2', 'ahocorasick']\n"
+        "missing = []\n"
+        "for d in core_deps:\n"
+        "    try:\n"
+        "        __import__(d)\n"
+        "    except Exception as e:\n"
+        "        missing.append(f'{d}: {e}')\n"
+        "if missing:\n"
+        "    print('MISSING_CORE:' + '; '.join(missing))\n"
+        "    sys.exit(1)\n"
+        "optional_deps = ['av', 'aiortc', 'brotli']\n"
+        "opt_status = {}\n"
+        "for opt in optional_deps:\n"
+        "    try:\n"
+        "        __import__(opt)\n"
+        "        opt_status[opt] = 'OK'\n"
+        "    except Exception:\n"
+        "        opt_status[opt] = 'NOT_INSTALLED'\n"
+        "print('portable-runtime-ok', sys.version, 'opt=' + str(opt_status))\n"
+    )
     ret = subprocess.run(
-        [str(exe), "-c",
-         "import fastapi, uvicorn, sqlalchemy, aiosqlite, pydantic, httpx; "
-         "import sys; print('portable-runtime-ok', sys.version)"],
+        [str(exe), "-c", check_script],
         capture_output=True, text=True, errors="replace", env=env,
         cwd=str(PROJECT_ROOT),
     )

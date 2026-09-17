@@ -68,6 +68,11 @@ async def create_avatar(
     landmark_info = {}
     try:
         staged, _ = await stage_upload(file, AVATARS_DIR, avatar_id, MAX_IMAGE_BYTES)
+        from server.core.security.file_validator import validate_file_content
+        head = staged.read_bytes()[:128]
+        is_valid, reason = validate_file_content(head, allowed_categories={avatar_type}, filename=file.filename or "")
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"数字人形象资产文件安全核验失败: {reason}")
         if avatar_type == "image":
             await run_cpu_bound(validate_image_budget, staged)
         publish_staged(staged, target_path)

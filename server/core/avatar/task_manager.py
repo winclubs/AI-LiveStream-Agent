@@ -33,6 +33,7 @@ logger = logging.getLogger("LiveAgent.AvatarTaskManager")
 
 AVATAR_ASSETS_DIR = DATA_DIR / "avatar_assets"
 AVATAR_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+MAX_EXTRACT_FRAMES = 3000  # 最大视频抽帧上限 (约 120 秒 @ 25fps，防恶意长视频耗尽存储)
 
 
 class AvatarTaskManager:
@@ -417,7 +418,7 @@ class AvatarTaskManager:
             return extracted_paths
 
         frame_idx = 0
-        while True:
+        while frame_idx < MAX_EXTRACT_FRAMES:
             if task_id in cancelled_tasks:
                 cap.release()
                 raise asyncio.CancelledError()
@@ -431,6 +432,11 @@ class AvatarTaskManager:
             cv2.imwrite(str(target_file), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             extracted_paths.append(target_file)
             frame_idx += 1
+
+        if frame_idx >= MAX_EXTRACT_FRAMES:
+            logger.warning(
+                f"任务 {task_id} 视频切片提取达到安全上限 ({MAX_EXTRACT_FRAMES} 帧/约120秒)，已自动截断以防磁盘和内存爆满"
+            )
 
         cap.release()
         return extracted_paths
@@ -547,7 +553,8 @@ class AvatarTaskManager:
         利用 ffmpeg 提取 16000Hz 单声道 16bit PCM WAV。
         若 ffmpeg 不可用或视频无音频，生成 1 秒静音 WAV 保证 LiveTalking 不会报错。
         """
-        ffmpeg_bin = shutil.which("ffmpeg")
+        from server.core.media.rtmp_streamer import find_ffmpeg_binary
+        ffmpeg_bin = find_ffmpeg_binary()
         extracted = False
 
         if ffmpeg_bin:

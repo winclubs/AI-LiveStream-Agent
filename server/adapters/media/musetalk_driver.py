@@ -501,32 +501,70 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             time.sleep(max(0.001, frame_interval - elapsed))
 
     def _publish_frame(self, frame_rgb: "np.ndarray") -> None:
-        """Compose once, then fan the same publish frame out to camera and JPEG."""
+        """Compose once, then fan the same publish frame out to camera, RTMP, WebRTC and recorder."""
         publish_frame = compose_scene_overlays(frame_rgb, global_scene_overlay_state.snapshot())
+        bgr_frame = cv2.cvtColor(publish_frame, cv2.COLOR_RGB2BGR) if (CV_AVAILABLE and publish_frame is not None) else None
+
+        # 1. 投递至虚拟摄像头
         if global_virtual_cam.is_active:
-            # 单参数调用保持第三方/测试替身兼容；VirtualCameraService 默认赋予最低优先级。
             global_virtual_cam.send_frame(publish_frame)
+
+        # 2. 投递至 RTMP 推流引擎
         try:
             from server.core.media.rtmp_streamer import global_rtmp_streamer
             if global_rtmp_streamer.is_streaming:
                 global_rtmp_streamer.send_video_frame(publish_frame)
         except Exception:
             pass
-        ok, buf = cv2.imencode(
-            ".jpg",
-            cv2.cvtColor(publish_frame, cv2.COLOR_RGB2BGR),
-            [cv2.IMWRITE_JPEG_QUALITY, 80],
-        )
-        if ok:
-            self.latest_jpeg_frame = buf.tobytes()
+
+        # 3. 投递至 WebRTC (WHEP) 视窗 (P0-2 帧注入)
+        try:
+            from server.core.media.webrtc_streamer import get_webrtc_stream_manager
+            if bgr_frame is not None:
+                get_webrtc_stream_manager().push_frame(bgr_frame)
+        except Exception:
+            pass
+
+        # 4. 投递至短视频与带货切片录制器
+        try:
+            from server.core.avatar.task_manager import get_record_manager
+            rec_mgr = get_record_manager()
+            if rec_mgr and getattr(rec_mgr, "is_recording", lambda: False)():
+                rec_mgr.feed_frame(publish_frame)
+        except Exception:
+            pass
+
+        # 5. 生成最新 JPEG 供 MJPEG 预览拉取
+        if bgr_frame is not None:
+            ok, buf = cv2.imencode(
+                ".jpg",
+                bgr_frame,
+                [cv2.IMWRITE_JPEG_QUALITY, 80],
+            )
+            if ok:
+                self.latest_jpeg_frame = buf.tobytes()
 
     def _synthesize_frame(self, t: float, mouth_open: float, mouth_form: float = 0.0) -> "np.ndarray":
-        """合成单帧 (真人微动态底池羽化融合 / 共享程序化兜底渲染)"""
+        """合成单帧 (动作切片智能穿插 / 真人微动态底池羽化融合 / 共享程序化兜底渲染)"""
         if self.base_portrait is None:
             return np.zeros((self.height, self.width, 3), dtype=np.uint8)
 
-        # 优先接入低配真人微动态与下唇自适应羽化融合引擎
-        if self.avatar_source_path and _os.path.exists(self.avatar_source_path):
+        # 优先检测动作状态机是否处于非待机状态 (P0-3 动作切片联动)
+        active_portrait = self.base_portrait
+        has_custom_action = False
+        try:
+            from server.core.avatar.action_state_machine import get_action_state_machine
+            action_sm = get_action_state_machine()
+            if action_sm.current_action != 0:
+                act_frame = action_sm.get_current_action_frame(self.current_frame_id, self.width, self.height)
+                if act_frame is not None:
+                    active_portrait = act_frame
+                    has_custom_action = True
+        except Exception:
+            pass
+
+        # 若未触发动作切片，优先接入低配真人微动态与下唇自适应羽化融合引擎
+        if not has_custom_action and self.avatar_source_path and _os.path.exists(self.avatar_source_path):
             try:
                 from server.core.media.real_avatar_lite import global_real_avatar_lite
                 real_frame = global_real_avatar_lite.render_frame(
@@ -542,7 +580,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
 
         from server.core.media.procedural_renderer import synth_frame
         return synth_frame(
-            self.base_portrait, self.width, self.height, t, mouth_open,
+            active_portrait, self.width, self.height, t, mouth_open,
             face_box=self.face_box, action_clip=self.action_clip,
             is_blinking=self.micro_expr.is_blinking(t),
             mouth_form=mouth_form,

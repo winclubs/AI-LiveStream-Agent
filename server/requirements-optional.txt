@@ -10,3 +10,5 @@ onnxruntime==1.27.0
 soundfile==0.13.1
 mediapipe==0.10.21
 sounddevice==0.5.2
+aiortc==1.15.0
+av==17.1.0

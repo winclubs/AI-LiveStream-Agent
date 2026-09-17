@@ -182,6 +182,11 @@ async def upload_product_image(file: UploadFile = File(...)):
     staged = target = None
     try:
         staged, _ = await stage_upload(file, PRODUCT_IMAGES_DIR, "product", MAX_IMAGE_BYTES)
+        from server.core.security.file_validator import validate_file_content
+        head = staged.read_bytes()[:128]
+        is_valid, reason = validate_file_content(head, allowed_categories={"image"}, filename=file.filename or "")
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"商品图片安全校验失败: {reason}")
         validate_image_budget(staged)
         image_id = f"img_{uuid.uuid4().hex[:10]}"
         target = PRODUCT_IMAGES_DIR / f"{image_id}{ext}"

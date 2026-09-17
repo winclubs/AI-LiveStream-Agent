@@ -129,10 +129,13 @@ class VideoAudioRecorder:
             has_audio = True
 
         # 合并音视频并重编码为标准 H.264 + AAC
+        from server.core.media.rtmp_streamer import find_ffmpeg_binary
+        ffmpeg_bin = find_ffmpeg_binary() or "ffmpeg"
+
         ffmpeg_cmd = None
         if has_audio and self.raw_audio_path.exists():
             ffmpeg_cmd = [
-                "ffmpeg", "-y",
+                ffmpeg_bin, "-y",
                 "-i", str(self.raw_video_path),
                 "-i", str(self.raw_audio_path),
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
@@ -141,7 +144,7 @@ class VideoAudioRecorder:
             ]
         else:
             ffmpeg_cmd = [
-                "ffmpeg", "-y",
+                ffmpeg_bin, "-y",
                 "-i", str(self.raw_video_path),
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
                 str(self.final_mp4_path)

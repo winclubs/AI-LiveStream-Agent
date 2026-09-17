@@ -97,6 +97,18 @@ class LLMClient:
         extras = cfg.get("extra_params") or {}
         prompt_caching = bool(extras.get("prompt_caching"))
 
+        # P2-1: 会话 Token 预算超额熔断拦截
+        from server.core.llm.budget_manager import get_llm_budget_manager
+        budget_mgr = get_llm_budget_manager()
+        if budget_mgr.is_budget_exceeded():
+            logger.warning(
+                f"当前场次 LLM 预算已超额熔断 ({budget_mgr.used_tokens}/{budget_mgr.max_tokens} Tokens)，自动降级为本地离线人设模板"
+            )
+            fallback_reply = cls._generate_fallback(system_prompt, user_message, context)
+            for i in range(0, len(fallback_reply), 3):
+                yield fallback_reply[i:i+3]
+            return
+
         # 构造上下文与消息
         messages = [{"role": "system", "content": system_prompt}]
         if history:

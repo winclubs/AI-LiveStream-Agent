@@ -634,6 +634,8 @@ class LiveSessionController:
         self.history.clear()
         self.aggregator = BarrageAggregator(window_seconds=3.0)
         self._stats_reset()
+        from server.core.llm.budget_manager import get_llm_budget_manager
+        get_llm_budget_manager().reset_session(session_id)
 
         # 启动场观统计巡检协程
         if self.viewer_task and not self.viewer_task.done():
@@ -1460,6 +1462,21 @@ class LiveSessionController:
                     await avatar_driver.push_audio_chunk(raw_pcm[:640])
                 elif full_audio:
                     await avatar_driver.push_audio_chunk(full_audio[:640])
+
+                pcm_for_stream = raw_pcm if raw_pcm else (full_audio if codec in ("pcm_s16le", "pcm16", "s16le") else b"")
+                if pcm_for_stream:
+                    try:
+                        from server.core.media.webrtc_streamer import get_webrtc_stream_manager
+                        get_webrtc_stream_manager().push_audio(pcm_for_stream)
+                    except Exception:
+                        pass
+                    try:
+                        from server.core.avatar.task_manager import get_record_manager
+                        rec_mgr = get_record_manager()
+                        if rec_mgr and getattr(rec_mgr, "is_recording", lambda: False)():
+                            rec_mgr.feed_audio(pcm_for_stream)
+                    except Exception:
+                        pass
         except Exception:
             logger.debug("同步数字人驱动音频与动作异常", exc_info=True)
 
@@ -3091,6 +3108,61 @@ async def get_rtmp_status():
 
 
 # ------------------------------------------------------------------
+# LLM 会话预算与 Token 熔断监控端点 (P2-1)
+# ------------------------------------------------------------------
+@router.get("/llm/budget", summary="查询 LLM 会话预算与熔断状态")
+async def get_llm_budget_status():
+    """获取当前直播会话的 LLM Token 累计消耗与熔断状态"""
+    from server.core.llm.budget_manager import get_llm_budget_manager
+    return {"code": 0, "data": get_llm_budget_manager().get_status()}
+
+
+class LLMBudgetRequest(BaseModel):
+    max_tokens: Optional[int] = Field(None, ge=1000, le=50000000, description="单场 Token 上限")
+    eco_mode: Optional[bool] = Field(None, description="是否开启节能冷场模式 (使用本地商品话术模板)")
+
+
+@router.post("/llm/budget", summary="配置 LLM 会话预算与节能模式")
+async def update_llm_budget(req: LLMBudgetRequest):
+    """动态调整当前直播场次的 LLM Token 预算线与冷场策略"""
+    from server.core.llm.budget_manager import get_llm_budget_manager
+    mgr = get_llm_budget_manager()
+    if req.max_tokens is not None:
+        mgr.max_tokens = req.max_tokens
+        mgr.is_tripped = mgr.used_tokens >= mgr.max_tokens
+    if req.eco_mode is not None:
+        mgr.eco_mode = req.eco_mode
+    return {"code": 0, "message": "预算参数已更新", "data": mgr.get_status()}
+
+
+# ------------------------------------------------------------------
+# 弹幕凭证健康度与连通性探针端点 (P2-2)
+# ------------------------------------------------------------------
+class DanmakuProbeRequest(BaseModel):
+    platform: str = Field("bilibili", description="直播平台 (bilibili, douyin, kuaishou, mock)")
+    room_id: str = Field("", description="房间号或链接")
+    ttwid: Optional[str] = Field("", description="抖音 ttwid")
+    ms_token: Optional[str] = Field("", description="抖音 msToken")
+    cookie: Optional[str] = Field("", description="平台 Cookie")
+
+
+@router.post("/danmaku/probe", summary="开播前弹幕平台与凭证连通性探测")
+async def probe_danmaku_endpoint(req: DanmakuProbeRequest):
+    """
+    无干扰轻量探针：探测目标平台连通性、凭证有效性与环境库完整度
+    """
+    from server.adapters.danmaku.probe import probe_danmaku_platform
+    result = await probe_danmaku_platform(
+        platform=req.platform,
+        room_id=req.room_id,
+        ttwid=req.ttwid or "",
+        ms_token=req.ms_token or "",
+        cookie=req.cookie or "",
+    )
+    return {"code": 0, "data": result}
+
+
+# ------------------------------------------------------------------
 # OBS 虚拟摄像头 (Virtual Camera) 控制与状态端点
 # ------------------------------------------------------------------
 class VirtualCamStartRequest(BaseModel):
@@ -3301,6 +3373,13 @@ async def whep_endpoint(request: Request):
 
     if not sdp_offer.strip():
         raise HTTPException(status_code=400, detail="SDP Offer 不能为空")
+
+    from server.core.media.webrtc_streamer import get_webrtc_stream_manager, WEBRTC_AVAILABLE
+    if not WEBRTC_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="WebRTC 媒体服务暂不可用：服务器未安装 aiortc/av 多媒体依赖，请降级使用 MJPEG 协议或安装依赖 (pip install aiortc av)",
+        )
 
     stream_mgr = get_webrtc_stream_manager()
     session_id, sdp_answer = await stream_mgr.handle_whep_offer(sdp_offer)

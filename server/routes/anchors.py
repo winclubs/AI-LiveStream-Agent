@@ -72,6 +72,11 @@ async def _stage_photo(anchor_id: str, slot_key: str, file: UploadFile) -> tuple
         raise HTTPException(status_code=400, detail="主播照片仅支持 jpg/png/webp/bmp")
     staged, _ = await stage_upload(file, ANCHORS_DIR, f"{anchor_id}_{slot_key}", MAX_IMAGE_BYTES)
     try:
+        from server.core.security.file_validator import validate_file_content
+        head = staged.read_bytes()[:128]
+        is_valid, reason = validate_file_content(head, allowed_categories={"image"}, filename=file.filename or "")
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"主播照片安全核验未通过: {reason}")
         validate_image_budget(staged)
     except BaseException:
         cleanup_paths([staged])
@@ -611,6 +616,11 @@ async def upload_action_clip(
     if len(content) > MAX_VIDEO_BYTES:
         raise HTTPException(status_code=400, detail=f"视频切片不能超过 {MAX_VIDEO_BYTES // 1024 // 1024}MB")
 
+    from server.core.security.file_validator import validate_file_content
+    is_valid, reason = validate_file_content(content, allowed_categories={"video"}, filename=file.filename or "")
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"动作切片视频安全校验未通过: {reason}")
+
     video_dest.write_bytes(content)
 
     frames_dir = clip_dir / "frames"
@@ -624,8 +634,9 @@ async def upload_action_clip(
 
     cap = cv2.VideoCapture(str(video_dest))
     frame_idx = 0
+    MAX_CLIP_FRAMES = 3000
     if cap.isOpened():
-        while True:
+        while frame_idx < MAX_CLIP_FRAMES:
             ret, frame = cap.read()
             if not ret or frame is None:
                 break

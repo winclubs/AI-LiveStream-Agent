@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # 项目根路径与数据目录 (支持通过 LIVE_AGENT_DATA_DIR 重定向，用于测试隔离/便携部署)
 BASE_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = BASE_DIR
 DATA_DIR = Path(os.getenv("LIVE_AGENT_DATA_DIR") or (BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 

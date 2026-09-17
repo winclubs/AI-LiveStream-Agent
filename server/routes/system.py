@@ -567,7 +567,9 @@ def _detect_prerequisites() -> Dict[str, Any]:
     })
 
     # 5. 本地多媒体编解码与模型底座 (FFmpeg, OpenCV, ONNXRuntime)
-    ffmpeg_ok = bool(shutil.which("ffmpeg"))
+    from server.core.media.rtmp_streamer import find_ffmpeg_binary
+    ffmpeg_path = find_ffmpeg_binary()
+    ffmpeg_ok = bool(ffmpeg_path)
     cv2_ok = False
     try:
         import cv2
@@ -608,7 +610,7 @@ def _detect_prerequisites() -> Dict[str, Any]:
         "status": media_status,
         "badge": media_badge,
         "version": "",
-        "path": shutil.which("ffmpeg") or "",
+        "path": ffmpeg_path or "",
         "desc": "负责音视频实时转码、数字人 25fps 视频帧缓冲合成与向量检索底层运算",
         "tip": media_tip,
         "command": "pip install opencv-python onnxruntime" if media_status not in ("installed", "running") else "",
