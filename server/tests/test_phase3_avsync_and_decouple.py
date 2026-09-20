@@ -34,6 +34,7 @@ async def test_flush_talk_latency():
 
 def test_av_sync_controller():
     """验证音画同步控制器延迟记录与平滑推荐补偿"""
+    global_av_sync.reset()
     global_av_sync.record_render_latency(28.5)
     global_av_sync.record_render_latency(31.5)
     global_av_sync.record_tts_latency(120.0)

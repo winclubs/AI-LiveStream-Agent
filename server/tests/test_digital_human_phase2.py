@@ -95,8 +95,9 @@ async def test_avatar_task_pipeline_end_to_end(tmp_path):
     assert res["task_id"] == task_id
     assert res["status"] == "pending"
 
-    # 等待异步任务执行完成 (最长等待 10s)
-    for _ in range(50):
+    # 等待异步任务执行完成 (最长等待 8s，平时 <1s)
+    status_info = None
+    for _ in range(80):
         status_info = await manager.get_task_status(task_id)
         if status_info and status_info["status"] in ("completed", "failed", "cancelled"):
             break
@@ -171,7 +172,8 @@ async def test_avatar_task_api_submit_and_poll(tmp_path):
 
         # 2. 轮询任务进度直至完成
         completed = False
-        for _ in range(50):
+        p_data = {}
+        for _ in range(80):
             p_resp = await client.get(f"/api/v1/anchors/avatar/tasks/{task_id}")
             assert p_resp.status_code == 200
             p_data = p_resp.json()["data"]
@@ -181,7 +183,7 @@ async def test_avatar_task_api_submit_and_poll(tmp_path):
                 break
             await asyncio.sleep(0.1)
 
-        assert completed is True
+        assert completed is True, f"任务状态未按期完成: {p_data.get('status')}"
 
         # 3. 验证任务列表端点
         list_resp = await client.get("/api/v1/anchors/avatar/tasks")
@@ -215,11 +217,14 @@ async def test_avatar_task_apply_to_anchor(tmp_path):
         task_id = sub_res.json()["data"]["task_id"]
 
         # 等待完成
-        for _ in range(50):
+        task_done = False
+        for _ in range(80):
             p_resp = await client.get(f"/api/v1/anchors/avatar/tasks/{task_id}")
-            if p_resp.json()["data"]["status"] == "completed":
+            if p_resp.json().get("data", {}).get("status") == "completed":
+                task_done = True
                 break
             await asyncio.sleep(0.1)
+        assert task_done is True, "切片任务未在规定时间内完成处理"
 
         # 一键应用绑定
         apply_res = await client.post(

@@ -43,6 +43,13 @@ class AVSyncController:
         self.record_tts_latency(latency)
         return latency
 
+    def reset(self):
+        """重置所有延迟采样与内部状态 (用于测试隔离与场次重启)"""
+        self.render_latency_ms = 0.0
+        self.tts_latency_ms = 0.0
+        self.recommended_delay_ms = self.base_delay_ms
+        self._render_samples.clear()
+
     def get_status(self) -> dict:
         return {
             "recommended_delay_ms": self.recommended_delay_ms,

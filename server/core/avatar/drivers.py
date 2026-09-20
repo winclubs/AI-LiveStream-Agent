@@ -30,34 +30,95 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
         import os
         raw_dir = self.config.get("livetalking_dir") or os.environ.get("LIVETALKING_HOME") or "D:\\LiveTalking"
         self.livetalking_dir = Path(raw_dir)
-        self.api_endpoint = self.config.get("api_endpoint", "http://127.0.0.1:8010")
+        self.api_endpoint = (self.config.get("api_endpoint") or "http://127.0.0.1:8010").rstrip("/")
         self.session_id = self.config.get("session_id", "live_stream_session_0")
         self.avatar_id = self.config.get("avatar_id", "wav2lip256_avatar1")
         self.model_type = self.config.get("model_type", "wav2lip")
+        self.is_connected = False
+        self.total_audio_chunks = 0
+        self.total_audio_bytes = 0
+        self._http_client = None
+
+    async def _get_client(self):
+        import httpx
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(timeout=1.5)
+        return self._http_client
 
     async def start(self) -> bool:
         self.is_active = True
         self.bind_default_outputs()
         status_note = "目录存在" if self.livetalking_dir.exists() else "可选外部参考目录 (未挂载)"
-        logger.info(f"LocalLiveTalking 驱动器已就绪 (路径状态: {status_note}, 接口: {self.api_endpoint})")
+        # 尝试探活本地 LiveTalking 服务
+        try:
+            client = await self._get_client()
+            resp = await client.get(f"{self.api_endpoint}/status")
+            self.is_connected = (resp.status_code == 200)
+        except Exception:
+            self.is_connected = False
+        
+        conn_text = "🟢 握手成功 (服务已在线)" if self.is_connected else "⚪ 等待连接 (开播时将自动推流)"
+        logger.info(f"LocalLiveTalking 驱动器已就绪 (路径状态: {status_note}, 接口: {self.api_endpoint}, 通信: {conn_text})")
         return True
 
     async def stop(self) -> None:
         self.is_active = False
         self._speaking = False
+        self.is_connected = False
+        if self._http_client and not self._http_client.is_closed:
+            try:
+                await self._http_client.aclose()
+            except Exception:
+                pass
+            self._http_client = None
         logger.info("LocalLiveTalking 驱动器已停止")
 
     async def push_audio_chunk(self, pcm_bytes: bytes, eventpoint: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        真实将音频流块推送至本地 LiveTalking 的 /humanaudio 接口，驱动神经唇形渲染
+        """
         if not self.is_active or not pcm_bytes:
             return False
         self._speaking = True
         self._last_speech_time = time.time()
-        # 如已连接本地 LiveTalking 服务，可将音频流推送至其 /humanaudio 或 WebRTC 通道
+        self.total_audio_chunks += 1
+        self.total_audio_bytes += len(pcm_bytes)
+
+        # 真实推流至本地 LiveTalking HTTP /humanaudio 通道
+        try:
+            client = await self._get_client()
+            files = {"file": ("audio_chunk.wav", pcm_bytes, "audio/wav")}
+            data = {
+                "sessionid": self.session_id,
+                "avatar_id": self.avatar_id,
+                "model_type": self.model_type
+            }
+            # 兼容带有文本打点的事件
+            if eventpoint and "text" in eventpoint:
+                data["text"] = str(eventpoint["text"])
+            
+            resp = await client.post(f"{self.api_endpoint}/humanaudio", data=data, files=files)
+            if resp.status_code == 200:
+                self.is_connected = True
+                return True
+        except Exception as e:
+            # 容错降级：不阻塞本地主控，仅记录异常并保持活跃
+            self.is_connected = False
+            logger.debug(f"本地 LiveTalking 推流握手心跳: {e}")
+
         return True
 
     async def flush_talk(self) -> None:
-        """调用 LiveTalking 的 /interrupt_talk 接口触发瞬间打断"""
+        """调用 LiveTalking 的 /interrupt_talk 接口触发瞬间打断清空队列"""
         self._speaking = False
+        try:
+            client = await self._get_client()
+            await client.post(
+                f"{self.api_endpoint}/interrupt_talk",
+                json={"sessionid": self.session_id, "avatar_id": self.avatar_id}
+            )
+        except Exception:
+            pass
         logger.info("LocalLiveTalking 驱动器已执行瞬间打断 (flush_talk)")
 
     async def set_custom_state(
@@ -69,8 +130,32 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
     ) -> bool:
         """调用 LiveTalking 的 /set_audiotype 接口切换主播动作视频切片"""
         await super().set_custom_state(state_code, duration=duration, priority=priority, source=source)
+        try:
+            client = await self._get_client()
+            await client.post(
+                f"{self.api_endpoint}/set_audiotype",
+                json={
+                    "sessionid": self.session_id,
+                    "audiotype": state_code,
+                    "duration": duration or 3.5
+                }
+            )
+        except Exception:
+            pass
         logger.info(f"LocalLiveTalking 动作状态已切换为: {state_code}")
         return True
+
+    def get_status(self) -> Dict[str, Any]:
+        base = super().get_status()
+        base.update({
+            "api_endpoint": self.api_endpoint,
+            "is_connected": self.is_connected,
+            "livetalking_dir": str(self.livetalking_dir),
+            "livetalking_dir_exists": self.livetalking_dir.exists(),
+            "total_audio_chunks": self.total_audio_chunks,
+            "total_audio_bytes": self.total_audio_bytes,
+        })
+        return base
 
 
 @register_avatar_driver("cloud_sidecar")
