@@ -297,6 +297,22 @@ VALUES
 -- ALTER TABLE live_session_records ADD COLUMN theme VARCHAR(128) DEFAULT '';
 -- ALTER TABLE live_session_records ADD COLUMN role_id VARCHAR(64);
 -- ALTER TABLE live_session_records ADD COLUMN product_snapshot_json TEXT DEFAULT '[]';
+-- CREATE TABLE IF NOT EXISTS avatar_tasks (
+--     id VARCHAR(64) PRIMARY KEY,
+--     anchor_id VARCHAR(64) DEFAULT NULL,
+--     name VARCHAR(128) NOT NULL,
+--     status VARCHAR(32) NOT NULL DEFAULT 'pending',
+--     progress INTEGER NOT NULL DEFAULT 0,
+--     stage_message VARCHAR(256) DEFAULT '',
+--     video_path VARCHAR(512) DEFAULT '',
+--     output_dir VARCHAR(512) DEFAULT '',
+--     error_message TEXT DEFAULT '',
+--     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+--     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+--     FOREIGN KEY (anchor_id) REFERENCES anchors(id) ON DELETE SET NULL
+-- );
+-- CREATE INDEX IF NOT EXISTS ix_avatar_tasks_anchor_id ON avatar_tasks(anchor_id);
+-- CREATE INDEX IF NOT EXISTS ix_avatar_tasks_status ON avatar_tasks(status);
 -- CREATE TABLE IF NOT EXISTS avatar_actions (
 --     id VARCHAR(64) PRIMARY KEY,
 --     anchor_id VARCHAR(64) DEFAULT NULL,

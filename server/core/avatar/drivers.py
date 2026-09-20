@@ -73,6 +73,20 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
             self._http_client = None
         logger.info("LocalLiveTalking 驱动器已停止")
 
+    @staticmethod
+    def _ensure_wav_bytes(audio_bytes: bytes, sample_rate: int = 16000, channels: int = 1) -> bytes:
+        """确保音频数据具备标准 RIFF/WAV 头部容器，杜绝外部第三方解析器报错"""
+        if audio_bytes.startswith(b"RIFF"):
+            return audio_bytes
+        import io, wave
+        out = io.BytesIO()
+        with wave.open(out, "wb") as wf:
+            wf.setnchannels(channels)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(audio_bytes)
+        return out.getvalue()
+
     async def push_audio_chunk(self, pcm_bytes: bytes, eventpoint: Optional[Dict[str, Any]] = None) -> bool:
         """
         真实将音频流块推送至本地 LiveTalking 的 /humanaudio 接口，驱动神经唇形渲染
@@ -87,7 +101,8 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
         # 真实推流至本地 LiveTalking HTTP /humanaudio 通道
         try:
             client = await self._get_client()
-            files = {"file": ("audio_chunk.wav", pcm_bytes, "audio/wav")}
+            wav_payload = self._ensure_wav_bytes(pcm_bytes)
+            files = {"file": ("audio_chunk.wav", wav_payload, "audio/wav")}
             data = {
                 "sessionid": self.session_id,
                 "avatar_id": self.avatar_id,
