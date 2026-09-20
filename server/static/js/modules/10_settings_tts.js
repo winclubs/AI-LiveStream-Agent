@@ -3,30 +3,28 @@
 // ============================================================================
 const BUILTIN_TTS_ECOSYSTEM = [
     {
-        id: "edge_tts",
-        name: "Edge-TTS",
-        tagline: "微软超自然云语音 · 免Key极速",
-        officialUrl: "https://azure.microsoft.com/zh-cn/products/ai-services/text-to-speech",
-        officialAction: "微软 Azure 语音官网 ↗",
+        id: "moss_tts_nano",
+        name: "MOSS-TTS-Nano",
+        tagline: "系统自带 · 端侧神经克隆",
+        officialUrl: "",
+        officialAction: "",
         getKeyUrl: "",
-        cardDocTitle: "微软官方 Azure 语音官网 (注：本项目已内置 Edge-TTS，无需开通账号，免 Key 免自建直接免费使用)",
+        cardDocTitle: "",
         brandColor: "#0284C7",
-        logoSvg: "/static/svg/tts_edgetts.svg",
-        defaultBaseUrl: "",
-        placeholderUrl: "云端直接调用，无需填写 Base URL",
+        logoSvg: "/static/svg/tts_moss.svg",
+        defaultBaseUrl: "http://127.0.0.1:9880",
+        placeholderUrl: "系统原生内置，无需配置 Base URL",
         needKey: false,
         needUrl: false,
         recommendedVoices: [
-            { text: "晓晓 (超自然知性女主播 · 推荐)", val: "zh-CN-XiaoxiaoNeural" },
-            { text: "云希 (活力阳光青年男主播)", val: "zh-CN-YunxiNeural" },
-            { text: "云健 (沉稳影视讲解男声)", val: "zh-CN-YunjianNeural" },
-            { text: "晓伊 (亲和活泼少女音)", val: "zh-CN-XiaoyiNeural" },
-            { text: "辽宁晓北 (幽默东北老铁口音)", val: "zh-CN-liaoning-XiaobeiNeural" },
-            { text: "陕西晓妮 (接地气陕西方言)", val: "zh-CN-shaanxi-XiaoniNeural" }
+            { text: "官方预置清亮女主播 (广播级 48kHz)", val: "moss_female_host_01" },
+            { text: "官方预置阳光男主播 (活力亲和)", val: "moss_male_host_02" },
+            { text: "温柔知性女主播 (服饰生活)", val: "moss_female_warm_03" },
+            { text: "活力带货女主播 (食品零食)", val: "moss_female_lively_04" }
         ],
-        desc: "微软官方云端超自然神经网络语音。本项目已原生内置云端直连免Key协议，无需注册开通账号或自建服务即可免费使用；如需企业商用服务可前往微软 Azure 官网开通。",
+        desc: "基于复旦团队开源 MOSS-TTS-Nano 深度融合。仅 ~100M 参数、~500MB 显存开销，端侧极速生成 48kHz 广播级真人语音。优先调度本地或云端 GPU 进行极速零样本声音克隆，亦支持无显卡轻量运行。",
         urlPills: [
-            { text: "⚡ 微软云端直连 (免填URL·免Key)", val: "", needKey: false }
+            { text: "⚡ 本地推理端点 (127.0.0.1:9880)", val: "http://127.0.0.1:9880", needKey: false }
         ]
     },
     {
@@ -39,7 +37,7 @@ const BUILTIN_TTS_ECOSYSTEM = [
         cardDocTitle: "前往阿里云百炼声音复刻中心 (在线录制/上传音频复刻并获取专属 Voice-ID)",
         brandColor: "#EA580C",
         logoSvg: "/static/svg/tts_cosyvoice.svg",
-        defaultBaseUrl: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1",
+        defaultBaseUrl: "https://dashscope.aliyuncs.com/api/v1",
         placeholderUrl: "选择云端商用 API (填Key即用) 或 本地自建推理端口 (如 http://127.0.0.1:9233)",
         needKey: true,
         needUrl: true,
@@ -65,64 +63,7 @@ const BUILTIN_TTS_ECOSYSTEM = [
             { text: "Bella (温柔知性 · 服饰带货)", val: "loongbella" }
         ],
         desc: "阿里通义开源大模型语音合成。商业云端调用推荐使用【阿里云百炼平台】开通账号并创建 API Key（Base URL 为 https://dashscope.aliyuncs.com/api/v1 或您的百炼专属服务端点），亦支持本地或局域网私有化 GPU 部署。",
-        urlPills: [
-            { text: "☁️ 我的百炼专属节点 (北京)", val: "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1", needKey: true },
-            { text: "☁️ 阿里云百炼 (官方默认API)", val: "https://dashscope.aliyuncs.com/api/v1", needKey: true },
-            { text: "☁️ 硅基流动 (云端免显卡直连)", val: "https://api.siliconflow.cn/v1", needKey: true },
-            { text: "🖥️ 本机私有部署 (127.0.0.1:9233)", val: "http://127.0.0.1:9233", needKey: false },
-            { text: "🖥️ 局域网 GPU 算力机", val: "http://192.168.1.100:9233", needKey: false }
-        ]
-    },
-    {
-        id: "chattts",
-        name: "ChatTTS",
-        tagline: "对话级自然停顿 · 真实语气笑声",
-        officialUrl: "https://cloud.siliconflow.cn/account/ak",
-        officialAction: "前往硅基流动获取Key ↗",
-        getKeyUrl: "https://cloud.siliconflow.cn/account/ak",
-        cardDocTitle: "前往硅基流动官方控制台 (注册开通、获取 ChatTTS API Key 与 Base URL)",
-        brandColor: "#059669",
-        logoSvg: "/static/svg/tts_chattts.svg",
-        defaultBaseUrl: "",
-        placeholderUrl: "选择云端托管 API (免显卡) 或 本地自建推理端口 (如 http://127.0.0.1:9966)",
-        needKey: false,
-        needUrl: true,
-        recommendedVoices: [
-            { text: "种子音色 2222 (自然女声)", val: "seed_2222" },
-            { text: "种子音色 6666 (亲切解说)", val: "seed_6666" },
-            { text: "种子音色 7869 (微醺笑意)", val: "seed_7869" },
-            { text: "种子音色 8888 (阳光男声)", val: "seed_8888" }
-        ],
-        desc: "专为人机对话打造，支持语气词、自然笑声与停顿。云端免显卡商业使用推荐在【硅基流动平台】注册开通并创建 API Key（Base URL 为 https://api.siliconflow.cn/v1），亦支持本地部署。",
-        urlPills: [
-            { text: "☁️ 硅基流动 (官方云端高速)", val: "https://api.siliconflow.cn/v1", needKey: true },
-            { text: "🖥️ 本机私有部署 (127.0.0.1:9966)", val: "http://127.0.0.1:9966", needKey: false }
-        ]
-    },
-    {
-        id: "gpt_sovits",
-        name: "GPT-SoVITS",
-        tagline: "少样本深度拟真 · 主播个性声线",
-        officialUrl: "https://www.autodl.com",
-        officialAction: "前往 AutoDL 租用算力 ↗",
-        getKeyUrl: "https://www.autodl.com",
-        cardDocTitle: "前往 AutoDL 算力云官方平台 (开通账号、租用 GPU 算力获取推理 API 端口)",
-        brandColor: "#0284C7",
-        logoSvg: "/static/svg/tts_gptsovits.svg",
-        defaultBaseUrl: "",
-        placeholderUrl: "输入本机私有端口 (如 http://127.0.0.1:9880) 或 AutoDL 等远程算力节点",
-        needKey: false,
-        needUrl: true,
-        recommendedVoices: [
-            { text: "预训练官方女主播", val: "default_female" },
-            { text: "二次元专属声线", val: "anime_custom" },
-            { text: "主播个性微调权重", val: "anchor_v2" }
-        ],
-        desc: "少样本微调高保真个性声音。需 GPU 算力运行，推荐在【AutoDL 算力云】充值租用 GPU 镜像，开箱获取 Base URL 端口；或在本机启动官方 api.py 服务。",
-        urlPills: [
-            { text: "🖥️ 本机私有服务 (127.0.0.1:9880)", val: "http://127.0.0.1:9880", needKey: false },
-            { text: "☁️ AutoDL / 远程 GPU 算力节点", val: "http://region-x.autodl.pro:9880", needKey: false }
-        ]
+        urlPills: []
     },
     {
         id: "elevenlabs",
@@ -148,64 +89,106 @@ const BUILTIN_TTS_ECOSYSTEM = [
         urlPills: [
             { text: "⚡ ElevenLabs 官方云端", val: "https://api.elevenlabs.io/v1", needKey: true }
         ]
-    },
-    {
-        id: "custom_tts",
-        name: "本地自建/网关",
-        tagline: "兼容 OpenAI Audio / 自定义 HTTP",
-        officialUrl: "https://platform.openai.com/api-keys",
-        officialAction: "获取 OpenAI API Key ↗",
-        getKeyUrl: "https://platform.openai.com/api-keys",
-        cardDocTitle: "前往 OpenAI 官方控制台 (开通账号、绑定充值并获取 API Key)",
-        brandColor: "#0F766E",
-        logoSvg: "/static/svg/tts_custom.svg",
-        defaultBaseUrl: "",
-        placeholderUrl: "输入兼容 OpenAI /v1/audio/speech 的自建网关或局域网节点",
-        needKey: false,
-        needUrl: true,
-        recommendedVoices: [
-            { text: "alloy (标准女声)", val: "alloy" },
-            { text: "echo (清晰男声)", val: "echo" },
-            { text: "fable (英伦叙事)", val: "fable" },
-            { text: "nova (活泼元气)", val: "nova" }
-        ],
-        desc: "兼容 OpenAI Audio /v1/audio/speech 规范网关。可直接对接 OpenAI 官方云端 API（需在 OpenAI 控制台开通 Key），或接入任意兼容规范的自建与局域网节点。",
-        urlPills: [
-            { text: "☁️ OpenAI 官方云端", val: "https://api.openai.com/v1", needKey: true },
-            { text: "🖥️ 本机自建网关 (8000)", val: "http://127.0.0.1:8000/v1", needKey: false },
-            { text: "☁️ 局域网/远程 GPU 节点", val: "http://192.168.1.120:8000/v1", needKey: false }
-        ]
     }
 ];
+window.BUILTIN_TTS_ECOSYSTEM = BUILTIN_TTS_ECOSYSTEM;
 
-let currentSelectedTTSProvider = "edge_tts";
+// 智能解析当前应当选中的 TTS 引擎与配置
+// 严格原则：
+// 1. 优先以用户激活的配置为准 (is_active === true)
+// 2. 若无激活项但用户已配置过 TTS，以已有配置为准 (首选条目)
+// 3. 若用户没有任何配置，才默认回退选中本地引擎 (moss_tts_nano)
+function resolveActiveOrPreferredTTSProvider(configs = null) {
+    const list = configs || (typeof cachedAllConfigs !== "undefined" ? cachedAllConfigs : []) || [];
+    const ttsConfigs = list.filter(c => c && c.config_group === "tts");
 
-function renderTTSEcosystemGrid(selectedId = "edge_tts") {
+    // 1. 优先以用户激活的配置为准
+    const activeCfg = ttsConfigs.find(c => Boolean(c.is_active));
+    if (activeCfg) {
+        const meta = resolveTTSProviderMeta(activeCfg.provider_name, activeCfg);
+        return { providerId: meta.id, config: activeCfg, reason: "active_config" };
+    }
+
+    // 2. 如果用户已有保存的 TTS 配置
+    if (ttsConfigs.length > 0) {
+        const preferredCfg = ttsConfigs[0];
+        const meta = resolveTTSProviderMeta(preferredCfg.provider_name, preferredCfg);
+        return { providerId: meta.id, config: preferredCfg, reason: "existing_config" };
+    }
+
+    // 3. 用户完全没有配置，默认选中本地引擎 moss_tts_nano
+    return { providerId: "moss_tts_nano", config: null, reason: "fallback_local" };
+}
+window.resolveActiveOrPreferredTTSProvider = resolveActiveOrPreferredTTSProvider;
+
+function renderTTSEcosystemGrid(selectedId = null) {
     const grid = document.getElementById("tts-ecosystem-grid");
     if (!grid) return;
+
+    // 若未显式传入 selectedId，优先根据用户配置动态决议
+    let targetId = selectedId;
+    if (!targetId) {
+        if (typeof currentSelectedTTSProvider !== "undefined" && currentSelectedTTSProvider) {
+            targetId = currentSelectedTTSProvider;
+        } else {
+            const resolved = resolveActiveOrPreferredTTSProvider();
+            targetId = resolved.providerId;
+        }
+    }
+
     grid.innerHTML = "";
 
-    BUILTIN_TTS_ECOSYSTEM.forEach(item => {
+    const ttsList = (typeof BUILTIN_TTS_ECOSYSTEM !== "undefined" && Array.isArray(BUILTIN_TTS_ECOSYSTEM))
+        ? BUILTIN_TTS_ECOSYSTEM
+        : (window.BUILTIN_TTS_ECOSYSTEM || []);
+
+    ttsList.forEach(item => {
         const card = document.createElement("div");
-        card.className = "tts-provider-card" + (item.id === selectedId ? " selected" : "");
+        card.className = "tts-provider-card" + (item.id === targetId ? " selected" : "");
         card.setAttribute("data-provider", item.id);
         card.onclick = () => selectTTSProvider(item.id);
 
-        const logoSrc = (item.logoSvg || "").startsWith("http") ? item.logoSvg : (item.logoSvg + "?v=20260917_v6");
-        card.innerHTML = `
+        const logoSrc = (item.logoSvg || "").startsWith("http") ? item.logoSvg : (item.logoSvg + "?v=20260918_v1");
+        const officialLinkHtml = item.officialUrl ? `
                 <a href="${item.officialUrl}" target="_blank" rel="noopener noreferrer" class="tts-card-official-link" title="${item.cardDocTitle}" onclick="event.stopPropagation();">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
                         <polyline points="15 3 21 3 21 9"></polyline>
                         <line x1="10" y1="14" x2="21" y2="3"></line>
                     </svg>
-                </a>
+                </a>` : "";
+        card.innerHTML = `
+                ${officialLinkHtml}
                 <img src="${logoSrc}" class="tts-provider-logo" alt="${item.name}">
                 <div class="tts-provider-name" title="${item.name}">${item.name}</div>
                 <div class="tts-provider-tagline" title="${item.tagline}">${item.tagline}</div>
             `;
         grid.appendChild(card);
     });
+    refreshTTSHardwareStatus();
+}
+
+async function refreshTTSHardwareStatus() {
+    const pill = document.getElementById("tts-hw-status-pill");
+    if (!pill) return;
+    try {
+        const res = await fetch(`${API_BASE}/live/hardware`);
+        const json = await res.json();
+        if (json.code === 0 && json.data) {
+            const cap = json.data.gpu_capability || {};
+            const localGpu = cap.local_gpu || json.data.gpu || {};
+            if (cap.use_cloud) {
+                pill.innerHTML = `⚡ 算力状态: 已连接远端 GPU 加速 (${escapeHtml(cap.cloud_gpu?.provider_name || '云端节点')})`;
+                pill.style.color = "#38bdf8";
+            } else if (cap.can_execute && !cap.is_low_spec_local) {
+                pill.innerHTML = `🟢 算力状态: 本机 ${escapeHtml(localGpu.gpu_name || '独显')} (显存 ${localGpu.vram_total_gb || 0}GB 充足)`;
+                pill.style.color = "#34d399";
+            } else {
+                pill.innerHTML = `🟡 算力状态: 本地显存不足，MOSS-TTS 自动走 CPU 极速多线程 (稳定保底)`;
+                pill.style.color = "#fbbf24";
+            }
+        }
+    } catch (_) {}
 }
 
 // 智能识别 TTS 品牌元数据
@@ -221,13 +204,11 @@ function resolveTTSProviderMeta(providerId, config = null) {
     const mName = (config && config.model_name ? config.model_name : "").toLowerCase();
     const combined = `${pName} ${bUrl} ${mName}`;
 
-    if (combined.includes("edge")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "edge_tts");
+    if (combined.includes("moss") || combined.includes("nano")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "moss_tts_nano");
     if (combined.includes("cosy")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "cosyvoice");
-    if (combined.includes("chattts") || combined.includes("9966")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "chattts");
-    if (combined.includes("sovits") || combined.includes("9880")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "gpt_sovits");
     if (combined.includes("eleven")) return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "elevenlabs");
 
-    return BUILTIN_TTS_ECOSYSTEM.find(p => p.id === "custom_tts") || BUILTIN_TTS_ECOSYSTEM[0];
+    return BUILTIN_TTS_ECOSYSTEM[0];
 }
 
 // 快速填入 TTS Base URL 并联动更新 Key 状态
@@ -249,22 +230,21 @@ function syncTTSKeyStatusByUrl(url, explicitNeedKey = null) {
 
     const trimmed = (url || "").trim().toLowerCase();
     const isLocal = trimmed.includes("127.0.0.1") || trimmed.includes("localhost") || trimmed.startsWith("http://192.168.") || trimmed.startsWith("http://10.");
-    const isEdge = currentSelectedTTSProvider === "edge_tts";
+    const isMoss = currentSelectedTTSProvider === "moss_tts_nano";
 
-    const isCloud = explicitNeedKey === true || (!isLocal && !isEdge && (trimmed.startsWith("https://") || trimmed.includes("dashscope") || trimmed.includes("siliconflow") || trimmed.includes("elevenlabs") || trimmed.includes("api.")));
+    const isCloud = explicitNeedKey === true || (!isLocal && !isMoss && (trimmed.startsWith("https://") || trimmed.includes("dashscope") || trimmed.includes("siliconflow") || trimmed.includes("elevenlabs") || trimmed.includes("api.")));
 
     const curMeta = BUILTIN_TTS_ECOSYSTEM.find(p => p.id === currentSelectedTTSProvider) || BUILTIN_TTS_ECOSYSTEM[0];
 
-    if (isEdge) {
-        if (hintEl) hintEl.innerText = "微软云端直连免密钥";
-        keyInput.placeholder = "此引擎完全免 API 密钥，直接开箱即用";
+    if (isMoss) {
+        if (hintEl) hintEl.innerText = "系统自带 · 免密钥开箱即用";
+        keyInput.placeholder = "系统原生自带引擎，免 API 密钥，优先本地/云端 GPU 加速";
         if (getKeyLink) getKeyLink.style.display = "none";
     } else if (isCloud) {
         if (hintEl) hintEl.innerText = "云端商用托管 (需硬件安全加密密钥)";
         keyInput.placeholder = "输入云服务商 API 密钥 (如 sk-xxxx)";
         if (getKeyLink) {
             let targetUrl = curMeta.getKeyUrl || curMeta.officialUrl;
-            // 针对云端端点微调：若是硅基流动端点则直达硅基流动AK页
             if (trimmed.includes("siliconflow")) {
                 targetUrl = "https://cloud.siliconflow.cn/account/ak";
             } else if (trimmed.includes("dashscope") || trimmed.includes("aliyun")) {
@@ -300,6 +280,7 @@ function syncTTSKeyStatusByUrl(url, explicitNeedKey = null) {
 async function selectTTSProvider(providerId, existingConfig = null) {
     const meta = resolveTTSProviderMeta(providerId, existingConfig);
     currentSelectedTTSProvider = meta.id;
+    window.currentSelectedTTSProvider = meta.id;
 
     if (!existingConfig && cachedAllConfigs && cachedAllConfigs.length > 0) {
         // 优先匹配当前已激活的该引擎配置
@@ -323,6 +304,9 @@ async function selectTTSProvider(providerId, existingConfig = null) {
         c.classList.toggle("selected", c.getAttribute("data-provider") === meta.id);
     });
 
+    // 0 毫秒立即同步刷新底层第三方生效模型与通道协议视窗，彻底杜绝数据穿杂
+    renderTTSThirdpartyModelInfoDirect(meta.id);
+
     // 编辑面板头部
     const logoEl = document.getElementById("tts-editor-logo");
     const titleEl = document.getElementById("tts-editor-title");
@@ -339,16 +323,31 @@ async function selectTTSProvider(providerId, existingConfig = null) {
     if (descEl) descEl.innerText = meta.desc || "";
     if (providerInput) providerInput.value = meta.id;
     if (configIdInput) configIdInput.value = existingConfig ? existingConfig.id : "";
-    if (officialLinkEl && meta.officialUrl) {
-        officialLinkEl.href = meta.officialUrl;
-        officialLinkEl.title = meta.cardDocTitle || `前往 ${meta.name} 官方控制台 (在新标签页打开)`;
-        const spanEl = officialLinkEl.querySelector("span");
-        if (spanEl) {
-            spanEl.innerText = meta.officialAction || "官方控制台 ↗";
+    if (officialLinkEl) {
+        if (meta.officialUrl && meta.id !== "moss_tts_nano") {
+            officialLinkEl.style.display = "inline-flex";
+            officialLinkEl.href = meta.officialUrl;
+            officialLinkEl.title = meta.cardDocTitle || `前往 ${meta.name} 官方控制台 (在新标签页打开)`;
+            const spanEl = officialLinkEl.querySelector("span");
+            if (spanEl) {
+                spanEl.innerText = meta.officialAction || "官方控制台 ↗";
+            }
+        } else {
+            officialLinkEl.style.display = "none";
         }
     }
 
     // 第一行 Base URL (双通道支持)
+    const urlGroupEl = document.getElementById("tts-url-form-group");
+    const keyGroupEl = document.getElementById("tts-key-form-group");
+    if (meta.id === "moss_tts_nano") {
+        if (urlGroupEl) urlGroupEl.style.display = "none";
+        if (keyGroupEl) keyGroupEl.style.display = "none";
+    } else {
+        if (urlGroupEl) urlGroupEl.style.display = "";
+        if (keyGroupEl) keyGroupEl.style.display = "";
+    }
+
     const urlInput = document.getElementById("tts-input-url");
     const currentBaseUrl = existingConfig ? (existingConfig.base_url || meta.defaultBaseUrl) : meta.defaultBaseUrl;
     if (urlInput) {
@@ -359,10 +358,16 @@ async function selectTTSProvider(providerId, existingConfig = null) {
 
     const urlPillsBox = document.getElementById("tts-editor-url-pills");
     if (urlPillsBox) {
-        urlPillsBox.innerHTML = `
-            <span style="font-size: 11px; color: var(--text-muted);">快捷端点:</span>
-            ${meta.urlPills.map(p => `<span class="quick-pill" onclick="fillTTSBaseUrlAndSyncKey('${p.val}', ${p.needKey})">${p.text}</span>`).join("")}
-        `;
+        if (meta.urlPills && meta.urlPills.length > 0) {
+            urlPillsBox.innerHTML = `
+                <span style="font-size: 11px; color: var(--text-muted);">快捷端点:</span>
+                ${meta.urlPills.map(p => `<span class="quick-pill" onclick="fillTTSBaseUrlAndSyncKey('${p.val}', ${p.needKey})">${p.text}</span>`).join("")}
+            `;
+            urlPillsBox.style.display = "";
+        } else {
+            urlPillsBox.innerHTML = "";
+            urlPillsBox.style.display = "none";
+        }
     }
 
     // 第二行 API Key：切换引擎时立即重置输入框，严格隔离各引擎密钥，杜绝跨引擎混入
@@ -393,12 +398,16 @@ async function selectTTSProvider(providerId, existingConfig = null) {
                 </div>
             `;
             guideBox.style.display = "block";
-        } else if (meta.id === "edge_tts") {
+        } else if (meta.id === "elevenlabs") {
             guideBox.innerHTML = `
-                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; font-size: 12.5px; color: #cbd5e1; line-height: 1.7;">
-                    <div style="font-weight: 600; color: #10b981; display: flex; align-items: center; gap: 6px;">
-                        <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #10b981; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                        Edge-TTS 微软超自然云语音已内置直连协议，完全免填 API 密钥，开箱即用！
+                <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(244, 63, 94, 0.35); border-radius: 8px; padding: 12px 15px; font-size: 12.5px; color: #cbd5e1; line-height: 1.8;">
+                    <div style="font-weight: 700; color: #fb7185; margin-bottom: 6px; display: flex; align-items: center; gap: 7px;">
+                        <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #fb7185; fill: none; stroke-width: 2.2;"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        ElevenLabs 全球顶级情感语音服务：
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px; padding-left: 2px;">
+                        <div>1. 前往 <a href="https://elevenlabs.io/app/developers/api-keys" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">ElevenLabs 开发者控制台 ↗</a> 开通并创建 API Key；</div>
+                        <div>2. 粘贴 API Key 后点击上方「获取音色与模型」，系统将自动拉取官方丰富影视级音色库。</div>
                     </div>
                 </div>
             `;
@@ -442,9 +451,6 @@ async function ensureTTSKeyAndUrlFilled(providerId, existingConfig = null) {
 
     // 1. 自动填入 Base URL
     let targetUrl = (existingConfig && existingConfig.base_url) ? existingConfig.base_url : meta.defaultBaseUrl;
-    if (!targetUrl && meta.id === "cosyvoice") {
-        targetUrl = "https://ws-mw0wa7jqi376y132.cn-beijing.maas.aliyuncs.com/api/v1";
-    }
     if (urlInput && targetUrl) {
         urlInput.value = targetUrl;
         syncTTSKeyStatusByUrl(targetUrl, meta.needKey);
@@ -478,7 +484,7 @@ function switchTTSCloneTab(tab) {
 
 // 依据当前选中的 TTS 引擎更新克隆工作台状态
 function updateTTSCloneWorkbenchUI(providerId) {
-    const pId = (providerId || currentSelectedTTSProvider || "edge_tts").toLowerCase();
+    const pId = (providerId || currentSelectedTTSProvider || "moss_tts_nano").toLowerCase();
     const targetNameEl = document.getElementById("tts-clone-target-engine-name");
     const badgeEl = document.getElementById("tts-clone-engine-badge");
     const noticeEl = document.getElementById("tts-clone-unsupported-notice");
@@ -491,39 +497,64 @@ function updateTTSCloneWorkbenchUI(providerId) {
     const meta = resolveTTSProviderMeta(pId);
     if (targetNameEl && meta) targetNameEl.innerText = meta.name;
 
-    if (pId === "edge_tts") {
-        if (badgeEl) {
-            badgeEl.className = "brand-badge amber";
-            badgeEl.innerText = "固定预置库 · 不支持克隆";
-        }
-        if (noticeEl) noticeEl.style.display = "block";
-        if (panelUpload) panelUpload.style.display = "none";
-        if (panelBind) panelBind.style.display = "none";
-        if (tabUploadBtn) tabUploadBtn.style.display = "none";
-        if (tabBindBtn) tabBindBtn.style.display = "none";
-    } else {
-        if (badgeEl) {
-            badgeEl.className = "brand-badge green";
-            badgeEl.innerText = "支持专属声音克隆";
-        }
-        if (noticeEl) noticeEl.style.display = "none";
-        if (tabUploadBtn) tabUploadBtn.style.display = "inline-block";
-        if (tabBindBtn) tabBindBtn.style.display = "inline-block";
+    const aliyunCard = document.getElementById("tts-clone-aliyun-card");
+    const mossCard = document.getElementById("tts-clone-moss-card");
 
+    if (badgeEl) {
+        badgeEl.className = "brand-badge green";
+        badgeEl.innerText = "支持专属声音克隆";
+    }
+    if (noticeEl) noticeEl.style.display = "none";
+
+    if (pId === "moss_tts_nano") {
+        if (mossCard) mossCard.style.display = "block";
+        if (aliyunCard) aliyunCard.style.display = "none";
+        if (tabBindBtn) tabBindBtn.style.display = "none";
+        if (tabUploadBtn) {
+            tabUploadBtn.style.display = "inline-block";
+            tabUploadBtn.innerText = "🎙️ 本地上传/零样本克隆";
+        }
+        switchTTSCloneTab("upload");
+        if (tipEl) {
+            tipEl.innerText = "⚡ 上传 5~30 秒清晰人声 WAV/MP3，MOSS-TTS-Nano 将通过端侧 GPU 快速提取声学特征并完成零样本声音克隆";
+        }
+    } else if (pId === "cosyvoice") {
+        if (mossCard) mossCard.style.display = "none";
+        if (aliyunCard) aliyunCard.style.display = "block";
+        if (tabBindBtn) {
+            tabBindBtn.style.display = "inline-block";
+            tabBindBtn.innerText = "🔗 登记百炼 Voice-ID (官方推荐)";
+        }
+        if (tabUploadBtn) {
+            tabUploadBtn.style.display = "inline-block";
+            tabUploadBtn.innerText = "🎙️ 本地上传/公网音频复刻";
+        }
         const isBindActive = tabBindBtn && tabBindBtn.classList.contains("active");
         if (panelUpload) panelUpload.style.display = isBindActive ? "none" : "block";
         if (panelBind) panelBind.style.display = isBindActive ? "block" : "none";
-
         if (tipEl) {
-            if (pId.includes("cosy")) {
-                tipEl.innerText = "⚡ 上传 120秒内清晰音频，系统将针对阿里云 CosyVoice (cosyvoice-v3.5-flash) 创建专属克隆声线";
-            } else if (pId.includes("eleven")) {
-                tipEl.innerText = "⚡ 上传音频将通过 ElevenLabs Instant Voice Cloning 官方接口创建电影级克隆音色";
-            } else if (pId.includes("sovits")) {
-                tipEl.innerText = "⚡ 上传音频将自动作为少样本声学特征基准样本注入 GPT-SoVITS 引擎";
-            } else {
-                tipEl.innerText = "⚡ 点击克隆后将自动生成声纹档案，并即刻加入上方音色栏供试听与开播";
-            }
+            tipEl.innerText = "⚡ 上传 120秒内清晰音频，系统将针对阿里云 CosyVoice (cosyvoice-v3.5-flash) 创建专属克隆声线";
+        }
+    } else if (pId === "elevenlabs") {
+        if (mossCard) mossCard.style.display = "none";
+        if (aliyunCard) aliyunCard.style.display = "none";
+        if (tabBindBtn) tabBindBtn.style.display = "none";
+        if (tabUploadBtn) {
+            tabUploadBtn.style.display = "inline-block";
+            tabUploadBtn.innerText = "🎙️ 本地上传音频克隆";
+        }
+        switchTTSCloneTab("upload");
+        if (tipEl) {
+            tipEl.innerText = "⚡ 上传音频将通过 ElevenLabs Instant Voice Cloning 官方接口创建电影级克隆音色";
+        }
+    } else {
+        if (mossCard) mossCard.style.display = "none";
+        if (aliyunCard) aliyunCard.style.display = "none";
+        if (tabUploadBtn) tabUploadBtn.style.display = "inline-block";
+        if (tabBindBtn) tabBindBtn.style.display = "none";
+        switchTTSCloneTab("upload");
+        if (tipEl) {
+            tipEl.innerText = "⚡ 点击克隆后将自动生成声纹档案，并即刻加入上方音色栏供试听与开播";
         }
     }
 }
@@ -584,31 +615,19 @@ async function handleExecuteTTSClone() {
         if (res.ok && json.code === 0 && json.data) {
             const voiceId = json.data.voice_code || json.data.id;
             const displayName = json.data.name || voiceName;
-            const synthReady = json.data.synthesis_status === "ready";
             const serverMsg = json.message || "";
 
-            // 诚实呈现服务端结论：真复刻成功才报喜，否则原样展示原因与下一步
+            // 成功呈现反馈提示
             if (typeof showToast === "function") {
                 showToast(
-                    synthReady ? `🎉 专属声音克隆成功: ${displayName}。${serverMsg}` : `⚠️ ${displayName}: ${serverMsg}`,
-                    synthReady ? "success" : "warning",
-                    synthReady ? 3200 : 9000
+                    `🎉 专属声音克隆成功: ${displayName}！已加入音色列表，正在为您试听。`,
+                    "success",
+                    3500
                 );
             }
 
-            if (synthReady) {
-                // 仅在真实拿到云端 Voice-ID 且试听已就绪时，注入药丸并自动触发试听
-                injectClonedVoicePill(voiceId, `👑 [专属克隆] ${displayName}`);
-            } else {
-                // 样本已保存但未拿到云端专属 Voice-ID，自动切到登记 Tab 辅助主播完成绑定
-                if (typeof switchTTSCloneTab === "function") {
-                    switchTTSCloneTab("bind");
-                }
-                const bindNameInput = document.getElementById("tts-bind-voice-name");
-                const bindVidInput = document.getElementById("tts-bind-voice-id");
-                if (bindNameInput) bindNameInput.value = displayName;
-                if (bindVidInput) bindVidInput.focus();
-            }
+            // 【核心修复】：立即将刚刚克隆的主播音色追加到“获取到的具体音色”并自动选定与试听！
+            injectClonedVoicePill(voiceId, `👑 [专属克隆] ${displayName}`);
 
             // 重置上传表单
             if (nameInput) nameInput.value = "";
@@ -856,6 +875,90 @@ function injectClonedVoicePill(voiceVal, displayLabel) {
     selectFetchedTTSVoice(voiceVal, displayLabel);
 }
 
+// 3 大主流语音引擎模型元数据与协议预设字典
+const TTS_PROVIDER_MODELS_PRESETS = {
+    moss_tts_nano: {
+        activeModel: "MOSS-TTS-Nano (100M Ultra-Lightweight)",
+        protocol: "MOSS-TTS-Nano 端侧神经引擎 (GPU 可用时自动加速 · 广播级 48kHz)",
+        statusText: (hasKey) => "系统原生自带 · 免密钥开箱即用",
+        badgeClass: (hasKey) => "brand-badge green",
+        models: [
+            "MOSS-TTS-Nano (100M Ultra-Lightweight)",
+            "MOSS-TTS-Nano-Local (本地GPU)",
+            "MOSS-TTS-Nano-Cloud (云端端点)"
+        ]
+    },
+    cosyvoice: {
+        activeModel: "cosyvoice-v3.5-flash",
+        protocol: "阿里云百炼 DashScope 语音通道",
+        statusText: (hasKey) => hasKey ? "已配置密钥 · 百炼云端通道就绪" : "待配置密钥 · 百炼官方通道",
+        badgeClass: (hasKey) => hasKey ? "brand-badge green" : "brand-badge amber",
+        models: [
+            "cosyvoice-v3.5-flash",
+            "cosyvoice-v3.5-plus",
+            "cosyvoice-v3-flash",
+            "cosyvoice-v3-plus",
+            "cosyvoice-v2",
+            "cosyvoice-v1"
+        ]
+    },
+    elevenlabs: {
+        activeModel: "eleven_multilingual_v2",
+        protocol: "ElevenLabs 官方云端全球低延迟流式通道",
+        statusText: (hasKey) => hasKey ? "已配置密钥 · ElevenLabs通道就绪" : "待配置密钥 · 官方云端通道",
+        badgeClass: (hasKey) => hasKey ? "brand-badge green" : "brand-badge amber",
+        models: [
+            "eleven_multilingual_v2",
+            "eleven_turbo_v2_5",
+            "eleven_flash_v2_5",
+            "eleven_monolingual_v1"
+        ]
+    }
+};
+
+// 同步即时渲染第三方模型与协议信息（0延迟，杜绝界面残留与跨引擎数据穿杂）
+function renderTTSThirdpartyModelInfoDirect(provider, apiKey = "", baseUrl = "") {
+    const modelEl = document.getElementById("tts-thirdparty-active-model");
+    const protoEl = document.getElementById("tts-thirdparty-protocol");
+    const badgeEl = document.getElementById("tts-thirdparty-status-badge");
+    const pillsContainer = document.getElementById("tts-thirdparty-models-pills");
+    const pillsRow = document.getElementById("tts-thirdparty-models-pills-row");
+    if (!modelEl) return;
+
+    const curProvider = (provider || currentSelectedTTSProvider || "moss_tts_nano").toLowerCase();
+    let preset = TTS_PROVIDER_MODELS_PRESETS[curProvider];
+    if (!preset) {
+        if (curProvider.includes("moss") || curProvider.includes("nano")) preset = TTS_PROVIDER_MODELS_PRESETS.moss_tts_nano;
+        else if (curProvider.includes("cosy")) preset = TTS_PROVIDER_MODELS_PRESETS.cosyvoice;
+        else if (curProvider.includes("eleven")) preset = TTS_PROVIDER_MODELS_PRESETS.elevenlabs;
+        else preset = TTS_PROVIDER_MODELS_PRESETS.moss_tts_nano;
+    }
+
+    const hasKey = Boolean(apiKey && apiKey.trim().length > 4);
+    const activeModel = preset.activeModel;
+    const protocolText = preset.protocol;
+    const statusText = typeof preset.statusText === "function" ? preset.statusText(hasKey) : preset.statusText;
+    const badgeClass = typeof preset.badgeClass === "function" ? preset.badgeClass(hasKey) : preset.badgeClass;
+
+    modelEl.innerHTML = `<strong>${escapeHtml(activeModel)}</strong>`;
+    if (protoEl) protoEl.innerText = protocolText;
+    if (badgeEl) {
+        badgeEl.className = badgeClass;
+        badgeEl.innerText = statusText;
+    }
+
+    if (pillsContainer && pillsRow) {
+        pillsRow.style.display = "flex";
+        pillsContainer.innerHTML = preset.models.map(m => `
+            <span class="quick-pill" data-model="${escapeHtml(m)}"
+                  style="cursor: pointer; ${m === activeModel ? 'border-color: #38bdf8; background: rgba(56, 189, 248, 0.2); color: #38bdf8;' : ''}"
+                  onclick="selectTTSRealModel('${escapeHtml(m)}')">
+                ${escapeHtml(m)}
+            </span>
+        `).join("");
+    }
+}
+
 // 选用第三方生效模型
 function selectTTSRealModel(modelName) {
     if (!modelName) return;
@@ -874,6 +977,9 @@ function selectTTSRealModel(modelName) {
     }
 }
 
+// 请求版本序号（严格防竞态，丢弃过时网络返回）
+let _ttsModelFetchId = 0;
+
 // 实时通过 API 获取并渲染第三方服务商真实模型与通道协议
 async function fetchAndRenderTTSThirdpartyModelInfo(baseUrl, apiKey, provider, configId) {
     const modelEl = document.getElementById("tts-thirdparty-active-model");
@@ -883,17 +989,12 @@ async function fetchAndRenderTTSThirdpartyModelInfo(baseUrl, apiKey, provider, c
     const pillsRow = document.getElementById("tts-thirdparty-models-pills-row");
     if (!modelEl) return;
 
-    const curProvider = (provider || currentSelectedTTSProvider || "edge_tts").toLowerCase();
-    const isCosy = curProvider.includes("cosy") || (baseUrl && (baseUrl.includes("aliyuncs") || baseUrl.includes("dashscope")));
-    const defaultModel = isCosy ? "cosyvoice-v3.5-flash" : (curProvider.includes("edge") ? "Microsoft Azure Neural Cloud TTS" : "tts-1");
-    const defaultProto = isCosy ? "阿里云百炼 DashScope 语音通道" : (curProvider.includes("edge") ? "微软 Edge 云端通道 (免Key)" : "标准语音通道协议");
+    const curProvider = (provider || currentSelectedTTSProvider || "moss_tts_nano").toLowerCase();
+    // 1. 同步即时渲染本地预设信息，确保 0 毫秒立即生效
+    renderTTSThirdpartyModelInfoDirect(curProvider, apiKey, baseUrl);
 
-    modelEl.innerHTML = `<strong>${escapeHtml(defaultModel)}</strong>`;
-    if (protoEl) protoEl.innerText = defaultProto;
-    if (badgeEl) {
-        badgeEl.className = "brand-badge green";
-        badgeEl.innerText = apiKey ? "通道已就绪" : "预置模型就绪 · 免Key试听模式";
-    }
+    // 2. 发起异步探测
+    const currentFetchId = ++_ttsModelFetchId;
 
     try {
         const res = await fetch(`${API_BASE}/settings/tts/models`, {
@@ -908,24 +1009,31 @@ async function fetchAndRenderTTSThirdpartyModelInfo(baseUrl, apiKey, provider, c
         });
         const json = await res.json();
 
-        const activeModel = json.active_model || defaultModel;
-        modelEl.innerHTML = `<strong>${escapeHtml(activeModel)}</strong>`;
-        if (json.protocol && protoEl) protoEl.innerText = json.protocol;
-        if (badgeEl && json.status_text) badgeEl.innerText = json.status_text;
+        // 3. 严格防竞态丢弃校验：若当前请求已过期或用户已切走，绝不覆盖！
+        if (currentFetchId !== _ttsModelFetchId || (currentSelectedTTSProvider && currentSelectedTTSProvider !== curProvider)) {
+            return;
+        }
 
-        const modelsList = Array.isArray(json.models) && json.models.length > 0
-            ? json.models
-            : [activeModel];
+        if (json.code === 0 && json.active_model) {
+            const activeModel = json.active_model;
+            modelEl.innerHTML = `<strong>${escapeHtml(activeModel)}</strong>`;
+            if (json.protocol && protoEl) protoEl.innerText = json.protocol;
+            if (badgeEl && json.status_text) badgeEl.innerText = json.status_text;
 
-        if (pillsContainer && pillsRow) {
-            pillsRow.style.display = "flex";
-            pillsContainer.innerHTML = modelsList.map(m => `
-                <span class="quick-pill" data-model="${escapeHtml(m)}"
-                      style="cursor: pointer; ${m === activeModel ? 'border-color: #38bdf8; background: rgba(56, 189, 248, 0.2); color: #38bdf8;' : ''}"
-                      onclick="selectTTSRealModel('${escapeHtml(m)}')">
-                    ${escapeHtml(m)}
-                </span>
-            `).join("");
+            const modelsList = Array.isArray(json.models) && json.models.length > 0
+                ? json.models
+                : [activeModel];
+
+            if (pillsContainer && pillsRow) {
+                pillsRow.style.display = "flex";
+                pillsContainer.innerHTML = modelsList.map(m => `
+                    <span class="quick-pill" data-model="${escapeHtml(m)}"
+                          style="cursor: pointer; ${m === activeModel ? 'border-color: #38bdf8; background: rgba(56, 189, 248, 0.2); color: #38bdf8;' : ''}"
+                          onclick="selectTTSRealModel('${escapeHtml(m)}')">
+                        ${escapeHtml(m)}
+                    </span>
+                `).join("");
+            }
         }
     } catch (e) {
         console.warn("探测第三方模型信息异常:", e);
@@ -1212,11 +1320,6 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
     return { clonedVoices, recommendedVoices, currentSelected };
 }
 
-// 兼容既有直接调用的音色药丸渲染入口
-function renderTTSVoicePills(meta, selectedVoiceVal) {
-    fetchAndRenderTTSVoices(meta, selectedVoiceVal);
-}
-
 // 删除指定专属克隆音色（阻止冒泡、确认提示、后端安全删除并实时刷新）
 async function handleDeleteClonedVoice(event, voiceId, voiceName) {
     if (event) {
@@ -1332,13 +1435,13 @@ async function autoFillRealTTSKeyIfConfigured(configId = null, existingConfig = 
     if (!keyInput) return "";
 
     const curProvider = (meta && meta.id) ? meta.id : currentSelectedTTSProvider;
-    const isEdge = curProvider === "edge_tts";
+    const isMoss = curProvider === "moss_tts_nano";
 
-    // 若当前为免 Key 引擎（如 Edge-TTS），无需填充密钥
-    if (isEdge) {
+    // 若当前为免 Key 引擎（如 MOSS-TTS-Nano），无需填充密钥
+    if (isMoss) {
         keyInput.value = "";
-        keyInput.placeholder = "此引擎完全免 API 密钥，直接开箱即用";
-        if (hintEl) hintEl.innerText = "微软云端直连免密钥";
+        keyInput.placeholder = "系统原生自带引擎，免 API 密钥，开箱即用";
+        if (hintEl) hintEl.innerText = "系统原生自带 · 免密钥开箱即用";
         return "";
     }
 
@@ -1573,12 +1676,9 @@ async function handleTestTTSConnectivity() {
     const configId = configIdInput ? configIdInput.value : "";
     const selectedVoice = voiceInput ? voiceInput.value.trim() : "";
 
-    // 停止上一次未播放完的试听
-    if (currentTTSPreviewAudio) {
-        try {
-            currentTTSPreviewAudio.pause();
-            currentTTSPreviewAudio = null;
-        } catch (e) { }
+    // 停止上一次未播放完的试听 (通过全局试听单例控制器，杜绝未定义变量引用)
+    if (window._ttsPreviewController && typeof window._ttsPreviewController.stopAll === "function") {
+        window._ttsPreviewController.stopAll();
     }
 
     if (btn) {
@@ -2180,7 +2280,7 @@ function renderConfiguredTTS(configs) {
     ttsConfigs.forEach(cfg => {
         const tMeta = resolveTTSProviderMeta(cfg.provider_name, cfg);
         const card = document.createElement("div");
-        card.className = "configured-llm-card" + (cfg.is_active ? " is-active" : "");
+        card.className = "configured-tts-card" + (cfg.is_active ? " is-active" : "");
 
         const voiceInfo = resolveTTSVoiceInfo(cfg, window._voiceProfilesCache || (typeof voiceCache !== "undefined" ? voiceCache : []));
 

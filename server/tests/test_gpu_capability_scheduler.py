@@ -119,7 +119,7 @@ async def test_low_spec_with_cloud_gpu_prioritizes_cloud():
              patch("server.core.avatar.registry.get_active_cloud_gpu_sync", return_value=fake_cloud):
             driver = AvatarDriverFactory.create("livetalking", config={"session_id": "test_s2", "prefer_cloud": True})
             assert isinstance(driver, CloudSidecarDriver)
-            assert driver.sidecar_url == "ws://gpu-cloud.example.com:8765"
+            assert driver.sidecar_url.startswith("ws://gpu-cloud.example.com:8765")
 
 
 @pytest.mark.anyio

@@ -277,9 +277,9 @@ let roleCardsCache = [];
 let selectedRoleId = null;
 
 const ROLE_CARD_META = {
-    "ecommerce": { icon: "orange", avatarSvg: "/static/svg/anchor_ecommerce.svg", tag: "橙色橘子·促单逼单", tagColor: "#F97316" },
-    "entertainment": { icon: "mic", avatarSvg: "/static/svg/anchor_entertainment.svg", tag: "电光麦克风·逗梗陪伴", tagColor: "#2DD4A0" },
-    "expert": { icon: "plus-circle", avatarSvg: "/static/svg/anchor_expert.svg", tag: "医疗+守护·专业解答", tagColor: "#EF4444" },
-    "chitchat": { icon: "handshake", avatarSvg: "/static/svg/anchor_chitchat.svg", tag: "暖金握手·唠嗑搭子", tagColor: "#F59E0B" }
+    "ecommerce": { icon: "orange", avatarSvg: "/static/svg/anchor_ecommerce.svg", title: "带货主播", tag: "促单逼单 · 爆品推荐", tagColor: "#F97316" },
+    "entertainment": { icon: "mic", avatarSvg: "/static/svg/anchor_entertainment.svg", title: "娱乐主播", tag: "逗梗陪伴 · 高情商共情", tagColor: "#2DD4A0" },
+    "expert": { icon: "plus-circle", avatarSvg: "/static/svg/anchor_expert.svg", title: "专业专家", tag: "严谨解答 · 法理免责", tagColor: "#EF4444" },
+    "chitchat": { icon: "handshake", avatarSvg: "/static/svg/anchor_chitchat.svg", title: "闲聊扯淡", tag: "唠嗑搭子 · 顺话不冷场", tagColor: "#F59E0B" }
 };
 

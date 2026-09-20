@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="moss-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="100%" stop-color="#0EA5E9" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0284C7" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="#0B132B"/>
+  <rect x="2" y="2" width="44" height="44" rx="10" fill="none" stroke="#0284C7" stroke-width="1.5" stroke-opacity="0.4"/>
+  <!-- MOSS 神经语音波形与核心脑电环 -->
+  <circle cx="24" cy="24" r="16" fill="none" stroke="url(#moss-glow)" stroke-width="2" stroke-dasharray="4 2"/>
+  <path d="M14 24 C16 18, 18 30, 20 24 C22 14, 26 34, 28 24 C30 18, 32 28, 34 24" fill="none" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)"/>
+  <circle cx="24" cy="24" r="3.5" fill="#38BDF8"/>
+</svg>

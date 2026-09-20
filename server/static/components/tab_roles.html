@@ -7,9 +7,8 @@
             </span>
           </div>
           <p class="page-intro">
-            四大核心角色：<strong>带货主播</strong>（促单逼单）、<strong>娱乐主播</strong>（逗梗陪伴）、<strong>专业专家</strong>（咨询法理前置免责）、<strong>闲聊扯淡</strong>（唠嗑搭子）。
-            点击卡片选择要编辑的主播，修改人设与话术红线后保存。
-            <strong style="color: var(--red);">直播进行中禁止切换角色。</strong>
+            四大核心直播类型：<strong>带货主播</strong>（促单逼单）、<strong>娱乐主播</strong>（逗梗陪伴）、<strong>专业专家</strong>（咨询法理前置免责）、<strong>闲聊扯淡</strong>（唠嗑搭子）。
+            点击卡片选择要编辑的主播类型，修改人设 System Prompt 与话术红线后保存。开播时可在「开播向导」选择具体出镜主播。
           </p>
           <label class="form-label">编辑目标角色（点击卡片选择）</label>
           <div id="role-cards" class="grid-4" style="margin-bottom: 20px;"></div>
@@ -21,7 +20,7 @@
               <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
               保存人设修改
             </button>
-            <button class="btn" id="btn-activate-role" onclick="activateRole()">
+            <button class="btn" id="btn-activate-role" onclick="activateRole()" style="display: none;">
               <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               激活为当前直播角色
             </button>

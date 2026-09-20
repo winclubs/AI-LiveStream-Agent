@@ -18,6 +18,11 @@ os.environ["LIVE_AGENT_DATA_DIR"] = _TEST_DATA_DIR
 # 为纯单元测试 (不经 TestClient 启动 app) 预初始化临时库表结构与种子数据，
 # 保证 test_core_engine.py 等文件可独立运行 (ADR-07 测试隔离)
 import asyncio as _asyncio
+import pytest
 from server.database.db import init_db as _init_db
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
 
 _asyncio.run(_init_db())

@@ -78,10 +78,22 @@ class BaseAvatarDriver(ABC):
         dispatched = False
         if frame_rgb is not None:
             self.total_published_frames += 1
+            # 叠加电商动态挂件与防录播微噪点/环境光微动
+            try:
+                from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state
+                composed_frame = compose_scene_overlays(
+                    frame_rgb,
+                    global_scene_overlay_state.snapshot(),
+                    enable_anti_recording=True,
+                    timestamp=time.time(),
+                )
+            except Exception:
+                composed_frame = frame_rgb
+
             # 1. 投递至 OBS 虚拟摄像头
             if self.virtual_cam and getattr(self.virtual_cam, "is_active", False):
                 try:
-                    self.virtual_cam.send_frame(frame_rgb, owner="avatar_driver", priority=1)
+                    self.virtual_cam.send_frame(composed_frame, owner="avatar_driver", priority=1)
                     dispatched = True
                 except Exception:
                     pass
@@ -89,7 +101,7 @@ class BaseAvatarDriver(ABC):
             # 2. 投递至 RTMP 直推引擎 (视频)
             if self.rtmp_streamer and getattr(self.rtmp_streamer, "is_streaming", False):
                 try:
-                    self.rtmp_streamer.send_video_frame(frame_rgb)
+                    self.rtmp_streamer.send_video_frame(composed_frame)
                     dispatched = True
                 except Exception:
                     pass
@@ -97,7 +109,7 @@ class BaseAvatarDriver(ABC):
             # 3. 投递至 WebRTC WHEP 视窗分发轨道
             if self.webrtc_streamer:
                 try:
-                    self.webrtc_streamer.push_frame(frame_rgb)
+                    self.webrtc_streamer.push_frame(composed_frame)
                     dispatched = True
                 except Exception:
                     pass
@@ -105,7 +117,7 @@ class BaseAvatarDriver(ABC):
             # 4. 投递至切片录制管道 (视频)
             if self.recorder and getattr(self.recorder, "is_recording", lambda: False)():
                 try:
-                    self.recorder.feed_frame(frame_rgb)
+                    self.recorder.feed_frame(composed_frame)
                     dispatched = True
                 except Exception:
                     pass

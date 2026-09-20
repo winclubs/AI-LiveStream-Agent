@@ -243,28 +243,18 @@ async def query_dashscope_cloned_voice(base_url: str, api_key: str, voice_id: st
 
 
 async def diagnose_voice_error(base_url: str, api_key: str, voice_id: str, raw_err: str) -> str:
-    """对百炼合成 411/418/InvalidParameter 错误进行深度诊断并生成人类友好的解决指导"""
+    """对百炼合成错误进行诊断并生成简短易懂的说明"""
     try:
         q_res = await query_dashscope_cloned_voice(base_url, api_key, voice_id)
         if q_res.get("_error") == "ResourceNotExist":
-            v_list = await list_dashscope_cloned_voices(base_url, api_key)
-            valid_voices = [v for v in v_list if v.get("status") == "OK"]
-            if valid_voices:
-                valid_ids_str = "、".join([f"【{v.get('voice_id')}】(模型: {v.get('target_model')})" for v in valid_voices[:2]])
-                return (
-                    f"Voice-ID【{voice_id}】在阿里云百炼服务商处不存在或已被删除（云端返回 ResourceNotExist）。\n"
-                    f"💡 智能检测到您当前百炼空间中真实可用的有效克隆音色为：{valid_ids_str}，请检查复制的 Voice-ID 或在百炼控制台重新复刻！"
-                )
-            else:
-                return (
-                    f"Voice-ID【{voice_id}】在阿里云百炼服务商处不存在或已被删除（云端返回 ResourceNotExist）。\n"
-                    f"当前百炼空间中未找到已就绪的复刻音色，请前往阿里云百炼控制台声音复刻中心录制并生成有效音色！"
-                )
+            return f"主播绑定的音色【{voice_id}】在云端不存在或已被删除，请检查绑定"
         elif q_res.get("status") and q_res.get("status") != "OK":
-            return f"百炼云端音色状态当前为【{q_res.get('status')}】（尚未处于可发声的 OK 就绪状态），请稍候待百炼审核或训练完成后再试。"
+            return f"云端音色状态为【{q_res.get('status')}】（未就绪），请稍候再试"
     except Exception:
         pass
-    return raw_err
+    if "ResourceNotExist" in raw_err or "not exist" in (raw_err or "").lower():
+        return f"主播绑定的音色【{voice_id}】在云端不存在，请检查绑定"
+    return raw_err or "音色合成调用失败，请检查配置"
 
 
 async def synthesize_dashscope_cosyvoice(
@@ -421,19 +411,16 @@ async def generate_cloned_voice_preview(
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
     target_model: Optional[str] = None,
-    force_regenerate: bool = False
+    force_regenerate: bool = False,
+    provider: Optional[str] = None,
 ) -> Path:
     """
     为专属克隆音色合成一段全新台词的试听音频。
     【铁律】：
       1. 严禁播放用户上传的原版音频样本，必须用全新合成的台词验证克隆效果；
-      2. 只允许使用该音色的云端复刻声线合成，绝不拿预置音色冒充克隆音色；
+      2. 引擎隔离：MOSS-TTS-Nano 走端侧零样本推理，百炼 CosyVoice 走云端复刻，绝不跨引擎报错；
       3. 合成不了就诚实报错（说明缺什么、下一步做什么），绝不静默降级。
     """
-    out_file = VOICES_DIR / f"{voice_id}_cloned_preview.mp3"
-    if not force_regenerate and out_file.exists() and out_file.stat().st_size > 1024:
-        return out_file
-
     clean_name = (voice_name or voice_id).strip()
     text_to_speak = (custom_text or "").strip()
     default_placeholders = [
@@ -441,9 +428,90 @@ async def generate_cloned_voice_preview(
         "你好，欢迎来到直播间！这是当前语音引擎的实时试听效果，祝您开播顺利！",
         "你好！这是当前语音合成引擎的实时试听效果"
     ]
-    if not text_to_speak or any(p in text_to_speak for p in default_placeholders):
+    is_custom = bool(text_to_speak and not any(p in text_to_speak for p in default_placeholders))
+    if not is_custom:
         text_to_speak = f"你好！我是您的专属克隆声线【{clean_name}】。这是一句全新合成的实时台词，用于检验声音克隆效果，祝您直播大吉！"
 
+    if is_custom:
+        import hashlib
+        text_hash = hashlib.md5(text_to_speak.encode("utf-8")).hexdigest()[:10]
+        out_file = VOICES_DIR / f"{voice_id}_custom_{text_hash}.mp3"
+    else:
+        out_file = VOICES_DIR / f"{voice_id}_cloned_preview.mp3"
+
+    if not force_regenerate and out_file.exists() and out_file.stat().st_size > 1024:
+        return out_file
+
+    prov_lower = (provider or "").lower().strip()
+    is_moss = bool("moss" in prov_lower or "nano" in prov_lower)
+
+    # -------------------------------------------------------------------------
+    # 分支 1: MOSS-TTS-Nano 端侧零样本克隆通道 (完全独立于百炼，绝不报百炼错误)
+    # -------------------------------------------------------------------------
+    if is_moss:
+        # 1. 优先检查本地是否已经生成过当前全新台词的试听文件
+        if not force_regenerate and out_file.exists() and out_file.stat().st_size > 1024:
+            return out_file
+
+        # 2. 必须具备参考音频样本
+        if not sample_audio_path or not Path(sample_audio_path).exists() or Path(sample_audio_path).stat().st_size <= 0:
+            raise RuntimeError(
+                f"音色【{clean_name}】缺少有效的主播录音样本（文件不存在或为空），无法提取声纹进行全新台词合成。\n"
+                f"👉 请在下方克隆工作台重新上传 5~30 秒录音文件后重试。"
+            )
+
+        # 3. 优先调用主进程原生官方 MOSS-TTS-Nano 端侧零样本神经克隆引擎！
+        # 【铁律】：必须使用用户上传的声学指纹配合全新台词动态合成，严禁直接播放原录音！
+        try:
+            from server.core.audio.moss_nano.moss_cloner import moss_cloner
+            logger.info(f"正在调用官方 MOSS-TTS-Nano 零样本神经引擎为【{clean_name}】合成新台词...")
+            gen_path = await moss_cloner.clone_and_synthesize(
+                text=text_to_speak,
+                prompt_audio_path=sample_audio_path,
+                output_path=out_file,
+                speed=1.0,
+                volume=1.0
+            )
+            if gen_path.exists() and gen_path.stat().st_size > 512:
+                logger.info(f"官方 MOSS 端侧引擎克隆新台词合成成功: {gen_path}")
+                return gen_path
+        except Exception as e:
+            logger.warning(f"主进程原生 MOSS-TTS-Nano 试听合成异常: {e}，尝试备用 9880 外部端点...")
+            # 备用 9880 端点
+            moss_endpoint = (base_url if base_url and ("9880" in base_url or "moss" in base_url) else "http://127.0.0.1:9880").strip().rstrip("/")
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    clone_payload = {
+                        "text": text_to_speak,
+                        "prompt_wav": sample_audio_path,
+                        "speed": 1.0,
+                        "volume": 1.0,
+                        "sample_rate": 48000,
+                        "stream": False
+                    }
+                    synth_resp = await client.post(f"{moss_endpoint}/tts", json=clone_payload)
+                    if synth_resp.status_code == 200 and len(synth_resp.content) > 512:
+                        with open(out_file, "wb") as pf:
+                            pf.write(synth_resp.content)
+                        logger.info(f"已通过 MOSS-TTS-Nano 9880 服务成功合成克隆试听: {out_file}")
+                        return out_file
+            except Exception as ext_e:
+                logger.error(f"MOSS-TTS 外部端点合成亦失败: {ext_e}")
+                raise RuntimeError(
+                    f"MOSS-TTS-Nano 为专属音色【{clean_name}】合成全新试听台词失败：{str(e)}。\n"
+                    f"👉 请检查参考录音是否清晰（建议 5~30 秒单人无杂音音频）。"
+                )
+
+        if out_file.exists() and out_file.stat().st_size > 512:
+            return out_file
+
+        raise RuntimeError(
+            f"音色【{clean_name}】的 MOSS 专属试听文件未生成成功，请重试。"
+        )
+
+    # -------------------------------------------------------------------------
+    # 分支 2: 阿里云百炼 CosyVoice 云端复刻通道
+    # -------------------------------------------------------------------------
     if not base_url or not api_key:
         db_base, db_key = await get_active_cosyvoice_config()
         if not base_url:
@@ -477,10 +545,10 @@ async def generate_cloned_voice_preview(
         )
     except DashscopeCloneError as e:
         diag = await diagnose_voice_error(base_url, api_key, voice_id, e.detail)
-        raise RuntimeError(f"克隆音色【{clean_name}】合成新台词失败：{diag}")
+        raise RuntimeError(diag)
     except Exception as e:
         diag = await diagnose_voice_error(base_url, api_key, voice_id, str(e))
-        raise RuntimeError(f"克隆音色【{clean_name}】合成新台词失败：{diag}")
+        raise RuntimeError(diag)
     if not dash_bytes or len(dash_bytes) <= 512:
         raise RuntimeError(f"克隆音色【{clean_name}】合成新台词失败：百炼返回的音频为空。")
     with open(out_file, "wb") as pf:

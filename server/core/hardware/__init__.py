@@ -9,6 +9,8 @@ from server.core.hardware.gpu_capability import (
     probe_local_gpu,
     get_active_cloud_gpu,
     evaluate_compute,
+    SETTING_KEY_GPU_TARGET,
+    get_user_gpu_target_preference,
 )
 
 __all__ = [
@@ -18,4 +20,7 @@ __all__ = [
     "probe_local_gpu",
     "get_active_cloud_gpu",
     "evaluate_compute",
+    "SETTING_KEY_GPU_TARGET",
+    "get_user_gpu_target_preference",
 ]
+

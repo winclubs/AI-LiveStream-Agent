@@ -18,6 +18,7 @@ backups/
 *.rollback-*/
 *.restore-*/
 *.part
+server/scratch/
 
 # Node / Electron / Build
 node_modules/

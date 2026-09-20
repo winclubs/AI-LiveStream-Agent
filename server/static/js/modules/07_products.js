@@ -194,6 +194,3 @@ async function deleteProduct(prodId, title) {
     } catch (e) { alert("删除失败: " + e); }
 }
 
-// 7. 音色管理 (需求5) 与主播音色下拉数据源
-let voiceCache = [];
-

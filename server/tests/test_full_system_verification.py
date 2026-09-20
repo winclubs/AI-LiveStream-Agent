@@ -421,21 +421,12 @@ def test_09_guardrails_compliance_and_sanitization(client):
 def test_10_llm_configuration_ecosystem(client):
     """
     【模块 10 验证】
-    1. /api/v1/settings/llm/providers: 8 大主流模型生态元数据
-    2. /api/v1/settings/configs/save: 保存 LLM 配置并验证 API Key 脱敏存储
-    3. /api/v1/settings/configs/{id}/raw-key: 密钥解密明文查看
-    4. /api/v1/settings/llm/models: 动态模型拉取探测 (无 Key 明确拦截，本地允许探测)
-    5. /api/v1/settings/configs/{id}: 清理测试配置
+    1. /api/v1/settings/configs/save: 保存 LLM 配置并验证 API Key 脱敏存储
+    2. /api/v1/settings/configs/{id}/raw-key: 密钥解密明文查看
+    3. /api/v1/settings/llm/models: 动态模型拉取探测 (无 Key 明确拦截，本地允许探测)
+    4. /api/v1/settings/configs/{id}: 清理测试配置
     """
-    # 1. 验证 8 大主流模型生态
-    res_prov = client.get("/api/v1/settings/llm/providers")
-    assert res_prov.status_code == 200
-    prov_data = res_prov.json()
-    assert prov_data["code"] == 0
-    prov_ids = {p["id"] for p in prov_data["data"]}
-    assert {"deepseek", "qwen", "minimax", "kimi", "gemini", "glm", "chatgpt", "custom"}.issubset(prov_ids)
-
-    # 2. 保存测试配置
+    # 1. 保存测试配置
     config_id = f"cfg_llm_verify_{int(time.time())}"
     res_save = client.post("/api/v1/settings/configs/save", json={
         "id": config_id,

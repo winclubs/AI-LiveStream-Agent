@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.config import DATA_DIR
 from server.database.db import AsyncSessionLocal
-from server.database.models import Anchor, Avatar, AvatarTask
+from server.database.models import Anchor, Avatar, AvatarAction, AvatarTask
 
 logger = logging.getLogger("LiveAgent.AvatarTaskManager")
 
@@ -129,16 +129,20 @@ class AvatarTaskManager:
     def _format_task(self, t: AvatarTask) -> Dict[str, Any]:
         preview_path = ""
         meta_info = {}
-        if t.output_dir and Path(t.output_dir).exists():
-            cand_preview = Path(t.output_dir) / "preview.jpg"
-            if cand_preview.exists():
-                preview_path = cand_preview.as_posix()
-            meta_path = Path(t.output_dir) / "meta.json"
-            if meta_path.exists():
-                try:
-                    meta_info = json.loads(meta_path.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
+        output_dir_str = str(t.output_dir or "").strip()
+        if output_dir_str:
+            out_path = Path(output_dir_str)
+            if out_path.exists():
+                cand_preview = out_path / "preview.jpg"
+                if cand_preview.exists():
+                    preview_path = cand_preview.as_posix()
+                meta_path = out_path / "meta.json"
+                if meta_path.exists():
+                    try:
+                        meta_info = json.loads(meta_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+
 
         return {
             "id": t.id,
@@ -197,15 +201,24 @@ class AvatarTaskManager:
         full_imgs_dir.mkdir(parents=True, exist_ok=True)
 
         # ---------------------------------------------------------------------
-        # 阶段 0: 算力调度与硬件显存研判
+        # 阶段 0: 算力调度与硬件显存研判 (严格实事求是探活)
         # ---------------------------------------------------------------------
         from server.core.hardware.gpu_capability import evaluate_compute
         compute_plan = await evaluate_compute(feature_name="数字人视频切片制作", required_vram_gb=2.0)
-        compute_notice = "轻量 CPU 运算"
-        if compute_plan.use_cloud:
-            compute_notice = f"已优先调度云端显卡加速 ({compute_plan.cloud_gpu.get('provider_name', 'Sidecar')})"
-        elif compute_plan.is_low_spec_local:
-            compute_notice = "本地显存不足2GB且未配云端，已自动采用轻量CPU算法"
+        if compute_plan.use_cloud and compute_plan.can_execute:
+            provider = (compute_plan.cloud_gpu or {}).get("provider_name", "Sidecar")
+            compute_notice = f"已实测连通并调度【远端租赁GPU加速】({provider})"
+        elif compute_plan.can_execute and not compute_plan.is_low_spec_local:
+            gpu_name = (compute_plan.local_gpu or {}).get("gpu_name", "本地独显")
+            compute_notice = f"已启用【本地高性能显卡加速】({gpu_name})"
+        else:
+            gpu_name = (compute_plan.local_gpu or {}).get("gpu_name", "本地硬件")
+            remote_info = ""
+            if compute_plan.cloud_gpu and not compute_plan.use_cloud:
+                remote_info = " (配置的远端GPU未开机连通，已由本地计算处理)"
+            compute_notice = f"【本地硬件处理】({gpu_name}){remote_info}"
+
+
 
         # ---------------------------------------------------------------------
         # 阶段 1 (0% ~ 10%): 视频有效性检测与元数据提取
@@ -256,7 +269,7 @@ class AvatarTaskManager:
         )
 
         # ---------------------------------------------------------------------
-        # 阶段 3 (50% ~ 80%): 人脸检测、对齐与 coords.pkl 坐标生成
+        # 阶段 3 (50% ~ 70%): 人脸检测、对齐与 coords.pkl 坐标生成
         # ---------------------------------------------------------------------
         await self._update_task_db(
             task_id,
@@ -283,16 +296,43 @@ class AvatarTaskManager:
 
         await self._update_task_db(
             task_id,
-            progress=80,
+            progress=70,
             stage_message=f"面部坐标提取与平滑对齐完成 (已校准 {len(coords)} 帧坐标)",
         )
 
         # ---------------------------------------------------------------------
-        # 阶段 4 (80% ~ 90%): 视频音频伴音分离 (audio.wav)
+        # 阶段 3.2 (70% ~ 82%): 裁剪人脸特征序列 (face_imgs/，Wav2Lip推理必备)
         # ---------------------------------------------------------------------
+        face_imgs_dir = out_path / "face_imgs"
+        face_imgs_dir.mkdir(parents=True, exist_ok=True)
+        await self._update_task_db(
+            task_id,
+            progress=72,
+            stage_message="正在按人脸坐标批量裁剪对齐口型驱动人脸图 (face_imgs/)...",
+        )
+
+        cropped_count = await asyncio.to_thread(
+            self._crop_face_imgs_worker,
+            extracted_frames,
+            coords,
+            face_imgs_dir,
+            256,
+            task_id,
+            self._cancelled_tasks,
+        )
+
         await self._update_task_db(
             task_id,
             progress=82,
+            stage_message=f"口型驱动人脸特征裁剪就绪 (共 {cropped_count} 帧标准人脸切片)",
+        )
+
+        # ---------------------------------------------------------------------
+        # 阶段 4 (82% ~ 90%): 视频音频伴音分离 (audio.wav)
+        # ---------------------------------------------------------------------
+        await self._update_task_db(
+            task_id,
+            progress=84,
             stage_message="正在提取伴音轨道并重采样为标准 16kHz 单声道 PCM...",
         )
 
@@ -329,15 +369,20 @@ class AvatarTaskManager:
             "width": width,
             "height": height,
             "coords_count": len(coords),
+            "face_imgs_count": cropped_count,
+            "face_img_size": 256,
             "has_audio": audio_wav_path.exists() and audio_wav_path.stat().st_size > 44,
             "source_video": video_path,
             "output_dir": output_dir,
+            "compute_branch": "cloud_sidecar" if (compute_plan.use_cloud and compute_plan.has_cloud_gpu) else ("local_gpu" if not compute_plan.is_low_spec_local else "local_hardware"),
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+
         }
         (out_path / "meta.json").write_text(
             json.dumps(meta_content, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
 
         # 更新 SQLite 数据库：绑定主播档案并录入数字人形象库
         async with AsyncSessionLocal() as db:
@@ -349,7 +394,7 @@ class AvatarTaskManager:
                 task.stage_message = f"数字人资产制作完成！共计 {total_extracted} 帧"
                 task.output_dir = output_dir
 
-            # 2. 如果绑定了主播，自动更新主播的数字人资产目录
+            # 2. 如果绑定了主播，自动更新主播的数字人资产目录并关联待机动作
             if anchor_id:
                 anchor = await db.get(Anchor, anchor_id)
                 if anchor:
@@ -357,6 +402,30 @@ class AvatarTaskManager:
                     anchor.source_video = video_path
                     if not anchor.photo_portrait and preview_jpg.exists():
                         anchor.photo_portrait = preview_jpg.as_posix()
+
+                # 自动关联默认待机呼吸切片 (Action Code 0)
+                idle_action_id = f"action_{anchor_id}_0"
+                action_rec = await db.get(AvatarAction, idle_action_id)
+                if not action_rec:
+                    action_rec = AvatarAction(
+                        id=idle_action_id,
+                        anchor_id=anchor_id,
+                        action_code=0,
+                        action_name="待机呼吸循环",
+                        video_path=video_path,
+                        frames_dir=output_dir,
+                        trigger_type="both",
+                        trigger_keywords="",
+                        trigger_events="",
+                        duration_sec=0.0,
+                        priority=0,
+                        mirror_loop=1,
+                        is_active=1,
+                    )
+                    db.add(action_rec)
+                else:
+                    action_rec.video_path = video_path
+                    action_rec.frames_dir = output_dir
 
             # 3. 录入全局 Avatar 资产表
             avatar_rec_id = f"avatar_{task_id}"
@@ -378,6 +447,137 @@ class AvatarTaskManager:
             await db.commit()
 
         logger.info(f"任务 {task_id} 切片与特征提取流水线已全部成功完成！")
+
+    async def process_action_slice(
+        self,
+        anchor_id: str,
+        action_code: int,
+        action_name: str,
+        video_path: str,
+        trigger_keywords: str = "",
+        trigger_events: str = "",
+        duration_sec: float = 3.5,
+        priority: int = 1,
+    ) -> Dict[str, Any]:
+        """
+        处理并挂接特定主播的动作切片（如购物车、欢迎、致谢等）
+        自动提取 full_imgs, face_imgs, coords.pkl 并持久化至 avatar_actions
+        """
+        import uuid
+        if not Path(video_path).exists():
+            raise FileNotFoundError(f"动作视频文件不存在: {video_path}")
+
+        async with AsyncSessionLocal() as db:
+            anchor = await db.get(Anchor, anchor_id)
+            if not anchor:
+                raise ValueError(f"目标主播不存在: {anchor_id}")
+            if anchor.avatar_asset_dir and Path(anchor.avatar_asset_dir).exists():
+                action_dir = Path(anchor.avatar_asset_dir) / "actions" / f"action_{action_code}"
+            else:
+                action_dir = DATA_DIR / "avatar_actions" / f"{anchor_id}_action_{action_code}"
+
+        action_dir.mkdir(parents=True, exist_ok=True)
+        full_imgs_dir = action_dir / "full_imgs"
+        full_imgs_dir.mkdir(parents=True, exist_ok=True)
+        face_imgs_dir = action_dir / "face_imgs"
+        face_imgs_dir.mkdir(parents=True, exist_ok=True)
+
+        task_id = f"act_{uuid.uuid4().hex[:8]}"
+        cancelled_set: set[str] = set()
+
+        # 1. 抽帧
+        extracted = await asyncio.to_thread(
+            self._extract_frames_worker,
+            video_path,
+            full_imgs_dir,
+            task_id,
+            cancelled_set,
+        )
+        if not extracted:
+            raise RuntimeError("未能从动作视频中提取出有效图像帧")
+
+        # 2. 面部与坐标对齐
+        coords, _ = await asyncio.to_thread(
+            self._detect_faces_and_coords_worker,
+            extracted,
+            task_id,
+            cancelled_set,
+        )
+        coords_path = action_dir / "coords.pkl"
+        with open(coords_path, "wb") as f:
+            pickle.dump(coords, f)
+
+        # 3. 裁剪 face_imgs
+        cropped = await asyncio.to_thread(
+            self._crop_face_imgs_worker,
+            extracted,
+            coords,
+            face_imgs_dir,
+            256,
+            task_id,
+            cancelled_set,
+        )
+
+        # 4. 写入元数据与封面
+        preview_path = action_dir / "preview.jpg"
+        if extracted:
+            rep_idx = min(len(extracted) // 3, len(extracted) - 1)
+            shutil.copy2(extracted[rep_idx], preview_path)
+
+        meta = {
+            "action_code": action_code,
+            "action_name": action_name,
+            "anchor_id": anchor_id,
+            "frames_count": len(extracted),
+            "face_imgs_count": cropped,
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        (action_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # 5. 更新 SQLite 数据库与动作表
+        action_id = f"action_{anchor_id}_{action_code}"
+        async with AsyncSessionLocal() as db:
+            act_rec = await db.get(AvatarAction, action_id)
+            if not act_rec:
+                act_rec = AvatarAction(
+                    id=action_id,
+                    anchor_id=anchor_id,
+                    action_code=action_code,
+                    action_name=action_name,
+                    video_path=video_path,
+                    frames_dir=action_dir.as_posix(),
+                    trigger_type="both",
+                    trigger_keywords=trigger_keywords,
+                    trigger_events=trigger_events,
+                    duration_sec=duration_sec,
+                    priority=priority,
+                    mirror_loop=1,
+                    is_active=1,
+                )
+                db.add(act_rec)
+            else:
+                act_rec.action_name = action_name
+                act_rec.video_path = video_path
+                act_rec.frames_dir = action_dir.as_posix()
+                act_rec.trigger_keywords = trigger_keywords
+                act_rec.trigger_events = trigger_events
+                act_rec.duration_sec = duration_sec
+                act_rec.priority = priority
+                act_rec.is_active = 1
+            await db.commit()
+
+        # 6. 通知状态机热重载
+        from server.core.avatar import get_action_state_machine
+        await get_action_state_machine().load_configs_from_db(anchor_id)
+
+        return {
+            "action_id": action_id,
+            "action_code": action_code,
+            "action_name": action_name,
+            "frames_count": len(extracted),
+            "frames_dir": action_dir.as_posix(),
+            "preview_path": preview_path.as_posix(),
+        }
 
     # =========================================================================
     # 同步 Worker 处理逻辑 (由 asyncio.to_thread 调度至子线程)
@@ -548,7 +748,50 @@ class AvatarTaskManager:
         return result
 
     @staticmethod
+    def _crop_face_imgs_worker(
+        frame_paths: List[Path],
+        coords: List[Tuple[int, int, int, int]],
+        face_imgs_dir: Path,
+        img_size: int = 256,
+        task_id: str = "",
+        cancelled_tasks: Optional[set[str]] = None,
+    ) -> int:
+        """
+        按照平滑后的 (ymin, ymax, xmin, xmax) 坐标，从原始帧切片裁剪人脸区域并缩放保存至 face_imgs/。
+        与 LiveTalking / Wav2Lip 深度模型输入资产规范严格对齐。
+        """
+        count = 0
+        for idx, (img_path, coord) in enumerate(zip(frame_paths, coords)):
+            if cancelled_tasks and task_id in cancelled_tasks:
+                raise asyncio.CancelledError()
+
+            frame = cv2.imread(str(img_path))
+            if frame is None:
+                continue
+
+            ymin, ymax, xmin, xmax = coord
+            h, w = frame.shape[:2]
+            # 边界越界保护
+            ymin = max(0, min(h - 1, int(ymin)))
+            ymax = max(ymin + 1, min(h, int(ymax)))
+            xmin = max(0, min(w - 1, int(xmin)))
+            xmax = max(xmin + 1, min(w, int(xmax)))
+
+            face_crop = frame[ymin:ymax, xmin:xmax]
+            if face_crop.size == 0:
+                face_crop = cv2.resize(frame, (img_size, img_size))
+            else:
+                face_crop = cv2.resize(face_crop, (img_size, img_size), interpolation=cv2.INTER_AREA)
+
+            # 保存标准高清人脸图
+            out_face_path = face_imgs_dir / f"{idx}.jpg"
+            cv2.imwrite(str(out_face_path), face_crop, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+            count += 1
+        return count
+
+    @staticmethod
     def _extract_audio_worker(video_path: str, audio_wav_path: Path):
+
         """
         利用 ffmpeg 提取 16000Hz 单声道 16bit PCM WAV。
         若 ffmpeg 不可用或视频无音频，生成 1 秒静音 WAV 保证 LiveTalking 不会报错。

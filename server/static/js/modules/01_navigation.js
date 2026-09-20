@@ -11,7 +11,7 @@ function initNavigation() {
             const target = document.getElementById(`tab-${tab}`);
             if (target) target.classList.add("active");
 
-            // 切入云端模型页时重新读取最新直播模式 (避免向导完成后模式显示滞后)
+            if (tab === "live") { if (typeof refreshLiveGpuTelemetry === 'function') refreshLiveGpuTelemetry(); }
             if (tab === "settings") { loadSettings(); loadVisionConfig(); }
             if (tab === "gpu") { loadGpuAvatarProviders(); }
             if (tab === "wizard") { loadWizardAvatarProviders(); }
@@ -20,18 +20,19 @@ function initNavigation() {
             if (tab === "voices") {
                 loadAudioDevices();
                 loadVoiceTable();
+
+                // 动态决议当前应当选中的 TTS 引擎（严格以用户配置为准，无配置时才默认本地引擎）
+                const resolvedTTS = (typeof resolveActiveOrPreferredTTSProvider === "function")
+                    ? resolveActiveOrPreferredTTSProvider(typeof cachedAllConfigs !== "undefined" ? cachedAllConfigs : null)
+                    : { providerId: "moss_tts_nano", config: null };
+
+                if (typeof renderTTSEcosystemGrid === 'function') {
+                    renderTTSEcosystemGrid(resolvedTTS.providerId);
+                }
                 if (typeof loadSettings === 'function') {
                     loadSettings();
-                } else {
-                    if (typeof renderTTSEcosystemGrid === 'function') {
-                        renderTTSEcosystemGrid(typeof currentSelectedTTSProvider !== 'undefined' ? currentSelectedTTSProvider : 'edge_tts');
-                    }
-                    if (typeof renderConfiguredTTS === 'function' && typeof cachedAllConfigs !== 'undefined') {
-                        renderConfiguredTTS(cachedAllConfigs);
-                    }
-                }
-                if (typeof ensureTTSKeyAndUrlFilled === 'function') {
-                    ensureTTSKeyAndUrlFilled(typeof currentSelectedTTSProvider !== 'undefined' ? currentSelectedTTSProvider : 'cosyvoice');
+                } else if (typeof renderConfiguredTTS === 'function' && typeof cachedAllConfigs !== 'undefined') {
+                    renderConfiguredTTS(cachedAllConfigs);
                 }
             }
         });

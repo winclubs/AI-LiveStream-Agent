@@ -502,7 +502,12 @@ class ProceduralAvatarDriver(BaseMediaDriver):
 
     def _publish_frame(self, frame_rgb: "np.ndarray") -> None:
         """Compose once, then fan the same publish frame out to camera, RTMP, WebRTC and recorder."""
-        publish_frame = compose_scene_overlays(frame_rgb, global_scene_overlay_state.snapshot())
+        publish_frame = compose_scene_overlays(
+            frame_rgb,
+            global_scene_overlay_state.snapshot(),
+            enable_anti_recording=True,
+            timestamp=time.time(),
+        )
         bgr_frame = cv2.cvtColor(publish_frame, cv2.COLOR_RGB2BGR) if (CV_AVAILABLE and publish_frame is not None) else None
 
         # 1. 投递至虚拟摄像头

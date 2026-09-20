@@ -1,7 +1,10 @@
+let selectedWizardAnchorId = "";
+
 async function initWizard() {
     await renderModeCards();
     await renderWizardRoleCards();
     await restoreWizardState();
+    await renderWizardAnchorSelect(wizardRoleType);
 }
 
 async function restoreWizardState() {
@@ -18,6 +21,9 @@ async function restoreWizardState() {
         const json = await res.json();
         if (json.code === 0 && json.data) {
             currentMode = json.data.mode;
+            if (json.data.selected_anchor_id) {
+                selectedWizardAnchorId = json.data.selected_anchor_id;
+            }
             if (json.data.mode_info) renderCurrentModeBadge(json.data.mode_info);
             if (json.data.mode) {
                 // 已保存过模式：恢复用户上次的选择
@@ -214,6 +220,92 @@ function selectWizardRole(roleType) {
     }
 
     refreshWizardSuggestions();
+    renderWizardAnchorSelect(roleType);
+}
+
+async function renderWizardAnchorSelect(roleType) {
+    const container = document.getElementById("wizard-anchor-select-container");
+    if (!container) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/anchors/list`);
+        const json = await res.json();
+        const allAnchors = (json.code === 0 && Array.isArray(json.data)) ? json.data : [];
+        if (!selectedWizardAnchorId) {
+            selectedWizardAnchorId = json.selected_anchor_id || window._currentLiveAnchorId || "";
+        }
+
+        const matchedAnchors = allAnchors.filter(a => {
+            const t = (a.anchor_type || "").toLowerCase();
+            if (roleType === "chitchat") return t === "chitchat" || t === "chat";
+            return t === roleType.toLowerCase();
+        });
+
+        const typeLabels = {
+            ecommerce: "带货主播",
+            entertainment: "娱乐主播",
+            expert: "专业专家",
+            chitchat: "闲聊扯淡"
+        };
+        const currentTypeName = typeLabels[roleType] || "当前类型";
+
+        if (matchedAnchors.length === 0) {
+            container.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(30, 41, 59, 0.4); border: 1px dashed rgba(148, 163, 184, 0.25); border-radius: 8px; padding: 12px 16px;">
+                    <div style="font-size: 12.5px; color: var(--text-secondary);">
+                        💡 当前「<strong style="color:var(--text-primary);">${currentTypeName}</strong>」下暂未录入专属主播档案，开播将直接采用系统默认人设与音色。
+                    </div>
+                    <button type="button" class="btn btn-sm" onclick="switchToTab('anchors')" style="font-size: 12px; color: var(--accent-emerald); border-color: rgba(16,185,129,0.3); padding: 4px 12px;">
+                        前往「主播管理」添加 ↗
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        if (!selectedWizardAnchorId || !matchedAnchors.some(a => a.id === selectedWizardAnchorId)) {
+            selectedWizardAnchorId = matchedAnchors[0].id;
+        }
+
+        container.innerHTML = `
+            <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <label style="font-size: 13px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                    <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><circle cx="12" cy="7" r="4"/><path d="M6 21v-2a6 6 0 0 1 12 0v2"/></svg>
+                    选择「${currentTypeName}」类型的出镜主播：
+                </label>
+                <span style="font-size: 12px; color: var(--text-muted);">共 ${matchedAnchors.length} 位对应类型主播，点击指定出镜档案</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px;">
+                ${matchedAnchors.map(a => {
+                    const isSelected = a.id === selectedWizardAnchorId;
+                    const avatarSrc = a.photo_portrait || a.photo_full_body || (ROLE_CARD_META[roleType] ? ROLE_CARD_META[roleType].avatarSvg : "/static/svg/default_avatar.svg");
+                    return `
+                        <div class="wizard-anchor-card ${isSelected ? 'selected' : ''}" onclick="selectWizardAnchor('${a.id}')" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s; background: ${isSelected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(30, 41, 59, 0.5)'}; border: 1.5px solid ${isSelected ? '#10B981' : 'rgba(148, 163, 184, 0.2)'}; box-shadow: ${isSelected ? '0 2px 10px rgba(16, 185, 129, 0.2)' : 'none'};">
+                            <img src="${avatarSrc}" style="width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1.5px solid ${isSelected ? '#10B981' : 'rgba(148, 163, 184, 0.3)'};">
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="font-size: 13px; font-weight: 700; color: ${isSelected ? '#10B981' : 'var(--text-primary)'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    ${escapeHtml(a.name)}
+                                </div>
+                                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    音色: ${escapeHtml(a.voice_name || '默认音色')}
+                                </div>
+                            </div>
+                            <div style="font-size: 12px; color: ${isSelected ? '#10B981' : 'transparent'}; font-weight: 700;">
+                                ✓
+                            </div>
+                        </div>
+                    `;
+                }).join("")}
+            </div>
+        `;
+    } catch (e) {
+        console.error("加载向导主播列表失败", e);
+    }
+}
+
+function selectWizardAnchor(anchorId) {
+    selectedWizardAnchorId = anchorId;
+    renderWizardAnchorSelect(wizardRoleType);
 }
 
 async function refreshWizardSuggestions() {
@@ -296,6 +388,18 @@ async function completeWizard() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ role_id: role.id })
             });
+        }
+
+        // 4. 持久化保存向导中选定的出镜主播档案
+        if (selectedWizardAnchorId) {
+            try {
+                await fetch(`${API_BASE}/settings/selected-anchor`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ anchor_id: selectedWizardAnchorId })
+                });
+                window._currentLiveAnchorId = selectedWizardAnchorId;
+            } catch (_) {}
         }
 
         if (status) status.innerText = "配置已保存：直播模式与主播角色约束已生效！";

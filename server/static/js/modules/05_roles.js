@@ -17,21 +17,44 @@ function renderRoleCards() {
     if (!selectedRoleId) selectedRoleId = activeRoleId || roleCardsCache[0]?.id;
     box.innerHTML = "";
     roleCardsCache.forEach(r => {
-        const meta = ROLE_CARD_META[r.role_type] || { icon: "user", avatarSvg: "/static/svg/default_avatar.svg", tag: r.role_type, tagColor: "var(--text-muted)" };
-                const avatarEl = meta.avatarSvg
-            ? `<img src="${meta.avatarSvg}" style="width: 38px; height: 38px; border-radius: 50%; border: 2px solid ${meta.tagColor}; object-fit: cover; box-shadow: 0 2px 8px ${meta.tagColor}33;">`
+        const meta = ROLE_CARD_META[r.role_type] || {
+            icon: "user",
+            avatarSvg: "/static/svg/default_avatar.svg",
+            title: r.role_type,
+            tag: r.role_type,
+            tagColor: "var(--text-muted)"
+        };
+        const avatarEl = meta.avatarSvg
+            ? `<img src="${meta.avatarSvg}" style="width: 44px; height: 44px; border-radius: 50%; border: 2px solid ${meta.tagColor}; object-fit: cover; box-shadow: 0 2px 8px ${meta.tagColor}33; display: block;">`
             : svg(meta.icon, "icon-lg");
+        const isSelected = r.id === selectedRoleId;
         const card = document.createElement("div");
-        card.className = "mode-card" + (r.id === selectedRoleId ? " selected" : "");
-        card.style.cursor = "pointer";
+        card.className = "role-type-card" + (isSelected ? " selected" : "");
+        card.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 16px;
+            border-radius: var(--radius-md);
+            background: ${isSelected ? "rgba(16, 185, 129, 0.1)" : "rgba(30, 41, 59, 0.45)"};
+            border: 1.5px solid ${isSelected ? "#10B981" : "rgba(148, 163, 184, 0.16)"};
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: ${isSelected ? "0 4px 16px rgba(16, 185, 129, 0.18)" : "none"};
+        `;
         card.onclick = () => selectRoleCard(r.id);
         card.innerHTML = `
-            <div style="display:flex; justify-content: space-between; align-items: center;">
+            <div style="flex-shrink: 0;">
                 ${avatarEl}
-                ${r.is_active ? '<span class="badge-recommend" style="font-size:10px;">● 当前角色</span>' : ""}
             </div>
-            <div class="mode-card-name">${escapeHtml(r.name)}</div>
-            <div class="mode-card-desc" style="color: ${meta.tagColor}; font-weight: 600;">${escapeHtml(meta.tag)}</div>
+            <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 14px; font-weight: 700; color: ${isSelected ? '#10B981' : 'var(--text-primary)'}; margin-bottom: 3px;">
+                    ${escapeHtml(meta.title || r.name)}
+                </div>
+                <div style="font-size: 11.5px; color: ${meta.tagColor}; font-weight: 600; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    ${escapeHtml(meta.tag)}
+                </div>
+            </div>
         `;
         box.appendChild(card);
     });

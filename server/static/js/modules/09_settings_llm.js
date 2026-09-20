@@ -1,3 +1,13 @@
+function getBuiltinLLMEcosystem() {
+    if (typeof BUILTIN_LLM_ECOSYSTEM !== "undefined" && Array.isArray(BUILTIN_LLM_ECOSYSTEM)) {
+        return BUILTIN_LLM_ECOSYSTEM;
+    }
+    if (window.BUILTIN_LLM_ECOSYSTEM && Array.isArray(window.BUILTIN_LLM_ECOSYSTEM)) {
+        return window.BUILTIN_LLM_ECOSYSTEM;
+    }
+    return [];
+}
+
 function renderLLMEcosystemGrid(selectedId = "deepseek") {
     const grid = document.getElementById("llm-ecosystem-grid");
     if (!grid) return;
@@ -8,7 +18,8 @@ function renderLLMEcosystemGrid(selectedId = "deepseek") {
     grid.style.marginBottom = "22px";
     grid.style.width = "100%";
 
-    BUILTIN_LLM_ECOSYSTEM.forEach(item => {
+    const list = getBuiltinLLMEcosystem();
+    list.forEach(item => {
         const card = document.createElement("div");
         card.className = "llm-provider-card" + (item.id === selectedId ? " selected" : "");
         card.setAttribute("data-provider", item.id);
@@ -26,10 +37,11 @@ function renderLLMEcosystemGrid(selectedId = "deepseek") {
 // 智能解析/推断大模型生态元数据（精准容错历史遗留的 openai_compatible / deepseek_api / custom 等命称，通过 URL 及模型特征定位官方品牌）
 function resolveLLMProviderMeta(providerId, config = null) {
     const rawId = (providerId || "").toLowerCase().trim();
+    const list = getBuiltinLLMEcosystem();
 
     // 1. 若显式传入有效的具体品牌 ID（且不是 custom / openai_compatible 等通用词），直接命中
     if (rawId && rawId !== "custom" && rawId !== "openai_compatible" && rawId !== "local_ollama") {
-        const hit = BUILTIN_LLM_ECOSYSTEM.find(p => p.id === rawId);
+        const hit = list.find(p => p.id === rawId);
         if (hit) return hit;
     }
 
@@ -40,34 +52,34 @@ function resolveLLMProviderMeta(providerId, config = null) {
     const combined = `${pName} ${bUrl} ${mName}`;
 
     if (combined.includes("deepseek")) {
-        return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "deepseek");
+        return list.find(p => p.id === "deepseek");
     }
     if (combined.includes("qwen") || combined.includes("dashscope") || combined.includes("aliyun")) {
-        return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "qwen");
+        return list.find(p => p.id === "qwen");
     }
     if (combined.includes("minimax")) {
-        return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "minimax");
+        return list.find(p => p.id === "minimax");
     }
     if (combined.includes("kimi") || combined.includes("moonshot")) {
-        return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "kimi");
+        return list.find(p => p.id === "kimi");
     }
     if (combined.includes("gemini") || combined.includes("generativelanguage") || combined.includes("googleapis")) {
-        return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "gemini");
+        return list.find(p => p.id === "gemini");
     }
     if (combined.includes("glm") || combined.includes("zhipu") || combined.includes("bigmodel")) {
-        return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "glm");
+        return list.find(p => p.id === "glm");
     }
     if (combined.includes("chatgpt") || combined.includes("openai.com") || (combined.includes("gpt-") && !combined.includes("deepseek"))) {
-        return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "chatgpt");
+        return list.find(p => p.id === "chatgpt");
     }
 
     // 3. 若均无法匹配具体特征，但显式指定了 custom，返回 custom
     if (rawId === "custom") {
-        return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "custom") || BUILTIN_LLM_ECOSYSTEM[0];
+        return list.find(p => p.id === "custom") || list[0];
     }
 
-    // 兜底策略：若未识别且非空配置，优先返回首位 DeepSeek 或 custom
-    return BUILTIN_LLM_ECOSYSTEM.find(p => p.id === "deepseek") || BUILTIN_LLM_ECOSYSTEM[0];
+    // 4. 兜底策略：若未识别且非空配置，优先返回首位 DeepSeek 或 custom
+    return list.find(p => p.id === "deepseek") || list[0];
 }
 
 // 对于已经配置过的模型，自动解密填入真实 API Key 并自动拉取该服务商所有可用模型
@@ -231,13 +243,6 @@ function selectLLMProvider(providerId, existingConfig = null) {
     // 隐藏上一次的测速结果
     const testResultBox = document.getElementById("llm-test-result");
     if (testResultBox) testResultBox.style.display = "none";
-}
-
-// 模型下拉选择联动
-function handleSelectModelChange(val) {
-    if (!val) return;
-    const modelInput = document.getElementById("llm-input-model");
-    if (modelInput) modelInput.value = val;
 }
 
 // 内存缓存已解密的密钥，避免重复网络请求

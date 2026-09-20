@@ -207,7 +207,52 @@ def _draw_scene(frame, scene: Dict[str, Any]) -> None:
     _draw_lines(frame, lines, x0 + 8, y0 + 4, card_w - 16, max(14, card_h // 8))
 
 
-def compose_scene_overlays(frame_rgb, snapshot: Dict[str, Any]):
+def apply_anti_recording_watermark(
+    frame_rgb,
+    timestamp: Optional[float] = None,
+    noise_sigma: float = 1.0,
+    luminance_amplitude: float = 0.015,
+):
+    """
+    视觉反录播动态指纹干扰算法 (Anti-Recording Visual Watermark):
+    1. 肉眼不可见的高斯微扰 (Sub-perceptual Gaussian Noise):
+       在底层像素上注入均值为 0，标准差为 0.8~1.5 的微扰动，彻底破坏视频固定 MD5 / SHA-256 哈希去重。
+    2. 时间域环境光呼吸律动 (Time-domain Photometric Modulation):
+       利用超低频正弦波 (0.05Hz, 约 20 秒/周期) 模拟演播厅自然环境光的微小照度起伏 (±1.5%)，
+       破坏短视频平台的图像感知哈希 (pHash / dHash / aHash) 循环对比算法。
+    3. 严格保障画面无任何肉眼可见撕裂或失真，确保各平台将直播画面识别为真人动态实时拍摄。
+    """
+    if np is None or frame_rgb is None:
+        return frame_rgb
+    try:
+        frame = np.asarray(frame_rgb)
+        if frame.ndim != 3 or frame.shape[2] != 3 or frame.size == 0:
+            return frame_rgb
+
+        h, w = frame.shape[:2]
+        now = float(time.time() if timestamp is None else timestamp)
+
+        # 1. 超低频自然环境光微律动 (0.05 Hz, 约 20s 一个极其缓慢平滑的自然采光波动)
+        light_factor = 1.0 + math.sin(now * 2.0 * math.pi * 0.05) * float(luminance_amplitude)
+
+        # 2. 亚感知随机高斯微噪点 (浮点运算并截断到 [-3, 3])
+        # 使用轻量生成避免影响高帧率推流性能
+        noise = np.random.normal(0.0, float(noise_sigma), size=(h, w, 1)).astype(np.float32)
+
+        # 3. 融合并量化回 uint8
+        float_frame = frame.astype(np.float32) * light_factor + noise
+        out_frame = np.clip(float_frame, 0, 255).astype(np.uint8)
+        return out_frame
+    except Exception:
+        return frame_rgb
+
+
+def compose_scene_overlays(
+    frame_rgb,
+    snapshot: Optional[Dict[str, Any]] = None,
+    enable_anti_recording: bool = True,
+    timestamp: Optional[float] = None,
+):
     """Return a composed frame without mutating the caller's RGB frame."""
     if np is None or cv2 is None or frame_rgb is None:
         return frame_rgb
@@ -215,6 +260,12 @@ def compose_scene_overlays(frame_rgb, snapshot: Dict[str, Any]):
         output = np.asarray(frame_rgb).copy()
         if output.ndim != 3 or output.shape[2] != 3 or output.size == 0:
             return output
+
+        # 1. 反录播视觉防查动态指纹注入 (底层注入)
+        if enable_anti_recording:
+            output = apply_anti_recording_watermark(output, timestamp=timestamp)
+
+        # 2. 优惠券与商品浮层渲染 (上层叠加)
         coupon = (snapshot or {}).get("coupon")
         scene = (snapshot or {}).get("scene")
         if coupon:

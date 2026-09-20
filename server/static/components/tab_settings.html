@@ -33,8 +33,22 @@
           <!-- 区域 1: 内置主流大模型品牌网格 (Logo + 名称) -->
           <div style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
             <span>选择大模型品牌 (点击下方品牌即可配置)</span>
-            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">已内置 6 大主流模型生态</span>
+            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">已内置 8 大主流模型生态</span>
           </div>
+
+          <!-- 大模型算力与本地部署硬件要求提示条 (针对两类人群提供选型指引) -->
+          <div id="llm-gpu-requirement-banner" style="background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span class="brand-badge gold" style="font-size: 11px;">算力选型指南</span>
+              <span style="font-size: 12px; color: #cbd5e1;">
+                商业云端大模型（<strong>DeepSeek / 通义千问 / Kimi / MiniMax</strong>）走极速云端 API 调用，<strong>对本地显卡零负担（0 显存占用，推荐低配/轻薄本用户使用）</strong>；若自建本地私有化大模型 (Ollama)，需确保本机独立显存 &gt;= 8GB。
+              </span>
+            </div>
+            <div style="font-size: 11.5px; color: #34d399; background: rgba(16, 185, 129, 0.1); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.25);">
+              💡 推荐两类人群首选云端 DeepSeek
+            </div>
+          </div>
+
           <div id="llm-ecosystem-grid" class="llm-ecosystem-grid"></div>
 
           <!-- 区域 2: 当前大模型配置编辑面板 (含获取模型 & 连通性测试) -->
@@ -136,8 +150,6 @@
           </div>
         </div>
 
-        <!-- 兼容其它分类的隐藏配置容器 -->
-        <div id="settings-configs-container" style="display: none;"></div>
 
         <!-- 视觉感知通道配置 -->
         <div class="panel-card">
@@ -171,9 +183,11 @@
               <input type="number" id="vision-interval" class="form-control" value="2.5" min="0.5" max="30" step="0.5" title="采样间隔（秒）" aria-label="采样间隔（秒）">
             </div>
           </div>
-          <button class="btn btn-primary" onclick="saveVisionConfig()">
-            <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            保存视觉配置
-          </button>
+          <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
+            <button class="btn btn-sm btn-primary" onclick="saveVisionConfig()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
+              <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              保存视觉配置
+            </button>
+          </div>
         </div>
       </div>

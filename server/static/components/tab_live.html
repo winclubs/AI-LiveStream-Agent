@@ -115,6 +115,24 @@
             </div>
           </div>
 
+          <!-- 核心算力调度与硬件达标遥测条 (针对本地独显 vs 远端租赁GPU 两类人群透明呈现) -->
+          <div id="live-gpu-telemetry-bar" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span style="font-size: 12px; font-weight: 700; color: #10B981; display: inline-flex; align-items: center; gap: 6px;">
+                <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #10B981; fill: none; stroke-width: 2.2;"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="2" x2="9" y2="4" /><line x1="15" y1="2" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="22" /><line x1="15" y1="20" x2="15" y2="22" /><line x1="20" y1="9" x2="22" y2="9" /><line x1="20" y1="14" x2="22" y2="14" /><line x1="2" y1="9" x2="4" y2="9" /><line x1="2" y1="14" x2="4" y2="14" /></svg>
+                算力状态:
+              </span>
+              <span id="live-gpu-source-badge" class="brand-badge green">探查中...</span>
+              <span id="live-gpu-detail-text" style="font-size: 12px; color: #cbd5e1;">正在检测本机显卡显存与远端 GPU 连接...</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="live-gpu-requirement-tip" style="font-size: 11.5px; color: #94a3b8;">1080P 写实真人需 GPU 显存 &gt;= 4GB 或远端云显卡</span>
+              <button type="button" class="btn btn-xs btn-ghost" onclick="switchToTab('gpu')" style="color: #38bdf8; font-size: 11.5px; padding: 2px 8px; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 4px;" title="前往 GPU 配置中心切换或配置云端 GPU">
+                配置算力 / 云端 GPU ↗
+              </button>
+            </div>
+          </div>
+
           <div class="monitor-screen" style="position: relative; overflow: hidden; background: #000; min-height: 420px; display: flex; align-items: center; justify-content: center;">
             <!-- 原生 WebRTC 视频流播放器 (毫秒级超低延迟) -->
             <video id="digital-human-webrtc-video" autoplay playsinline muted style="display:none; width: 100%; height: 100%; max-height: 480px; object-fit: contain;"></video>

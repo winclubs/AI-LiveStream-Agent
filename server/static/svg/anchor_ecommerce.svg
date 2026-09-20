@@ -63,5 +63,5 @@
 
   <!-- 底部标签 -->
   <rect x="25" y="96" width="70" height="18" rx="9" fill="#18181B" stroke="#F97316" stroke-width="1.2"/>
-  <text x="60" y="108" fill="#F97316" font-family="-apple-system, sans-serif" font-size="9" font-weight="700" text-anchor="middle">金牌带货·艾米</text>
+  <text x="60" y="108" fill="#F97316" font-family="-apple-system, sans-serif" font-size="9" font-weight="700" text-anchor="middle">带货主播</text>
 </svg>

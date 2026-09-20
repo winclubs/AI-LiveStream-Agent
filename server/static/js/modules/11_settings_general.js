@@ -19,33 +19,44 @@ async function loadSettings() {
         if (json.code === 0) {
             cachedAllConfigs = json.data || [];
 
-            // 1. 渲染大模型网格与多模型卡片列表
-            renderLLMEcosystemGrid(currentSelectedLLMProvider);
-            renderConfiguredLLMs(cachedAllConfigs);
+            // 1. 渲染大模型网格与多模型卡片列表 (高韧性防护)
+            const selLLM = (typeof currentSelectedLLMProvider !== "undefined" && currentSelectedLLMProvider)
+                ? currentSelectedLLMProvider
+                : (window.currentSelectedLLMProvider || "deepseek");
+            if (typeof renderLLMEcosystemGrid === "function") {
+                renderLLMEcosystemGrid(selLLM);
+            }
+            if (typeof renderConfiguredLLMs === "function") {
+                renderConfiguredLLMs(cachedAllConfigs);
+            }
 
             // 若大模型编辑区尚未与激活项绑定过，优先把激活的大模型同步到编辑面板
             const activeLLM = cachedAllConfigs.find(c => c.config_group === "llm" && c.is_active);
-            if (activeLLM && !document.getElementById("llm-editor-config-id").value) {
-                const pMeta = resolveLLMProviderMeta(activeLLM.provider_name, activeLLM);
-                selectLLMProvider(pMeta.id, activeLLM);
-            } else if (!document.getElementById("llm-editor-config-id").value) {
-                selectLLMProvider(currentSelectedLLMProvider);
+            const llmEditorConfigEl = document.getElementById("llm-editor-config-id");
+            if (typeof selectLLMProvider === "function") {
+                if (activeLLM && llmEditorConfigEl && !llmEditorConfigEl.value) {
+                    const pMeta = typeof resolveLLMProviderMeta === "function" ? resolveLLMProviderMeta(activeLLM.provider_name, activeLLM) : { id: activeLLM.provider_name };
+                    selectLLMProvider(pMeta.id, activeLLM);
+                } else if (llmEditorConfigEl && !llmEditorConfigEl.value) {
+                    selectLLMProvider(selLLM);
+                }
             }
 
-            // 2. 渲染语音合成生态网格与已配置发音清单
-            const activeTTS = cachedAllConfigs.find(c => c.config_group === "tts" && c.is_active);
-            if (activeTTS) {
-                const tMeta = resolveTTSProviderMeta(activeTTS.provider_name, activeTTS);
-                currentSelectedTTSProvider = tMeta.id;
-                renderTTSEcosystemGrid(tMeta.id);
-                renderConfiguredTTS(cachedAllConfigs);
-                await selectTTSProvider(tMeta.id, activeTTS);
-            } else {
-                renderTTSEcosystemGrid(currentSelectedTTSProvider);
-                renderConfiguredTTS(cachedAllConfigs);
-                if (!document.getElementById("tts-editor-config-id").value) {
-                    await selectTTSProvider(currentSelectedTTSProvider);
-                }
+            // 2. 渲染语音合成生态网格与已配置发音清单 (严格以用户端配置为准进行选中；无配置时默认本地引擎)
+            const resolvedTTS = (typeof resolveActiveOrPreferredTTSProvider === "function")
+                ? resolveActiveOrPreferredTTSProvider(cachedAllConfigs)
+                : { providerId: "moss_tts_nano", config: null };
+
+            const targetTTSId = resolvedTTS.providerId;
+            const targetTTSConfig = resolvedTTS.config;
+
+            window.currentSelectedTTSProvider = targetTTSId;
+            if (typeof currentSelectedTTSProvider !== "undefined") currentSelectedTTSProvider = targetTTSId;
+
+            if (typeof renderTTSEcosystemGrid === "function") renderTTSEcosystemGrid(targetTTSId);
+            if (typeof renderConfiguredTTS === "function") renderConfiguredTTS(cachedAllConfigs);
+            if (typeof selectTTSProvider === "function") {
+                await selectTTSProvider(targetTTSId, targetTTSConfig);
             }
 
             // 联动刷新主播管理页的绑定音色下拉列表与当前生效引擎提示
@@ -54,90 +65,6 @@ async function loadSettings() {
                 populateAnchorVoiceSelect(vList);
             }
 
-            // 3. 渲染其他高级/扩展服务商卡片（如远程 GPU 渲染节点等）
-            const container = document.getElementById("settings-configs-container");
-            if (!container) return;
-            container.innerHTML = "";
-
-            const otherConfigs = cachedAllConfigs.filter(c => c.config_group !== "llm" && c.config_group !== "tts");
-            if (otherConfigs.length === 0) {
-                container.style.display = "none";
-                return;
-            }
-            container.style.display = "block";
-            if (otherConfigs.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 28px; color: var(--text-muted); background: rgba(0,0,0,0.18); border-radius: var(--radius-md); border: 1px dashed rgba(148, 163, 184, 0.2);">
-                        暂未配置额外的语音合成或远程 GPU 算力服务商，系统将默认采用原生轻量服务。点击右上角「添加自定义服务商」可接入第三方服务。
-                    </div>
-                `;
-                return;
-            }
-
-            otherConfigs.forEach(cfg => {
-                const meta = PROVIDER_META[cfg.provider_name] || {
-                    title: `${cfg.provider_name} 自定义服务`,
-                    typeBadge: cfg.config_group.toUpperCase(),
-                    requiredTag: '<span class="badge-optional">自定义</span>',
-                    recommendTag: '',
-                    desc: "用户自定义接入的第三方 API 服务商。",
-                    urlLabel: "接口 Base URL 地址:",
-                    urlTip: "服务商 API 的请求根地址。",
-                    urlPills: [],
-                    modelLabel: "模型 / 音色代号 (Model ID / Voice ID):",
-                    modelTip: "调用的具体模型或音色代号。",
-                    modelPills: [],
-                    keyLabel: "API 密钥 (API Key):",
-                    keyTip: "访问该服务所需的认证密钥。"
-                };
-
-                const div = document.createElement("div");
-                div.className = "settings-sub-card";
-                div.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 10px;">
-                        <div>
-                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <strong style="font-size: 15px; color: var(--text-primary);">${meta.title}</strong>
-                                <span class="brand-badge">${meta.typeBadge}</span>
-                                ${meta.requiredTag}
-                                ${meta.recommendTag}
-                            </div>
-                            <p style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; line-height: 1.5;">${meta.desc}</p>
-                        </div>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; white-space: nowrap; margin-left: 12px;">
-                            <input type="checkbox" id="active-${cfg.id}" ${cfg.is_active ? 'checked' : ''}>
-                            <span style="font-weight: 600; color: ${cfg.is_active ? 'var(--accent-emerald)' : 'var(--text-muted)'};">${cfg.is_active ? '● 当前正在使用' : '○ 未启用'}</span>
-                        </label>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px;">
-                        <div>
-                            <label class="form-label">${meta.urlLabel}</label>
-                            <input type="text" id="url-${cfg.id}" class="form-control" value="${cfg.base_url || ''}" placeholder="例如 http://127.0.0.1:9233">
-                            <div class="field-tip">${meta.urlTip}</div>
-                        </div>
-                        <div>
-                            <label class="form-label">${meta.modelLabel}</label>
-                            <input type="text" id="model-${cfg.id}" class="form-control" value="${cfg.model_name || ''}" placeholder="例如 CosyVoice2-0.5B">
-                            <div class="field-tip">${meta.modelTip}</div>
-                        </div>
-                    </div>
-
-                    <div style="margin-bottom: 16px;">
-                        <label class="form-label">${meta.keyLabel}</label>
-                        <input type="password" id="key-${cfg.id}" class="form-control" placeholder="${cfg.masked_key ? '已加密存储: ' + cfg.masked_key + ' (若不修改请留空)' : '输入 API Key 密钥'}">
-                    </div>
-
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 8px;">
-                        <div style="display: flex; gap: 10px;">
-                            <button class="btn btn-sm btn-primary" onclick="saveSettingConfig('${cfg.config_group}', '${cfg.provider_name}', '${cfg.id}', this)">保存此项配置修改</button>
-                            <button class="btn btn-sm" onclick="pingSettingConfig('${cfg.config_group}', '${cfg.provider_name}', '${cfg.id}', this)">连通性测试 · 探测延迟</button>
-                        </div>
-                        <span class="ping-status" id="status-${cfg.id}" style="font-size: 12px; font-weight: 500;"></span>
-                    </div>
-                `;
-                container.appendChild(div);
-            });
         }
     } catch (e) {
         console.error("加载配置失败", e);
@@ -277,7 +204,7 @@ async function submitNewProvider() {
     const key = document.getElementById("new-api-key").value.trim();
 
     if (!name) {
-        alert("请输入服务商标识（如 custom_tts）");
+        alert("请输入服务商标识（如 my_service）");
         return;
     }
 

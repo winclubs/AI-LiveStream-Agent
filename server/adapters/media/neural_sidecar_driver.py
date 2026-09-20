@@ -1081,6 +1081,25 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
             self._clear_frame_if_owned(owner)
             return
 
+        if image_rgb is not None:
+            try:
+                from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state
+                snapshot = global_scene_overlay_state.snapshot()
+                composed_rgb = compose_scene_overlays(
+                    image_rgb,
+                    snapshot,
+                    enable_anti_recording=True,
+                    timestamp=time.time(),
+                )
+                if composed_rgb is not None:
+                    image_rgb = composed_rgb
+                    bgr = cv2.cvtColor(composed_rgb, cv2.COLOR_RGB2BGR)
+                    ret, enc = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                    if ret:
+                        jpeg = enc.tobytes()
+            except Exception:
+                pass
+
         self.latest_jpeg = jpeg
         self._latest_frame_owner = owner
         self.frames_received += 1

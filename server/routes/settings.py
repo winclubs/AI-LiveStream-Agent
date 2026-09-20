@@ -23,6 +23,7 @@ from server.adapters.media.avatar_provider_config import (
 from server.adapters.media.avatar_provider_registry import (
     list_avatar_provider_descriptors,
     normalize_avatar_provider_config,
+    canonicalize_sidecar_url,
 )
 
 logger = logging.getLogger("LiveAgent.Settings")
@@ -219,7 +220,37 @@ class SelectedAnchorRequest(BaseModel):
 async def set_selected_anchor(req: SelectedAnchorRequest, db: AsyncSession = Depends(get_db)):
     """记录当前直播间选用的主播档案 (直播大屏展示'直播是谁')"""
     await _set_setting(db, SETTING_KEY_ANCHOR_ID, req.anchor_id or "")
-    return {"code": 0, "message": "当前主播已更新"}
+    return {"code": 0, "message": "当前主播已更新", "data": {"anchor_id": req.anchor_id or ""}}
+
+
+class GpuTargetRequest(BaseModel):
+    target: str = Field(default="auto")  # auto / local / cloud
+
+
+@router.get("/gpu-target")
+async def get_gpu_target(db: AsyncSession = Depends(get_db)):
+    """获取显卡执行算力目标偏好 (auto / local / cloud) 及当前评估状态"""
+    from server.core.hardware.gpu_capability import SETTING_KEY_GPU_TARGET, evaluate_compute
+    val = await _get_setting(db, SETTING_KEY_GPU_TARGET) or "auto"
+    plan = await evaluate_compute(feature_name="算力自检", target_override=val)
+    return {
+        "code": 0,
+        "data": {
+            "target": val,
+            "plan": plan.to_dict(),
+        }
+    }
+
+
+@router.post("/gpu-target")
+async def set_gpu_target(req: GpuTargetRequest, db: AsyncSession = Depends(get_db)):
+    """保存显卡执行算力目标偏好 (auto / local / cloud)"""
+    clean_target = req.target.strip().lower()
+    if clean_target not in ("auto", "local", "cloud"):
+        raise HTTPException(status_code=400, detail="无效的算力执行偏好，可选: auto / local / cloud")
+    from server.core.hardware.gpu_capability import SETTING_KEY_GPU_TARGET
+    await _set_setting(db, SETTING_KEY_GPU_TARGET, clean_target)
+    return {"code": 0, "message": f"算力执行偏好已切换为【{clean_target}】", "data": {"target": clean_target}}
 
 
 SETTING_KEY_LIVE_THEME = "live_theme"
@@ -324,6 +355,9 @@ class ApiConfigSaveRequest(BaseModel):
             if self.config_group == "neural_renderer":
                 if not self.extra_params.get("adapter") and self.provider_name:
                     self.extra_params["adapter"] = self.provider_name
+                eff_adapter = str(self.extra_params.get("adapter") or self.provider_name or "").strip().lower()
+                if eff_adapter == "sidecar_v3" and self.base_url:
+                    self.base_url = canonicalize_sidecar_url(self.base_url)
                 normalize_avatar_provider_config(
                     self.extra_params,
                     base_url=self.base_url,
@@ -347,121 +381,6 @@ class TestConnectionRequest(BaseModel):
     base_url: Optional[str] = Field(default=None, max_length=512)
     api_key: Optional[str] = Field(default=None, max_length=16_384)
 
-# 内置 8 大主流直播适配大模型生态元数据清单
-BUILTIN_LLM_PROVIDERS = [
-    {
-        "id": "deepseek",
-        "name": "DeepSeek 深度求索",
-        "tagline": "国产性价比标杆 · 高情商带货首选",
-        "brand_color": "#0284C7",
-        "logo_svg": "/static/svg/model_deepseek.svg",
-        "default_base_url": "https://api.deepseek.com/v1",
-        "recommended_models": ["deepseek-chat", "deepseek-reasoner"],
-        "url_pills": [
-            {"text": "DeepSeek 官方 (推荐)", "val": "https://api.deepseek.com/v1"},
-            {"text": "备用直连端点", "val": "https://api.deepseek.com"}
-        ],
-        "desc": "超高性价比与推理能力，官方 deepseek-chat 适合话术生成与实时互动逼单，deepseek-reasoner 具备深度逻辑链。"
-    },
-    {
-        "id": "qwen",
-        "name": "Qwen 通义千问",
-        "tagline": "直播电商霸主 · 极速指令遵循",
-        "brand_color": "#0070F3",
-        "logo_svg": "/static/svg/model_qwen.svg",
-        "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "recommended_models": ["qwen-plus", "qwen-turbo", "qwen-max", "qwen2.5-72b-instruct"],
-        "url_pills": [
-            {"text": "阿里云 DashScope (官方兼容)", "val": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
-            {"text": "本地 Ollama Qwen2.5", "val": "http://127.0.0.1:11434/v1"}
-        ],
-        "desc": "阿里系模型适合电商直播话术生成，支持促销表达与商品解读，并可与 CosyVoice 配置组合使用。"
-    },
-    {
-        "id": "minimax",
-        "name": "MiniMax 海螺 AI",
-        "tagline": "长文本基座 · 细腻角色共情",
-        "brand_color": "#FF5226",
-        "logo_svg": "/static/svg/model_minimax.svg",
-        "default_base_url": "https://api.minimax.chat/v1",
-        "recommended_models": ["MiniMax-Text-01", "abab6.5s-chat"],
-        "url_pills": [
-            {"text": "MiniMax 官方", "val": "https://api.minimax.chat/v1"}
-        ],
-        "desc": "自研万亿级长文本大模型，擅长细腻的人设构建与逼真主播情感互动，直播间陪伴感强。"
-    },
-    {
-        "id": "kimi",
-        "name": "Kimi 月之暗面",
-        "tagline": "超长上下文 · 直播大促选品记忆",
-        "brand_color": "#1783FF",
-        "logo_svg": "/static/svg/model_kimi.svg",
-        "default_base_url": "https://api.moonshot.cn/v1",
-        "recommended_models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
-        "url_pills": [
-            {"text": "Moonshot 官方", "val": "https://api.moonshot.cn/v1"}
-        ],
-        "desc": "无损超长上下文标杆，百款商品 SKU 参数、品牌白皮书与直播大促合规规则深度召回，零幻觉不乱编。"
-    },
-    {
-        "id": "glm",
-        "name": "GLM 智谱清言",
-        "tagline": "清华系标杆 · 合规安全超快响应",
-        "brand_color": "#0D9488",
-        "logo_svg": "/static/svg/model_glm.svg",
-        "default_base_url": "https://open.bigmodel.cn/api/paas/v4/",
-        "recommended_models": ["glm-4-flash", "glm-4-plus", "glm-4"],
-        "url_pills": [
-            {"text": "智谱开放平台官方", "val": "https://open.bigmodel.cn/api/paas/v4/"}
-        ],
-        "desc": "智谱 AI 成熟基座，中文语境理解深厚，安全审查与合规能力极强，glm-4-flash 免费且超快速。"
-    },
-    {
-        "id": "gemini",
-        "name": "Gemini 谷歌大模型",
-        "tagline": "超快首包响应 · 原生多模态感知",
-        "brand_color": "#2563EB",
-        "logo_svg": "/static/svg/model_gemini.svg",
-        "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "recommended_models": ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
-        "url_pills": [
-            {"text": "Google 官方 OpenAI 兼容通道", "val": "https://generativelanguage.googleapis.com/v1beta/openai/"}
-        ],
-        "desc": "Google 旗舰多模态大模型，flash 系列具备毫秒级首包极速生成，极度契合高频弹幕实时打断与多模态眼见即所言。"
-    },
-    {
-        "id": "chatgpt",
-        "name": "ChatGPT (OpenAI)",
-        "tagline": "全球顶级标杆 · 全能综合推理",
-        "brand_color": "#10A37F",
-        "logo_svg": "/static/svg/model_chatgpt.svg",
-        "default_base_url": "https://api.openai.com/v1",
-        "recommended_models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-        "url_pills": [
-            {"text": "OpenAI 官方", "val": "https://api.openai.com/v1"}
-        ],
-        "desc": "OpenAI 旗舰多模态模型，具备出色的结构化输出、情绪识别与严谨知识问答能力。"
-    },
-    {
-        "id": "custom",
-        "name": "自定义 / 本地模型",
-        "tagline": "支持 Ollama / 硅基流动 / 本地网关",
-        "brand_color": "#F59E0B",
-        "logo_svg": "/static/svg/model_custom.svg",
-        "default_base_url": "https://api.siliconflow.cn/v1",
-        "recommended_models": ["Qwen/Qwen2.5-72B-Instruct", "deepseek-ai/DeepSeek-V3"],
-        "url_pills": [
-            {"text": "硅基流动 SiliconFlow", "val": "https://api.siliconflow.cn/v1"},
-            {"text": "本地 Ollama 离线", "val": "http://127.0.0.1:11434/v1"}
-        ],
-        "desc": "任意符合 OpenAI API 规范的代理服务、云端 API 或本地 Ollama/vLLM 网关均可自由接入。"
-    }
-]
-
-@router.get("/llm/providers")
-async def get_builtin_llm_providers():
-    """获取内置主流大模型生态元数据（品牌名、Logo、标准 Base URL、推荐模型库）"""
-    return {"code": 0, "data": BUILTIN_LLM_PROVIDERS}
 
 @router.post("/llm/models")
 async def fetch_llm_models(req: FetchModelsRequest, db: AsyncSession = Depends(get_db)):
@@ -614,34 +533,40 @@ async def fetch_tts_models(req: FetchTTSModelsRequest, db: AsyncSession = Depend
         if req.config_id:
             res = await db.execute(select(ApiProviderConfig).where(ApiProviderConfig.id == req.config_id))
             record = res.scalar_one_or_none()
-        if not record:
+        elif provider and provider != "custom":
+            # 仅匹配属于同一 provider_name 的历史配置，严禁跨引擎混入其他厂商配置
             res = await db.execute(
                 select(ApiProviderConfig).where(
                     ApiProviderConfig.config_group == "tts",
-                    ApiProviderConfig.is_active == 1
-                )
+                    ApiProviderConfig.provider_name.ilike(f"%{provider}%")
+                ).order_by(ApiProviderConfig.is_active.desc())
             )
-            record = res.scalar_one_or_none()
+            record = res.scalars().first()
+
         if record:
             if not base_url and record.base_url:
                 base_url = str(record.base_url).strip().rstrip("/")
             if record.encrypted_api_key:
                 raw_api_key = decrypt_secret(str(record.encrypted_api_key))
 
-    # 1. 微软 Edge-TTS (原生超自然语音库)
-    if "edge" in provider or provider == "edge_tts":
+    # 0. 复旦开源 MOSS-TTS-Nano (大模型原生端点 · 端侧GPU加速零样本克隆)
+    if "moss" in provider or "nano" in provider:
         return {
             "code": 0,
             "success": True,
-            "provider": "edge_tts",
-            "active_model": "Microsoft Azure Neural Cloud TTS",
-            "models": ["Microsoft Azure Neural Cloud TTS"],
-            "protocol": "Microsoft Edge 官方云端通道 (免Key直连)",
-            "status_text": "原生内置 · 开箱即用",
-            "message": "已连接微软超自然语音服务，底层模型为 Azure Neural Cloud TTS。"
+            "provider": "moss_tts_nano",
+            "active_model": "MOSS-TTS-Nano (100M Ultra-Lightweight)",
+            "models": [
+                "MOSS-TTS-Nano (100M Ultra-Lightweight)",
+                "MOSS-TTS-Nano-Local (本地GPU)",
+                "MOSS-TTS-Nano-Cloud (云端端点)"
+            ],
+            "protocol": "MOSS-TTS-Nano 端侧优先 GPU 极速推理 (广播级 48kHz)",
+            "status_text": "系统原生自带 · 免密钥开箱即用",
+            "message": "已就绪复旦开源 MOSS-TTS-Nano 深度引擎，~100M参数/~500MB显存开销，端侧极速48kHz零样本声音克隆。"
         }
 
-    # 2. 阿里云百炼 (CosyVoice 语音合成服务)
+    # 1. 阿里云百炼 (CosyVoice 语音合成服务)
     if "cosy" in provider or any(k in base_url.lower() for k in ["aliyuncs.com", "dashscope"]):
         official_cosy_models = [
             "cosyvoice-v3.5-flash",
@@ -675,7 +600,7 @@ async def fetch_tts_models(req: FetchTTSModelsRequest, db: AsyncSession = Depend
             if m not in merged_models:
                 merged_models.append(m)
 
-        status_text = "已配置密钥 · 百炼云端通道就绪" if has_key else "预置模型就绪 · 免Key试听模式"
+        status_text = "已配置密钥 · 百炼云端通道就绪" if has_key else "待配置密钥 · 百炼官方通道"
         return {
             "code": 0,
             "success": True,
@@ -685,6 +610,47 @@ async def fetch_tts_models(req: FetchTTSModelsRequest, db: AsyncSession = Depend
             "protocol": "阿里云百炼 DashScope 语音通道",
             "status_text": status_text,
             "message": f"成功识别阿里云百炼最新旗舰语音大模型 cosyvoice-v3.5-flash！当前支持 {len(merged_models)} 款官方模型架构。"
+        }
+
+    # 3. ElevenLabs 全球顶级人声服务商
+    if "eleven" in provider:
+        official_eleven_models = [
+            "eleven_multilingual_v2",
+            "eleven_turbo_v2_5",
+            "eleven_flash_v2_5",
+            "eleven_monolingual_v1"
+        ]
+        real_eleven_models = []
+        has_key = bool(raw_api_key and len(raw_api_key) > 6)
+        if has_key:
+            try:
+                headers = {"xi-api-key": raw_api_key}
+                async with httpx.AsyncClient(timeout=3.5) as client:
+                    e_res = await client.get("https://api.elevenlabs.io/v1/models", headers=headers)
+                    if e_res.status_code == 200:
+                        e_data = e_res.json()
+                        if isinstance(e_data, list):
+                            for itm in e_data:
+                                if isinstance(itm, dict) and itm.get("model_id"):
+                                    real_eleven_models.append(str(itm["model_id"]))
+            except Exception:
+                pass
+
+        merged_models = []
+        for m in (real_eleven_models + official_eleven_models):
+            if m not in merged_models:
+                merged_models.append(m)
+
+        status_text = "已配置密钥 · ElevenLabs通道就绪" if has_key else "待配置密钥 · 官方云端通道"
+        return {
+            "code": 0,
+            "success": True,
+            "provider": "elevenlabs",
+            "active_model": "eleven_multilingual_v2",
+            "models": merged_models,
+            "protocol": "ElevenLabs 官方云端全球低延迟流式通道",
+            "status_text": status_text,
+            "message": f"成功连接 ElevenLabs 语音引擎，支持 {len(merged_models)} 款电影级模型架构。"
         }
 
     # 3. 若配置了 Base URL，真实尝试请求 /models 接口探测第三方是否提供模型列表
@@ -908,6 +874,11 @@ async def save_config(req: ApiConfigSaveRequest, db: AsyncSession = Depends(get_
             effective_adapter = req.provider_name or (str(record.provider_name) if record and record.provider_name else "")
             if effective_adapter:
                 extra_dict["adapter"] = effective_adapter
+        eff_adapter = str(extra_dict.get("adapter") or req.provider_name or "").strip().lower()
+        if eff_adapter == "sidecar_v3" and effective_url:
+            effective_url = canonicalize_sidecar_url(effective_url)
+            if req.base_url is not None:
+                req.base_url = effective_url
         try:
             extra_dict = normalize_avatar_provider_config(
                 extra_dict,
@@ -999,6 +970,11 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
     provider_name = req.provider_name or ""
     config_group = req.config_group or "llm"
 
+    # 若客户端显式请求清除密钥或无密钥测试 (__NO_AUTH__ 或 "")，绝不从数据库回填历史密钥
+    explicit_empty_key = (req.api_key == "" or req.api_key == "__NO_AUTH__")
+    if explicit_empty_key:
+        raw_api_key = None
+
     # 若传入了 config_id 或缺少字段，从数据库提取补全
     if req.config_id:
         result = await db.execute(select(ApiProviderConfig).where(ApiProviderConfig.id == req.config_id))
@@ -1008,9 +984,9 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
             config_group = str(record.config_group or "llm")
             if not target_url:
                 target_url = str(record.base_url) if record.base_url else None
-            if not raw_api_key and record.encrypted_api_key:
+            if not explicit_empty_key and not raw_api_key and record.encrypted_api_key:
                 raw_api_key = decrypt_secret(str(record.encrypted_api_key))
-    elif not target_url or not raw_api_key:
+    elif not target_url or (not raw_api_key and not explicit_empty_key):
         result = await db.execute(
             select(ApiProviderConfig)
             .where(ApiProviderConfig.config_group == config_group)
@@ -1020,7 +996,7 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
         if record:
             if not target_url:
                 target_url = str(record.base_url) if record.base_url else None
-            if not raw_api_key and record.encrypted_api_key:
+            if not explicit_empty_key and not raw_api_key and record.encrypted_api_key:
                 raw_api_key = decrypt_secret(str(record.encrypted_api_key))
 
     if not target_url:
@@ -1033,27 +1009,85 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
             }
         return {"code": 1, "success": False, "latency_ms": 0, "message": "未配置有效的 Base URL"}
 
+    # 针对数字人渲染节点 (Sidecar v3)，智能支持将 http/https 提升为 wss/ws 探测真实渲染端点
+    is_sidecar = (config_group == "neural_renderer" or provider_name == "sidecar_v3" or "sidecar" in (target_url or "").lower())
+    ws_candidate_url = target_url
+    if is_sidecar and target_url and not target_url.startswith(("ws://", "wss://")):
+        ws_candidate_url = canonicalize_sidecar_url(target_url)
+
     # 针对 WebSocket 协议（如数字人渲染端点 ws://, wss://）进行真实握手测试
-    if target_url.startswith(("ws://", "wss://")):
+    if ws_candidate_url.startswith(("ws://", "wss://")):
         try:
             import websockets
-            async with websockets.connect(target_url, open_timeout=4.0, close_timeout=1.0) as ws:
+            async with websockets.connect(ws_candidate_url, open_timeout=5.0, close_timeout=1.0) as ws:
                 device_info = ""
-                try:
-                    raw_msg = await asyncio.wait_for(ws.recv(), timeout=1.5)
+                auth_pending = bool(raw_api_key)
+                auth_passed = not auth_pending
+
+                # 若配置了访问令牌，发起鉴权握手
+                if auth_pending:
+                    from server.core.media.sidecar_protocol import build_auth_message
+                    await ws.send(json.dumps(build_auth_message(raw_api_key)))
+
+                # 智能循环接收握手阶段消息 (处理 handshake_ack、auth_ok 及硬件信息提取)
+                loop_start = time.time()
+                while time.time() - loop_start < 4.0:
+                    try:
+                        raw_msg = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        break
+
                     if isinstance(raw_msg, str):
                         try:
                             msg_json = json.loads(raw_msg)
-                            if isinstance(msg_json, dict) and msg_json.get("device"):
-                                device_info = str(msg_json.get("device"))
+                            if isinstance(msg_json, dict):
+                                ev = msg_json.get("event") or msg_json.get("type")
+                                if msg_json.get("device"):
+                                    device_info = str(msg_json.get("device"))
+
+                                if ev == "auth_ok":
+                                    auth_passed = True
+                                elif ev in ("auth_failed", "auth_reject", "auth_error"):
+                                    reject_reason = str(msg_json.get("message") or "节点拒绝了访问令牌")
+                                    elapsed_ms = int((time.time() - start_time) * 1000)
+                                    return {
+                                        "code": 1,
+                                        "success": False,
+                                        "latency_ms": elapsed_ms,
+                                        "message": f"通信对接未成功: 鉴权失败 ({reject_reason})。请核对访问密码 / Token 是否与服务端 AUTH_TOKEN 一致"
+                                    }
+                                elif ev == "handshake_ack":
+                                    # 握手首帧，若无需鉴权则可直接完成握手
+                                    if not auth_pending:
+                                        break
+
+                                # 若鉴权已通过且已提取到硬件设备信息，提前完成握手
+                                if auth_passed and device_info:
+                                    break
                         except Exception:
                             pass
-                except (asyncio.TimeoutError, Exception):
-                    pass
+
+                if auth_pending and not auth_passed:
+                    elapsed_ms = int((time.time() - start_time) * 1000)
+                    return {
+                        "code": 1,
+                        "success": False,
+                        "latency_ms": elapsed_ms,
+                        "message": "通信对接未成功: 鉴权握手未收到确认。若云端节点未设置访问密码，请将输入框中的【访问密码 / Token】清空后再测试"
+                    }
+
                 elapsed_ms = int((time.time() - start_time) * 1000)
                 msg_text = f"通信对接成功！WebSocket 握手正常，延迟: {elapsed_ms}ms"
                 if device_info:
-                    msg_text += f" (检测到硬件: {device_info})"
+                    msg_text += f" (远端识别硬件: {device_info})"
+
+                # 实时同步至系统全局显卡探活缓存，令软硬件看板立即感知在线就绪
+                try:
+                    from server.core.hardware.gpu_capability import record_cloud_probe_success
+                    record_cloud_probe_success(ws_candidate_url or target_url, latency_ms=elapsed_ms, device=device_info)
+                except Exception:
+                    pass
+
                 return {
                     "code": 0,
                     "success": True,
@@ -1062,6 +1096,87 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                     "message": msg_text
                 }
         except Exception as e:
+            # 如果是 Sidecar 渲染节点，WebSocket 无法连接时，提取对应 HTTP/HTTPS 隧道地址发起深度探测与服务角色诊断
+            if is_sidecar:
+                try:
+                    http_probe_base = (
+                        ws_candidate_url.replace("wss://", "https://")
+                        .replace("ws://", "http://")
+                        .split("/ws/")[0]
+                        .rstrip("/")
+                    )
+                    if http_probe_base.endswith("/v1"):
+                        http_probe_base = http_probe_base[:-3]
+
+                    async with httpx.AsyncClient(timeout=3.5, verify=False) as http_client:
+                        # 1. 优先检查远端是否为 Sidecar 自带的 /health 端点
+                        try:
+                            h_resp = await http_client.get(f"{http_probe_base}/health")
+                            if h_resp.status_code == 200:
+                                h_json = h_resp.json()
+                                if isinstance(h_json, dict) and h_json.get("device"):
+                                    dev = str(h_json.get("device"))
+                                    elapsed_ms = int((time.time() - start_time) * 1000)
+                                    return {
+                                        "code": 0,
+                                        "success": True,
+                                        "latency_ms": elapsed_ms,
+                                        "device": dev,
+                                        "message": f"通信对接成功！已连接云端 Sidecar 节点，识别硬件: {dev}，延迟: {elapsed_ms}ms"
+                                    }
+                        except Exception:
+                            pass
+
+                        # 2. 检查远端是否为 Ollama 大语言模型服务 (通常端口 11434)
+                        is_ollama = False
+                        for headers_try in [{}, {"Host": "localhost:11434"}]:
+                            try:
+                                o_resp = await http_client.get(f"{http_probe_base}/api/version", headers=headers_try)
+                                if o_resp.status_code == 200 and "version" in o_resp.text:
+                                    is_ollama = True
+                                    break
+                                t_resp = await http_client.get(f"{http_probe_base}/api/tags", headers=headers_try)
+                                if t_resp.status_code == 200 and "models" in t_resp.text:
+                                    is_ollama = True
+                                    break
+                            except Exception:
+                                pass
+
+                        elapsed_ms = int((time.time() - start_time) * 1000)
+                        if is_ollama:
+                            return {
+                                "code": 1,
+                                "success": False,
+                                "latency_ms": elapsed_ms,
+                                "device": "",
+                                "message": (
+                                    f"⚠️ 检测到该端口运行的是【Ollama 大语言模型服务】(端口 11434)，并非数字人渲染服务！\n"
+                                    f"• 现象分析：Ollama 仅支持 LLM 文本交互，不支持数字人 WebSocket 画面渲染，且会拦截外部 WebSocket 升级请求返回 HTTP 403；\n"
+                                    f"• 若打算用云端 GPU 跑大模型思考：请移步左侧「第一步：LLM 配置」，填入自定义 Ollama 地址；\n"
+                                    f"• 若打算用云端 GPU 跑数字人画面渲染：请在云端 Colab 运行官方启动脚本：\n"
+                                    f"  python scripts/cloud_sidecar_bootstrap.py\n"
+                                    f"  该脚本会自动识别显卡 (T4 15G) 并启动 8010 端口的数字人渲染 WebSocket 节点。"
+                                )
+                            }
+
+                        # 3. 针对 403 Forbidden 的深度诊断
+                        err_detail_str = str(e).lower()
+                        if "403" in err_detail_str or "forbidden" in err_detail_str:
+                            return {
+                                "code": 1,
+                                "success": False,
+                                "latency_ms": elapsed_ms,
+                                "device": "",
+                                "message": (
+                                    f"⚠️ 远程服务器拒绝了数字人 WebSocket 连接 (HTTP 403 Forbidden)！\n"
+                                    f"• 核心原因：穿透的目标服务大概率是 Ollama (端口 11434) 或非 WebSocket 服务。Ollama 内置跨域与 Host 安全校验，会直接拒绝对其端口发起的 WebSocket 握手请求；\n"
+                                    f"• 解决方案 1 (做数字人渲染)：请在 Colab 执行 python scripts/cloud_sidecar_bootstrap.py 启动 8010 专用的数字人渲染服务；\n"
+                                    f"• 解决方案 2 (做 LLM 大模型)：请将此穿透地址配置到左侧「第一步：LLM 配置」，同时在 Colab 穿透命令加上 --http-host-header=\"localhost:11434\" 以解除 403 拦截。"
+                                )
+                            }
+                except Exception:
+                    pass
+
             elapsed_ms = int((time.time() - start_time) * 1000)
             err_name = type(e).__name__
             err_detail = str(e).strip()
@@ -1070,7 +1185,7 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
             elif "TimeoutError" in err_name or "timed out" in err_detail.lower():
                 friendly_reason = "网络连接握手超时 (Timeout)，请检查网络防火墙与公网隧道地址是否有效"
             elif "InvalidStatusCode" in err_name or "404" in err_detail or "403" in err_detail:
-                friendly_reason = f"远程节点返回 HTTP 状态错误 ({err_detail})，请确认 WebSocket 路由路径是否正确"
+                friendly_reason = f"远程节点返回 HTTP 状态错误 ({err_detail})，请确认 WebSocket 路由路径是否正确 (/ws/render-v3)"
             else:
                 friendly_reason = f"{err_detail or err_name}"
             return {
@@ -1314,6 +1429,12 @@ class TTSPreviewRequest(BaseModel):
 
 
 VOICE_PREVIEW_PROFILES = {
+    # MOSS-TTS-Nano 复旦开源大模型原生端点专属音色 (广播级 48kHz)
+    "moss_female_host_01": ("zh-CN-XiaoxiaoNeural", "大家好！我是 MOSS-TTS 官方清亮女主播，广播级 48kHz 超高保真音质，为您呈现自然真人发音！"),
+    "moss_male_host_02": ("zh-CN-YunxiNeural", "老铁们好！我是 MOSS-TTS 阳光男主播，端侧 GPU 毫秒级极速推理，开播流畅不卡顿！"),
+    "moss_female_warm_03": ("zh-CN-XiaoyiNeural", "哈喽大家好！我是 MOSS-TTS 温柔知性女主播，适合美妆服饰与生活好物带货！"),
+    "moss_female_lively_04": ("zh-CN-XiaoxuanNeural", "家人们看过来！我是 MOSS-TTS 活力带货女主播，超强感染力，爆单不停！"),
+
     # Edge-TTS 微软原生云音色
     "zh-cn-xiaoxiaoneural": ("zh-CN-XiaoxiaoNeural", "你好！我是晓晓，超自然知性女主播，很高兴为您带来高品质直播发音！"),
     "zh-cn-yunxineural": ("zh-CN-YunxiNeural", "老铁们好！我是云希，阳光活力青年男主播，祝您开播大吉，人气爆棚！"),
@@ -1324,6 +1445,10 @@ VOICE_PREVIEW_PROFILES = {
     "zh-cn-xiaoxuanneural": ("zh-CN-XiaoxuanNeural", "家人们！我是晓萱，激情燃播促单声线，今天的全场福利马上开抢！"),
     "zh-cn-yunxianeural": ("zh-CN-YunxiaNeural", "小朋友和大朋友们好呀！我是云夏，活泼可爱的童声主播，今天带大家玩好玩的！"),
     "zh-cn-yunyangneural": ("zh-CN-YunyangNeural", "您好，我是云扬，专业新闻播音级质感男声，呈现高端严谨的品牌形象。"),
+
+    # 官方通用预设声线
+    "voice_default_female": ("zh-CN-XiaoxiaoNeural", "大家好，欢迎来到我的直播间！我是通用亲和女主播，很高兴为您带来精选好物！"),
+    "voice_default_male": ("zh-CN-YunxiNeural", "大家好，欢迎来到我的直播间！我是通用阳光男主播，祝大家购物愉快！"),
 
     # CosyVoice 阿里通义音色声线特征矩阵
     "longxiaochun": ("zh-CN-XiaoxiaoNeural", "你好！我是 小琴琴，知性温和的电商带货推荐声线，卖货很牛逼的那种哦，很高兴为您发声。"),
@@ -1389,13 +1514,20 @@ async def preview_tts_audio(req: TTSPreviewRequest):
     actual_voice_id = v_record.id if v_record else raw_voice
     cloned_name = v_record.name if v_record else raw_voice
 
+    # 明确当前生效的 TTS 引擎：前端显式传递的引擎具有第一优先级（如正在配置 MOSS-TTS-Nano）
+    req_provider = (req.provider_name or "").lower().strip()
+    if req_provider:
+        provider = req_provider
+    elif (not provider or provider == "edge_tts") and v_record and getattr(v_record, "provider_name", None):
+        provider = (v_record.provider_name or "").lower().strip()
+
+    # 精确判断是否真正为克隆音色：避免将官方预设（如 voice_default_female）误送进百炼克隆复刻通道
     is_cloned_voice = bool(
-        v_record
+        (v_record and getattr(v_record, "voice_type", "preset") == "cloned")
         or raw_voice.startswith("clone_")
         or "voice-custom-" in raw_voice
-        or "custom" in raw_voice
-        or "qwen-audio-" in raw_voice
         or "cosyvoice-" in raw_voice
+        or "qwen-audio-" in raw_voice
     )
 
     # 外部云端商用服务参数与凭证读取
@@ -1406,12 +1538,13 @@ async def preview_tts_audio(req: TTSPreviewRequest):
     if is_cloned_voice:
         try:
             from server.core.audio.clone_preview import generate_cloned_voice_preview, VOICES_DIR
-            # 优先命中已落盘的大模型试听文件
-            preview_cand = VOICES_DIR / f"{actual_voice_id}_cloned_preview.mp3"
-            if preview_cand.exists() and preview_cand.stat().st_size > 1024 and not req.text:
-                return FileResponse(preview_cand, media_type="audio/mpeg")
-
             sample_path = v_record.sample_wav_path if v_record else None
+            if not sample_path or not Path(sample_path).exists():
+                for ext in [".mp3", ".wav"]:
+                    cand = VOICES_DIR / f"{actual_voice_id}{ext}"
+                    if cand.exists():
+                        sample_path = str(cand)
+                        break
             preview_file = await generate_cloned_voice_preview(
                 voice_id=actual_voice_id,
                 voice_name=cloned_name,
@@ -1419,15 +1552,21 @@ async def preview_tts_audio(req: TTSPreviewRequest):
                 custom_text=req.text,
                 base_url=base_url,
                 api_key=api_key,
-                target_model=req.model_name
+                target_model=req.model_name,
+                force_regenerate=True,
+                provider=provider,
             )
             if preview_file and preview_file.exists():
-                return FileResponse(preview_file, media_type="audio/mpeg")
+                m_type = "audio/mpeg" if preview_file.suffix.lower() == ".mp3" else "audio/wav"
+                return FileResponse(preview_file, media_type=m_type)
         except Exception as e:
             logger.error(f"克隆音色合成全新台词失败: {e}", exc_info=True)
+            err_str = str(e)
+            # 清理多层嵌套的前缀包裹
+            clean_err = err_str.replace(f"克隆音色【{cloned_name}】合成新台词失败：", "").strip()
             raise HTTPException(
                 status_code=500,
-                detail=f"克隆音色【{cloned_name}】合成新台词失败：{str(e)}"
+                detail=clean_err
             )
 
     # 1. 智能匹配官方预置音色发音台词
@@ -1436,15 +1575,61 @@ async def preview_tts_audio(req: TTSPreviewRequest):
         "你好，欢迎来到直播间！这是当前语音引擎的实时试听效果，祝您开播顺利！",
         "你好！这是当前语音合成引擎的实时试听效果"
     ]
-    is_generic_text = not req.text or any(p in req.text for p in default_placeholders)
+    req_text = (req.text or "").strip()
+    is_generic_text = not req_text or any(p in req_text for p in default_placeholders)
 
     profile_voice, profile_text = VOICE_PREVIEW_PROFILES.get(
         voice_key,
         (raw_voice if "neural" in voice_key else "zh-CN-XiaoxiaoNeural", f"你好！我是当前语音引擎的 {raw_voice or '推荐'} 发音音色，很高兴为您发声！")
     )
-    text_to_speak = profile_text if is_generic_text else req.text.strip()
+    text_to_speak = profile_text if is_generic_text else req_text
 
-    # 2. 若是 Edge-TTS 引擎，直接使用对应的高保真云端声线真实发声
+    # 2. 若是 MOSS-TTS-Nano 引擎，直接调用复旦官方 MOSS-TTS 原生神经引擎真实发声！
+    if "moss" in provider or "nano" in provider or provider == "moss_tts_nano":
+        moss_voice_mapping = {
+            "moss_female_host_01": "Xiaoyu",
+            "moss_male_host_02": "Junhao",
+            "moss_female_warm_03": "Yuewen",
+            "moss_female_lively_04": "Weiguo",
+        }
+        target_voice_name = moss_voice_mapping.get(voice_key, "Junhao")
+        prompt_sample_path = None
+
+        # 检查是否为用户克隆音色
+        if str(voice_key).startswith("clone_") or "clone" in str(voice_key):
+            try:
+                from server.database import async_session_factory
+                async with async_session_factory() as db:
+                    stmt = select(VoiceProfile).where(VoiceProfile.id == voice_key)
+                    res = await db.execute(stmt)
+                    vp = res.scalar_one_or_none()
+                    if vp and vp.sample_wav_path and Path(vp.sample_wav_path).exists():
+                        prompt_sample_path = vp.sample_wav_path
+            except Exception as e:
+                logger.warning(f"获取克隆音频样本路径异常: {e}")
+            if not prompt_sample_path:
+                for ext in [".mp3", ".wav"]:
+                    cand = DATA_DIR / "voices" / f"{voice_key}{ext}"
+                    if cand.exists():
+                        prompt_sample_path = str(cand)
+                        break
+
+        try:
+            from server.core.audio.moss_nano.moss_cloner import moss_cloner
+            gen_file = await moss_cloner.clone_and_synthesize(
+                text=text_to_speak,
+                prompt_audio_path=prompt_sample_path,
+                voice=target_voice_name if not prompt_sample_path else None,
+                speed=1.0,
+                volume=1.0
+            )
+            if gen_file.exists() and gen_file.stat().st_size > 512:
+                return FileResponse(gen_file, media_type="audio/wav")
+        except Exception as e:
+            logger.error(f"原生 MOSS-TTS 试听合成异常: {e}", exc_info=True)
+            raise HTTPException(status_code=502, detail=f"MOSS-TTS 官方引擎试听合成失败: {str(e)}")
+
+    # 2.5 若是 Edge-TTS 引擎，直接使用微软官方声线
     if "edge" in provider or not provider or provider == "edge_tts":
         actual_voice = profile_voice if profile_voice else "zh-CN-XiaoxiaoNeural"
         try:

@@ -75,3 +75,8 @@ class VRAMWatchdog:
             except asyncio.CancelledError:
                 pass
         self._task = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._task is not None and not self._task.done()
+

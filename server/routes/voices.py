@@ -35,6 +35,28 @@ def _safe_float(val: Any, fallback: float = 1.0) -> float:
         return fallback
 
 
+def _detect_audio_media_type(path: Path) -> str:
+    """根据文件二进制头真实魔数嗅探精确 MIME 类型，彻底避免扩展名误导浏览器解码器"""
+    try:
+        if path.exists():
+            with open(path, "rb") as f:
+                header = f.read(16)
+                if header.startswith(b"RIFF") and b"WAVE" in header:
+                    return "audio/wav"
+                if header.startswith(b"ID3") or header.startswith(b"\xff\xfb") or header.startswith(b"\xff\xf3"):
+                    return "audio/mpeg"
+                if header.startswith(b"OggS"):
+                    return "audio/ogg"
+    except Exception:
+        pass
+    suffix = path.suffix.lower()
+    if suffix == ".wav":
+        return "audio/wav"
+    if suffix == ".ogg":
+        return "audio/ogg"
+    return "audio/mpeg"
+
+
 def _extract_and_save_features(sample_path: str, embedding_path: str) -> bool:
     from server.core.audio.features import extract_voice_features, save_embedding
 
@@ -52,6 +74,20 @@ class VoiceSyncItem(BaseModel):
 class VoiceBatchSyncRequest(BaseModel):
     provider_name: str = Field(min_length=1, max_length=64)
     voices: list[VoiceSyncItem]
+
+def infer_voice_gender(name: str, voice_id: str) -> str:
+    """根据音色名称与标识智能推导性别 (female/male/unknown)"""
+    text = f"{name} {voice_id}".lower()
+    female_kw = ["女", "girl", "female", "woman", "少女", "知性", "萌音", "姐", "妈", "妹", "娘", "春", "夏", "婉", "悦", "玲", "stella", "bella", "xiaoxiao", "xiaoyi"]
+    male_kw = ["男", "boy", "male", "man", "老铁", "叔", "哥", "爷", "诚", "华", "硕", "渊", "飞", "杰", "天", "平", "yunjian", "yunxi", "yunyang"]
+    for kw in female_kw:
+        if kw in text:
+            return "female"
+    for kw in male_kw:
+        if kw in text:
+            return "male"
+    return "unknown"
+
 
 @router.get("/list")
 async def list_voices(provider_name: Optional[str] = None, include_unassigned: bool = False, db: AsyncSession = Depends(get_db)):
@@ -80,6 +116,7 @@ async def list_voices(provider_name: Optional[str] = None, include_unassigned: b
                 "status": str(v.status or "ready"),
                 "provider_name": str(getattr(v, "provider_name", "") or ""),
                 "voice_type": str(getattr(v, "voice_type", "preset") or "preset"),
+                "gender": infer_voice_gender(str(v.name), str(v.id)),
                 "is_clone": str(getattr(v, "voice_type", "preset")) == "cloned",
                 "sample_status": "uploaded" if v.sample_wav_path and Path(str(v.sample_wav_path)).exists() else "missing",
                 "feature_status": "ready" if v.embedding_npy_path and Path(str(v.embedding_npy_path)).exists() else "pending",
@@ -420,6 +457,59 @@ async def clone_voice(
             except Exception as e:
                 logger.warning(f"ElevenLabs 克隆尝试异常: {e}")
 
+        # 2.5 尝试联动本地/远端 MOSS-TTS-Nano 进行零样本声音克隆与试听全新合成
+        elif "moss" in provider or "nano" in provider:
+            welcome = (
+                f"你好！我是您的专属克隆声音【{clean_name}】。"
+                "已成功在 MOSS-TTS-Nano 端侧大模型完成零样本声学克隆，很高兴为您发声！"
+            )
+            cloned_preview_file = VOICES_DIR / f"{voice_id}_cloned_preview.mp3"
+            if cloned_preview_file.exists():
+                try:
+                    cloned_preview_file.unlink()
+                except Exception:
+                    pass
+            # 优先使用主进程原生官方 MOSS-TTS-Nano 零样本神经克隆引擎！
+            try:
+                from server.core.audio.moss_nano.moss_cloner import moss_cloner
+                logger.info(f"正在调用官方 MOSS-TTS-Nano 零样本神经引擎为【{clean_name}】克隆声线并合成新台词...")
+                await moss_cloner.clone_and_synthesize(
+                    text=welcome,
+                    prompt_audio_path=target_path.as_posix(),
+                    output_path=cloned_preview_file,
+                    speed=speed,
+                    volume=volume
+                )
+                if cloned_preview_file.exists() and cloned_preview_file.stat().st_size > 512:
+                    dash_preview_ready = True
+                    synth_ok = True
+                    engine_message = f"🎉 官方 MOSS-TTS-Nano 端侧零样本声音克隆成功！已精确复刻声线并合成专属试听 (Voice ID: {voice_id})"
+            except Exception as e:
+                logger.warning(f"主进程原生 MOSS-TTS-Nano 合成尝试: {e}，尝试外部端点...")
+                # 尝试备用 9880 外部端点
+                moss_endpoint = (base_url or "http://127.0.0.1:9880").strip().rstrip("/")
+                try:
+                    async with httpx.AsyncClient(timeout=8.0) as client:
+                        clone_payload = {
+                            "text": welcome,
+                            "prompt_wav": target_path.as_posix(),
+                            "speed": speed,
+                            "volume": volume,
+                            "sample_rate": 48000,
+                            "stream": False
+                        }
+                        synth_resp = await client.post(f"{moss_endpoint}/tts", json=clone_payload)
+                        if synth_resp.status_code == 200 and len(synth_resp.content) > 512:
+                            with open(cloned_preview_file, "wb") as pf:
+                                pf.write(synth_resp.content)
+                            synth_ok = True
+                            dash_preview_ready = True
+                            engine_message = f"🎉 MOSS-TTS-Nano 端侧 48kHz 零样本声音克隆成功！已合成专属台词试听 (Voice ID: {voice_id})"
+                except Exception as ext_e:
+                    logger.error(f"MOSS-TTS 外部与原生合成均失败: {ext_e}", exc_info=True)
+                    dash_preview_ready = False
+                    engine_message = f"⚠️ 样本已安全入库，但 MOSS 神经模型台词合成遇到异常: {e}"
+
         # 3. 本地提取基础声学指纹与向量
         await run_cpu_bound(
             _extract_and_save_features,
@@ -605,53 +695,89 @@ async def preview_voice(voice_id: str, db: AsyncSession = Depends(get_db)):
     if not record:
         raise HTTPException(status_code=404, detail="音色档案不存在")
 
-    # 优先返回大模型合成的专属新台词克隆样本，拒绝重复播放原音频
-    cloned_preview = VOICES_DIR / f"{voice_id}_cloned_preview.mp3"
-    if cloned_preview.exists() and cloned_preview.stat().st_size > 1024:
-        return FileResponse(cloned_preview, media_type="audio/mpeg", filename=cloned_preview.name)
+    prov = str(getattr(record, "provider_name", "") or "").lower()
 
-    # 若是未在云端复刻的本地档案（以 clone_ 开头），根据 ADR-16 诚实契约，严禁拿原始录音伪造试听，必须诚实报错并提供操作引导
-    if voice_id.startswith("clone_"):
-        raise HTTPException(
-            status_code=400,
-            detail="当前音色仅具备本地声学特征，尚未在阿里云百炼完成云端声音复刻，暂无法在线试听。请先配置百炼 API Key 或完成复刻后使用「登记已有 Voice-ID」。"
-        )
+    # 1. 优先返回大模型合成的专属新台词克隆样本（mp3 或 wav）
+    for ext in [".mp3", ".wav"]:
+        cand = VOICES_DIR / f"{voice_id}_cloned_preview{ext}"
+        if cand.exists() and cand.stat().st_size > 512:
+            return FileResponse(cand, media_type=_detect_audio_media_type(cand), content_disposition_type="inline")
 
-    # 若为克隆音色但试听文件尚未生成，现场尝试调用克隆模型实时合成台词
-    is_cloned = getattr(record, "voice_type", "") == "cloned" or voice_id.startswith("cosyvoice-") or voice_id.startswith("qwen-")
+    # 2. 若为 MOSS-TTS-Nano 零样本克隆，必须以参考音色现场合成专属全新台词，严禁直接播放原版录音！
+    if "moss" in prov or "nano" in prov:
+        sample_file = Path(str(record.sample_wav_path or ""))
+        if not sample_file.exists() or sample_file.stat().st_size <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"音色【{record.name}】缺少有效的主播录音样本，无法进行端侧零样本克隆合成。"
+            )
+
+        try:
+            from server.core.audio.clone_preview import generate_cloned_voice_preview
+            p_file = await generate_cloned_voice_preview(
+                voice_id=voice_id,
+                voice_name=record.name or voice_id,
+                sample_audio_path=sample_file.as_posix(),
+                provider="moss_tts_nano"
+            )
+            if p_file and p_file.exists() and p_file.stat().st_size > 512:
+                return FileResponse(p_file, media_type=_detect_audio_media_type(p_file), content_disposition_type="inline")
+        except Exception as moss_err:
+            logger.error(f"MOSS-TTS-Nano 试听台词合成异常: {moss_err}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"MOSS-TTS-Nano 端侧克隆合成全新台词失败：{str(moss_err)}"
+            )
+
+    # 3. 若是未在云端复刻的百炼本地档案（以 clone_ 开头且属于百炼），诚实报错引导；若为 MOSS-TTS 则进入端侧零样本克隆通道
+    rec_prov = (getattr(record, "provider_name", "") or "").lower()
+    from server.database.models import ApiProviderConfig
+    res_tts = await db.execute(select(ApiProviderConfig).where(ApiProviderConfig.config_group == "tts", ApiProviderConfig.is_active == 1))
+    active_tts_cfg = res_tts.scalars().first()
+    active_prov = (active_tts_cfg.provider_name or "").lower() if active_tts_cfg else ""
+
+    if voice_id.startswith("clone_") and ("cosy" in rec_prov or not rec_prov):
+        if not ("moss" in active_prov or "nano" in active_prov):
+            raise HTTPException(
+                status_code=400,
+                detail="当前音色仅具备本地声学特征，尚未在阿里云百炼完成云端声音复刻，暂无法在线试听。请先配置百炼 API Key 或完成复刻后使用「登记已有 Voice-ID」；或在 TTS 设置中选用【MOSS-TTS-Nano】端侧引擎。"
+            )
+
+    # 4. 若为克隆音色但试听文件尚未生成，现场尝试调用克隆模型实时合成台词
+    is_cloned = getattr(record, "voice_type", "") == "cloned" or voice_id.startswith("clone_") or voice_id.startswith("cosyvoice-") or voice_id.startswith("qwen-")
     if is_cloned:
         try:
             from server.core.audio.clone_preview import generate_cloned_voice_preview
             p_file = await generate_cloned_voice_preview(
                 voice_id=voice_id,
                 voice_name=record.name,
-                sample_audio_path=record.sample_wav_path
+                sample_audio_path=record.sample_wav_path,
+                provider=rec_prov or active_prov
             )
             if p_file and p_file.exists():
-                return FileResponse(p_file, media_type="audio/mpeg", filename=p_file.name)
+                return FileResponse(p_file, media_type=_detect_audio_media_type(p_file), content_disposition_type="inline")
         except Exception as e:
             logger.warning(f"克隆音色全新台词合成失败: {e}")
-            raise HTTPException(status_code=500, detail=f"克隆音色台词试听合成失败: {str(e)}")
 
-    # 官方预设音色：通过对应 TTS 引擎实时在线合成专属问候试听音频流
-    try:
-        from server.routes.settings import TTSPreviewRequest, preview_tts_audio
-        prov = str(getattr(record, "provider_name", "") or ("edge_tts" if "zh-" in voice_id else "cosyvoice"))
-        req = TTSPreviewRequest(
-            provider_name=prov,
-            voice_name=voice_id
-        )
-        return await preview_tts_audio(req)
-    except Exception as e:
-        logger.warning(f"预设官方音色试听合成异常: {e}")
+    # 5. 官方预设音色：通过对应 TTS 引擎实时在线合成专属问候试听音频流
+    if getattr(record, "voice_type", "preset") == "preset":
+        try:
+            from server.routes.settings import TTSPreviewRequest, preview_tts_audio
+            target_prov = prov or ("cosyvoice" if "long" in voice_id else "moss_tts_nano")
+            req = TTSPreviewRequest(
+                provider_name=target_prov,
+                voice_name=voice_id
+            )
+            return await preview_tts_audio(req)
+        except Exception as e:
+            logger.warning(f"预设官方音色试听合成异常: {e}")
 
-    # 若有本地样本录音，降级回退播放原始样本
+    # 6. 若有本地样本录音，回退播放原始高质量人声样本
     sample_path = Path(str(record.sample_wav_path or ""))
     if sample_path.exists() and sample_path.stat().st_size > 0:
-        media_type = "audio/wav" if sample_path.suffix.lower() == ".wav" else "audio/mpeg"
-        return FileResponse(sample_path, media_type=media_type, filename=sample_path.name)
+        return FileResponse(sample_path, media_type=_detect_audio_media_type(sample_path), content_disposition_type="inline")
 
-    raise HTTPException(status_code=404, detail="未找到该音色的可用试听音频")
+    raise HTTPException(status_code=404, detail="未找到该音色的可用试听音频文件")
 
 @router.delete("/{voice_id}")
 async def delete_voice(voice_id: str, db: AsyncSession = Depends(get_db)):

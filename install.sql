@@ -297,3 +297,24 @@ VALUES
 -- ALTER TABLE live_session_records ADD COLUMN theme VARCHAR(128) DEFAULT '';
 -- ALTER TABLE live_session_records ADD COLUMN role_id VARCHAR(64);
 -- ALTER TABLE live_session_records ADD COLUMN product_snapshot_json TEXT DEFAULT '[]';
+-- CREATE TABLE IF NOT EXISTS avatar_actions (
+--     id VARCHAR(64) PRIMARY KEY,
+--     anchor_id VARCHAR(64) DEFAULT NULL,
+--     action_code INTEGER NOT NULL,
+--     action_name VARCHAR(128) NOT NULL,
+--     video_path VARCHAR(512) DEFAULT '',
+--     frames_dir VARCHAR(512) DEFAULT '',
+--     trigger_type VARCHAR(32) DEFAULT 'both',
+--     trigger_keywords TEXT DEFAULT '',
+--     trigger_events VARCHAR(128) DEFAULT '',
+--     duration_sec FLOAT DEFAULT 3.5,
+--     priority INTEGER DEFAULT 1,
+--     mirror_loop INTEGER DEFAULT 1,
+--     is_active INTEGER DEFAULT 1,
+--     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+--     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+--     FOREIGN KEY (anchor_id) REFERENCES anchors(id) ON DELETE CASCADE
+-- );
+-- CREATE INDEX IF NOT EXISTS ix_avatar_actions_anchor_id ON avatar_actions(anchor_id);
+-- CREATE INDEX IF NOT EXISTS ix_avatar_actions_action_code ON avatar_actions(action_code);
+

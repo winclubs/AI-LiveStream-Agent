@@ -79,6 +79,24 @@ async def lifespan(app: FastAPI):
             await global_rag.load_from_db()
             logger.info("本地 RAG 双路索引加载就绪")
 
+            # MOSS-TTS-Nano 运行时后台预热：消除首次克隆合成的 ~7s ORT 冷启动，不阻塞服务就绪
+            async def _moss_warmup():
+                try:
+                    import time as _t
+                    _start = _t.perf_counter()
+                    from server.core.audio.moss_nano.moss_cloner import moss_cloner
+                    runtime = moss_cloner._get_runtime()
+                    await asyncio.to_thread(runtime.warmup)
+                    logger.info(
+                        "MOSS-TTS-Nano 运行时后台预热完成 (%.2fs)，provider=%s",
+                        _t.perf_counter() - _start,
+                        getattr(runtime, "execution_provider", "unknown"),
+                    )
+                except Exception as warmup_err:
+                    logger.warning(f"MOSS-TTS-Nano 运行时预热失败 (首次合成时将自动重试): {warmup_err}")
+
+            asyncio.create_task(_moss_warmup())
+
             health_state.ready()
             startup_succeeded = True
             logger.info("本地服务启动完成: http://%s:%s", SERVER_HOST, SERVER_PORT)

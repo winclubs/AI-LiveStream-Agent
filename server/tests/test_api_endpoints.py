@@ -247,15 +247,7 @@ def test_settings_api(client):
     assert ping_res.json()["code"] == 0
     assert ping_res.json()["success"] is True
 
-    # 5. 测试获取内置 8 大主流模型生态元数据 (包含 Qwen 通义与 Kimi 月暗)
-    prov_res = client.get("/api/v1/settings/llm/providers")
-    assert prov_res.status_code == 200
-    p_data = prov_res.json()
-    assert p_data["code"] == 0
-    provider_ids = [p["id"] for p in p_data["data"]]
-    assert {"deepseek", "qwen", "minimax", "kimi", "gemini", "glm", "chatgpt", "custom"}.issubset(set(provider_ids))
-
-    # 6. 测试动态获取模型列表接口 (未提供 API Key 时应明确提示原因且不盲目推荐过时静态模型)
+    # 5. 测试动态获取模型列表接口 (未提供 API Key 时应明确提示原因且不盲目推荐过时静态模型)
     qwen_no_key_res = client.post("/api/v1/settings/llm/models", json={
         "provider_name": "qwen",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"

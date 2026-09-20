@@ -24,6 +24,112 @@ function escapeHtml(str) {
 window.escapeHtml = escapeHtml;
 
 // ============================================================================
+// LLM 大模型生态元数据与全局配置状态 (全模块共享，此文件最先加载)
+// ============================================================================
+const BUILTIN_LLM_ECOSYSTEM = [
+    {
+        id: "deepseek",
+        name: "DeepSeek",
+        tagline: "国产性价比标杆 · 高情商促单",
+        logoSvg: "/static/svg/model_deepseek.svg",
+        defaultBaseUrl: "https://api.deepseek.com/v1",
+        desc: "国产顶流高情商大模型，超低调用资费，高情商话术与实时弹幕互动首选。",
+        urlPills: [
+            { text: "DeepSeek 官方 (推荐)", val: "https://api.deepseek.com/v1" },
+            { text: "备用直连端点", val: "https://api.deepseek.com" }
+        ]
+    },
+    {
+        id: "qwen",
+        name: "Qwen 通义",
+        tagline: "直播电商霸主 · 极速指令遵循",
+        logoSvg: "https://img.alicdn.com/imgextra/i2/O1CN01TOFMg022PLymzwaSX_!!6000000007112-55-tps-40-40.svg",
+        defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        desc: "阿里系模型适合电商直播话术生成，支持促销表达与商品解读，并可与 CosyVoice 配置组合使用。",
+        urlPills: [
+            { text: "阿里云 DashScope (官方兼容)", val: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+            { text: "本地 Ollama Qwen2.5", val: "http://127.0.0.1:11434/v1" }
+        ]
+    },
+    {
+        id: "minimax",
+        name: "MiniMax",
+        tagline: "万亿长文本 · 细腻拟真共情",
+        logoSvg: "/static/svg/model_minimax.svg",
+        defaultBaseUrl: "https://api.minimax.chat/v1",
+        desc: "全自研万亿长文本与拟真共情模型，情绪与音色表达出众，直播陪伴感强。",
+        urlPills: [
+            { text: "MiniMax 官方", val: "https://api.minimax.chat/v1" }
+        ]
+    },
+    {
+        id: "kimi",
+        name: "Kimi 月暗",
+        tagline: "超长上下文 · 直播选品记忆",
+        logoSvg: "/static/svg/model_kimi.svg",
+        defaultBaseUrl: "https://api.moonshot.cn/v1",
+        desc: "无损超长上下文标杆，百款商品 SKU 参数、品牌白皮书与大促规则精准深度召回，零幻觉不乱编。",
+        urlPills: [
+            { text: "Moonshot 官方", val: "https://api.moonshot.cn/v1" }
+        ]
+    },
+    {
+        id: "glm",
+        name: "GLM 智谱",
+        tagline: "清华系标杆 · 合规安全极速",
+        logoSvg: "/static/svg/model_glm.svg",
+        defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4/",
+        desc: "智谱自研成熟基座，中文语境深厚，安全审查与合规能力极强，glm-4-flash 免费且超快。",
+        urlPills: [
+            { text: "智谱开放平台官方", val: "https://open.bigmodel.cn/api/paas/v4/" }
+        ]
+    },
+    {
+        id: "gemini",
+        name: "Gemini",
+        tagline: "超快首包 · 原生多模态感知",
+        logoSvg: "/static/svg/model_gemini.svg",
+        defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+        desc: "Google 旗舰多模态大模型，flash 系列具备毫秒级首包极速生成，契合多模态眼见即所言。",
+        urlPills: [
+            { text: "Google 官方 OpenAI 兼容通道", val: "https://generativelanguage.googleapis.com/v1beta/openai/" }
+        ]
+    },
+    {
+        id: "chatgpt",
+        name: "ChatGPT",
+        tagline: "全球顶级旗舰 · 全能综合推理",
+        logoSvg: "/static/svg/model_chatgpt.svg",
+        defaultBaseUrl: "https://api.openai.com/v1",
+        desc: "OpenAI 工业级基准大模型，具备出色的多任务理解、结构化输出与丰富插件兼容能力。",
+        urlPills: [
+            { text: "OpenAI 官方", val: "https://api.openai.com/v1" }
+        ]
+    },
+    {
+        id: "custom",
+        name: "自定义/离线",
+        tagline: "支持 Ollama / 硅基流动",
+        logoSvg: "/static/svg/model_custom.svg",
+        defaultBaseUrl: "https://api.siliconflow.cn/v1",
+        desc: "任意符合 OpenAI API 规范的代理服务、云端 API 或本地 Ollama/vLLM 离线网关自由接入。",
+        urlPills: [
+            { text: "硅基流动 SiliconFlow", val: "https://api.siliconflow.cn/v1" },
+            { text: "本地 Ollama 离线", val: "http://127.0.0.1:11434/v1" }
+        ]
+    }
+];
+window.BUILTIN_LLM_ECOSYSTEM = BUILTIN_LLM_ECOSYSTEM;
+
+var currentSelectedLLMProvider = "deepseek";
+var currentSelectedTTSProvider = null;
+var cachedAllConfigs = [];
+let voiceCache = [];
+window.currentSelectedLLMProvider = currentSelectedLLMProvider;
+window.currentSelectedTTSProvider = currentSelectedTTSProvider;
+window.cachedAllConfigs = cachedAllConfigs;
+
+// ============================================================================
 // SVG 图标系统 (动态渲染统一入口，与 index.html 内联图标同风格)
 // ============================================================================
 const ICON_PATHS = {

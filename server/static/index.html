@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI-LiveStream-Agent · 直播控制中枢</title>
   <link rel="icon" type="image/svg+xml" href="/static/svg/favicon.svg">
-  <link rel="stylesheet" href="/static/css/console.css?v=20260917_v15">
+  <link rel="stylesheet" href="/static/css/console.css?v=20260918_v16">
   <style>
     /* 强制大模型生态选择卡片横向一排 8 列 (覆盖 Qwen, DeepSeek, MiniMax, Kimi, GLM, Gemini, ChatGPT, 自定义) */
     .llm-ecosystem-grid {
@@ -296,6 +296,18 @@
             请根据您电脑的硬件条件选择运行模式。<strong>系统已根据您的硬件配置自动推荐最合适的模式（可手动更改）</strong>。
             选择后「云端模型」页将只呈现该模式所需的配置项。<strong style="color: var(--red);">直播进行中不可更改模式。</strong>
           </p>
+
+          <!-- 两类人群开播指引快速对照盒 (本地高配 vs 远端租赁GPU) -->
+          <div style="background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px;">
+              <span style="color: #cbd5e1;">🎮 <strong>人群 1 (本地独显 RTX 3060+)：</strong>推荐选择 <strong>A / B 档</strong> (全单机离线闭环，0 算力租金)</span>
+              <span style="color: #cbd5e1;">⚡ <strong>人群 2 (轻薄本/核显 + 远端租赁GPU)：</strong>强烈推荐 <strong>C 档</strong> (约1.2元/h，1080P电影级真人，本地0显存)</span>
+            </div>
+            <button type="button" class="btn btn-xs btn-ghost" onclick="switchToTab('gpu')" style="color: #38bdf8; font-size: 11.5px; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 4px; padding: 2px 8px;">
+              查看 GPU 调度中心 ↗
+            </button>
+          </div>
+
           <div id="hw-recommend-banner" class="reco-banner" style="display:none; margin-bottom: 16px;">
             <div class="reco-banner-title">
               <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
@@ -324,15 +336,19 @@
           </div>
         </div>
 
-        <!-- 第三步：选择主播角色 -->
+        <!-- 第三步：选择直播类型与出镜主播 -->
         <div class="panel-card">
-          <div class="panel-header">
+          <div class="panel-header" style="margin-bottom: 12px;">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              第三步 · 选择主播角色
+              第三步 · 选择直播类型与出镜主播
             </span>
           </div>
+          <p class="page-intro" style="margin-bottom: 14px;">
+            首先选择本次开播的<strong>直播类型</strong>，系统将自动推荐专属运营话术；同时在下方指定该类型下的<strong>具体出镜主播</strong>。
+          </p>
           <div id="wizard-role-cards" class="grid-4"></div>
+          <div id="wizard-anchor-select-container" style="margin-top: 18px; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;"></div>
         </div>
 
         <!-- 第四步：建议与约束提示词 -->
@@ -493,6 +509,24 @@
               <button id="btn-toggle-live" class="btn btn-sm btn-primary" onclick="toggleLiveState()">
                 <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 启动本地直播源
+              </button>
+            </div>
+          </div>
+
+          <!-- 核心算力调度与硬件达标遥测条 (针对本地独显 vs 远端租赁GPU 两类人群透明呈现) -->
+          <div id="live-gpu-telemetry-bar" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span style="font-size: 12px; font-weight: 700; color: #10B981; display: inline-flex; align-items: center; gap: 6px;">
+                <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #10B981; fill: none; stroke-width: 2.2;"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="2" x2="9" y2="4" /><line x1="15" y1="2" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="22" /><line x1="15" y1="20" x2="15" y2="22" /><line x1="20" y1="9" x2="22" y2="9" /><line x1="20" y1="14" x2="22" y2="14" /><line x1="2" y1="9" x2="4" y2="9" /><line x1="2" y1="14" x2="4" y2="14" /></svg>
+                算力状态:
+              </span>
+              <span id="live-gpu-source-badge" class="brand-badge green">探查中...</span>
+              <span id="live-gpu-detail-text" style="font-size: 12px; color: #cbd5e1;">正在检测本机显卡显存与远端 GPU 连接...</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="live-gpu-requirement-tip" style="font-size: 11.5px; color: #94a3b8;">1080P 写实真人需 GPU 显存 &gt;= 4GB 或远端云显卡</span>
+              <button type="button" class="btn btn-xs btn-ghost" onclick="switchToTab('gpu')" style="color: #38bdf8; font-size: 11.5px; padding: 2px 8px; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 4px;" title="前往 GPU 配置中心切换或配置云端 GPU">
+                配置算力 / 云端 GPU ↗
               </button>
             </div>
           </div>
@@ -668,304 +702,1204 @@
       </div>
 
 
-            <div class="tab-content" id="tab-anchors">
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              主播档案管理
-              <span id="anchor-edit-hint" style="font-size:12px;color:var(--amber);font-weight:500;"></span>
-            </span>
-          </div>
-          <div class="grid-3" style="margin-bottom: 16px;">
-            <div>
-              <label class="form-label" for="anchor-name">主播姓名 <span style="color:var(--red)">*</span></label>
-              <input type="text" id="anchor-name" class="form-control" placeholder="如：金牌带货推荐官·艾米" title="主播姓名" aria-label="主播姓名" autocomplete="off" spellcheck="false">
-            </div>
-            <div>
-              <label class="form-label" for="anchor-type">主播类型 <span style="color:var(--text-muted);font-size:11px;font-weight:normal;">(核心话术与风格)</span></label>
-              <select id="anchor-type" class="form-control" title="主播类型" aria-label="主播类型">
-                <option value="ecommerce">🛍️ 带货主播（促单逼单）</option>
-                <option value="entertainment">🎭 娱乐主播（逗梗陪伴）</option>
-                <option value="expert">⚖️ 专业专家（咨询法理前置免责）</option>
-                <option value="chat">☕ 闲聊扯淡（唠嗑搭子）</option>
-              </select>
-            </div>
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <label class="form-label" for="anchor-voice" style="margin-bottom: 0;">绑定音色</label>
-                <span id="anchor-voice-engine-hint" style="font-size: 11px;"></span>
-              </div>
-              <select id="anchor-voice" class="form-control" title="绑定音色" aria-label="绑定音色"></select>
-            </div>
-          </div>
-          <label class="form-label" for="anchor-remark">备注信息</label>
-          <input type="text" id="anchor-remark" class="form-control" placeholder="如：主打美妆个护品类，风格热情高亢" title="备注信息" aria-label="备注信息" autocomplete="off" spellcheck="false">
-          <div class="grid-4" style="margin-top: 16px;">
-            <div><label class="form-label" for="anchor-photo-portrait">形象照（正面）</label><input type="file" id="anchor-photo-portrait" class="form-control" accept="image/*" title="形象照（正面）" aria-label="形象照（正面）"></div>
-            <div><label class="form-label" for="anchor-photo-full_body">全身照</label><input type="file" id="anchor-photo-full_body" class="form-control" accept="image/*" title="全身照" aria-label="全身照"></div>
-            <div><label class="form-label" for="anchor-photo-half_body">半身照</label><input type="file" id="anchor-photo-half_body" class="form-control" accept="image/*" title="半身照" aria-label="半身照"></div>
-            <div><label class="form-label" for="anchor-photo-side">侧面照</label><input type="file" id="anchor-photo-side" class="form-control" accept="image/*" title="侧面照" aria-label="侧面照"></div>
-          </div>
-          <div style="display: flex; gap: 12px; margin-top: 20px;">
-            <button class="btn btn-primary" onclick="submitAnchor()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              保存主播档案
-            </button>
-            <button class="btn" id="anchor-reset-btn" onclick="resetAnchorForm()" style="display:none;">取消编辑</button>
-            <input type="hidden" id="anchor-edit-id" value="">
-          </div>
+      <div class="tab-content" id="tab-anchors">
+  <!-- ========================================================== -->
+  <!-- 核心指引：数字人主播素材准备与 3 步极速开播全景指南 -->
+  <!-- ========================================================== -->
+  <div class="panel-card"
+    style="margin-bottom: 20px; border: 1px solid rgba(56, 189, 248, 0.35); background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.8) 100%); border-radius: 12px; padding: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);">
+    <div
+      style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+      <div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span
+            style="font-size: 16px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+            💡 数字人主播素材准备与极简开播指南
+          </span>
+          <span
+            style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 20px; padding: 2px 10px; font-weight: 600;">
+            新手必看 · 告别概念困惑
+          </span>
         </div>
-
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">全部主播档案</span>
-            <button class="btn btn-sm" onclick="loadAnchors()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              刷新
-            </button>
-          </div>
-          <table class="data-table">
-            <thead><tr><th>姓名</th><th>主播类型</th><th>绑定音色</th><th>照片/数字人</th><th>备注</th><th>操作</th></tr></thead>
-            <tbody id="anchors-tbody"></tbody>
-          </table>
+        <div style="font-size: 13px; color: #94a3b8; margin-top: 5px; line-height: 1.8;">
+          制作逼真数字人其实只需 <strong>1 段 30秒~1分钟 的绿幕视频 (最长支持2分钟)</strong>。以下为您解答核心准备疑问及标准化配置步骤：
         </div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-sm" onclick="openShootingGuideModal()"
+          style="border-color: rgba(52, 211, 153, 0.4); color: #34d399;" title="绿幕 3 段式视频录制实战 SOP 指南">
+          🎬 查看详细绿幕实拍 SOP
+        </button>
+      </div>
+    </div>
 
-        <!-- ========================================================== -->
-        <!-- 阶段二：真人视频制作数字人资产工场 (Avatar Video Slice Studio) -->
-        <!-- ========================================================== -->
-        <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(16, 185, 129, 0.25);">
-          <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
-                <svg class="icon" viewBox="0 0 24 24" style="color: #34d399;"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
-                🎬 真人视频制作数字人资产工场
-              </span>
-              <span class="badge-recommend" style="font-size:11px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">
-                25 FPS 连续帧切片 · 口型关键点对齐
-              </span>
-            </div>
-            <button class="btn btn-sm" onclick="loadAvatarTasks()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              刷新任务
-            </button>
+    <!-- 三大高频困惑 FAQ 白话解答卡片 (默认折叠答案，点击展开) -->
+    <div
+      style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 18px;">
+      <!-- 疑问 1：绿布视频怎么拍？纯动作还是带声音？ -->
+      <div
+        style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(52, 211, 153, 0.25); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: flex-start; transition: all 0.2s ease;">
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 8px; user-select: none;"
+          onclick="toggleFaqAnswer('faq-ans-shooting', this.querySelector('.faq-toggle-btn'))" title="点击展开/收起说明">
+          <div
+            style="font-size: 13.5px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 6px;">
+            <span>🎥</span> 1. 绿布视频怎么拍？纯动作还是带声音？
           </div>
-
-          <p style="font-size: 13px; color: var(--text-muted); margin: 12px 0 16px 0; line-height: 1.5;">
-            上传一段 1~2 分钟真人说话的高清视频 (MP4/MOV)，系统将自动完成视频逐帧切片提取 (<code style="color:#34d399;">full_imgs/</code>)、面部特征对齐与平滑包围盒计算 (<code style="color:#34d399;">coords.pkl</code>) 以及音频伴音分离 (<code style="color:#34d399;">audio.wav</code>)，制作专属真人级唇形同步数字人资产。
-          </p>
-
-          <!-- 视频上传与参数配置表单 -->
-          <div class="grid-3" style="margin-bottom: 16px;">
-            <div>
-              <label class="form-label" for="avatar-task-anchor">关联主播</label>
-              <select id="avatar-task-anchor" class="form-control" title="关联目标主播" aria-label="关联目标主播">
-                <option value="">-- 暂不绑定 (仅生成通用模型资产) --</option>
-              </select>
-            </div>
-            <div>
-              <label class="form-label" for="avatar-task-name">数字人资产名称 <span style="color:var(--red)">*</span></label>
-              <input type="text" id="avatar-task-name" class="form-control" placeholder="如：艾米·高清带货数字人" title="数字人资产名称" aria-label="数字人资产名称" autocomplete="off">
-            </div>
-            <div>
-              <label class="form-label" for="avatar-task-video">真人录像视频 <span style="color:var(--red)">*</span> <span style="color:var(--text-muted); font-size:11px;">(MP4/MOV, &lt;200MB)</span></label>
-              <input type="file" id="avatar-task-video" class="form-control" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" title="选择真人视频文件" aria-label="选择真人视频文件">
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px;">
-            <button class="btn btn-primary" id="btn-submit-avatar-task" onclick="submitAvatarTask()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              🎬 立即启动切片与训练
-            </button>
-            <span id="avatar-task-hint" style="font-size: 12px; color: var(--text-muted);"></span>
-          </div>
-
-          <!-- 实时进度卡片 (有活动任务时展示) -->
-          <div id="avatar-task-active-box" style="display: none; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-size: 14px; font-weight: 600; color: #34d399; display: flex; align-items: center; gap: 6px;">
-                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
-                <span id="active-task-title">正在处理任务...</span>
-              </span>
-              <span id="active-task-percent" style="font-size: 16px; font-weight: 700; color: #34d399;">0%</span>
-            </div>
-            <!-- 进度条 -->
-            <div style="width: 100%; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
-              <div id="active-task-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #059669, #10b981); transition: width 0.3s ease;"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted);">
-              <span id="active-task-stage">准备中...</span>
-              <button class="btn btn-sm btn-danger" id="active-task-cancel-btn" onclick="cancelActiveAvatarTask()" style="padding: 2px 10px; font-size: 11px;">取消任务</button>
-            </div>
-          </div>
-
-          <!-- 历史切片资产库与任务列表 -->
-          <div style="margin-top: 16px;">
-            <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">
-              已训练数字人资产列表
-            </div>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>缩略图</th>
-                  <th>模型资产名称</th>
-                  <th>关联主播</th>
-                  <th>切片帧数</th>
-                  <th>状态</th>
-                  <th>创建时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="avatar-tasks-tbody">
-                <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载数字人任务...</td></tr>
-              </tbody>
-            </table>
-          </div>
+          <button type="button" class="faq-toggle-btn btn btn-sm"
+            onclick="event.stopPropagation(); toggleFaqAnswer('faq-ans-shooting', this);"
+            style="font-size: 12px; padding: 2px 9px; color: #34d399; background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.35); border-radius: 4px; flex-shrink: 0; cursor: pointer;">
+            查看说明 ▾
+          </button>
         </div>
-
-        <!-- ========================================================== -->
-        <!-- 阶段三：动作视频状态机与电商带货场景智能绑定 (Action State Machine) -->
-        <!-- ========================================================== -->
-        <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(245, 158, 11, 0.25);">
-          <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
-                <svg class="icon" viewBox="0 0 24 24" style="color: #f59e0b;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                🎭 动作视频状态机与电商带货智能绑定 (阶段三)
-              </span>
-              <span class="badge-recommend" style="font-size:11px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">
-                双轨智能驱动 · 优先级抢占 · 镜像无缝往返
-              </span>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-sm" onclick="loadAvatarActions()">
-                <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                刷新动作
-              </button>
-            </div>
+        <div id="faq-ans-shooting"
+          style="display: none; margin-top: 12px; border-top: 1px dashed rgba(52, 211, 153, 0.25); padding-top: 10px; font-size: 13px; color: #cbd5e1; line-height: 1.85; flex-direction: column; gap: 8px;">
+          <div style="border-bottom: 1px dashed rgba(52, 211, 153, 0.25); padding-bottom: 8px;">
+            • <strong>黄金铁律：全程嘴唇自然微合，绝对不说话、不张嘴！</strong>
           </div>
-
-          <!-- 状态机实时遥测仪表条 -->
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; border: 1px solid rgba(255,255,255,0.06);">
-            <div>
-              <div style="font-size: 11px; color: var(--text-muted);">当前动作状态</div>
-              <div id="action-telemetry-current" style="font-size: 14px; font-weight: 600; color: #34d399; margin-top: 2px;">Action 0: 待机呼吸</div>
-            </div>
-            <div>
-              <div style="font-size: 11px; color: var(--text-muted);">运行中优先级</div>
-              <div id="action-telemetry-priority" style="font-size: 14px; font-weight: 600; color: #fbbf24; margin-top: 2px;">P0 (待机)</div>
-            </div>
-            <div>
-              <div style="font-size: 11px; color: var(--text-muted);">持续倒计时 (自动衰减)</div>
-              <div id="action-telemetry-countdown" style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-top: 2px;">循环常驻</div>
-            </div>
-            <div>
-              <div style="font-size: 11px; color: var(--text-muted);">平滑算法</div>
-              <div style="font-size: 14px; font-weight: 600; color: #38bdf8; margin-top: 2px;">Mirror Index 镜像无缝</div>
-            </div>
+          <div style="border-bottom: 1px dashed rgba(52, 211, 153, 0.25); padding-bottom: 8px;">
+            • <strong>为什么千万不要说话？</strong> 本系统采用工业级<strong>局部神经唇形重绘</strong>（身体发丝用原视频，仅嘴部由 AI 实时生成）。若录像时你在说话张嘴，开播时 AI
+            新口型就会与原视频嘴巴打架，导致“双重嘴唇叠影、嘴唇抽搐翻车”！
           </div>
-
-          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5;">
-            数字人状态机支持由<strong>主播口播话术关键词</strong>（如“购物车/下单”触发动作 3 指引）与<strong>直播间实时场控事件</strong>（如“收到大额礼物”触发动作 4 鞠躬致谢）双轨触发，动作执行结束后超时自动平滑回待机态 0。
-          </p>
-
-          <!-- 动作配置列表 -->
-          <table class="data-table" style="margin-bottom: 16px;">
-            <thead>
-              <tr>
-                <th style="width: 70px;">槽位</th>
-                <th style="width: 140px;">动作名称</th>
-                <th style="width: 100px;">关联主播</th>
-                <th>触发机制与关键词</th>
-                <th>场控事件</th>
-                <th style="width: 90px;">持续/优先级</th>
-                <th style="width: 110px;">切片资产</th>
-                <th style="width: 180px;">操作</th>
-              </tr>
-            </thead>
-            <tbody id="avatar-actions-tbody">
-              <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载动作状态机配置...</td></tr>
-            </tbody>
-          </table>
-
-          <!-- 动作快速编辑面板 (展开/折叠) -->
-          <div id="action-edit-card" style="display: none; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 16px; margin-top: 16px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-              <span id="action-edit-title" style="font-weight: 600; font-size: 14px; color: #fbbf24;">编辑动作参数</span>
-              <button class="btn btn-sm" onclick="closeActionEditCard()">关闭</button>
-            </div>
-            <div class="grid-3" style="margin-bottom: 12px;">
-              <div>
-                <label class="form-label" for="edit-action-code">动作槽位 Code <span style="color:var(--red)">*</span></label>
-                <input type="number" id="edit-action-code" class="form-control" placeholder="0:待机, 1:欢迎, 2:关注, 3:逼单, 4:致谢" title="动作槽位 Code" aria-label="动作槽位 Code">
-              </div>
-              <div>
-                <label class="form-label" for="edit-action-name">动作名称 <span style="color:var(--red)">*</span></label>
-                <input type="text" id="edit-action-name" class="form-control" placeholder="如：促单指引购物车" title="动作名称" aria-label="动作名称">
-              </div>
-              <div>
-                <label class="form-label" for="edit-action-anchor">所属主播</label>
-                <select id="edit-action-anchor" class="form-control" title="所属主播" aria-label="所属主播">
-                  <option value="">-- 全局通用 (所有主播生效) --</option>
-                </select>
-              </div>
-            </div>
-            <div class="grid-3" style="margin-bottom: 12px;">
-              <div>
-                <label class="form-label" for="edit-action-trigger-type">触发类型</label>
-                <select id="edit-action-trigger-type" class="form-control" title="触发类型" aria-label="触发类型">
-                  <option value="both">双轨触发 (关键词 + 场控事件)</option>
-                  <option value="keyword">仅关键词触发 (话术匹配)</option>
-                  <option value="event">仅场控事件触发 (礼物/欢迎/下单)</option>
-                  <option value="manual">仅手动触发</option>
-                </select>
-              </div>
-              <div>
-                <label class="form-label" for="edit-action-duration">持续时长 (秒)</label>
-                <input type="number" step="0.5" id="edit-action-duration" class="form-control" value="3.5" title="持续时长" aria-label="持续时长">
-              </div>
-              <div>
-                <label class="form-label" for="edit-action-priority">优先级 (P0~P9，高优先抢占)</label>
-                <input type="number" id="edit-action-priority" class="form-control" value="3" title="优先级" aria-label="优先级">
-              </div>
-            </div>
-            <div class="grid-2" style="margin-bottom: 12px;">
-              <div>
-                <label class="form-label" for="edit-action-keywords">话术触发关键词 (逗号分隔)</label>
-                <input type="text" id="edit-action-keywords" class="form-control" placeholder="例如：购物车,下单,左下角,手慢无" title="话术触发关键词" aria-label="话术触发关键词">
-              </div>
-              <div>
-                <label class="form-label" for="edit-action-events">关联场控事件</label>
-                <select id="edit-action-events" class="form-control" title="关联场控事件" aria-label="关联场控事件">
-                  <option value="">-- 无事件绑定 --</option>
-                  <option value="welcome">进房欢迎 (welcome)</option>
-                  <option value="follow">点赞关注 (follow)</option>
-                  <option value="order">下单成交 (order)</option>
-                  <option value="gift">礼物打赏致谢 (gift)</option>
-                </select>
-              </div>
-            </div>
-            <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px;">
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer;">
-                <input type="checkbox" id="edit-action-mirror" checked> 启用 Mirror Index 镜像平滑往返循环 (消除画面跳变)
-              </label>
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; margin-left: 16px;">
-                <input type="checkbox" id="edit-action-active" checked> 启用该动作槽位
-              </label>
-            </div>
-            <div style="display: flex; gap: 10px; margin-top: 16px;">
-              <button class="btn btn-primary" onclick="submitSaveAvatarAction()">保存配置</button>
-              <button class="btn" onclick="closeActionEditCard()">取消</button>
-            </div>
-            <input type="hidden" id="edit-action-id" value="">
+          <div style="border-bottom: 1px dashed rgba(52, 211, 153, 0.25); padding-bottom: 8px;">
+            • <strong>录制方式：纯动作录制</strong>。面带微笑、眼神自然看镜头、身体保持轻微自然的呼吸起伏，录制 <strong>30秒~1分钟（最长支持2分钟）</strong> 即可；
           </div>
-
-          <!-- 隐藏的文件上传控件 (点击各动作上传切片时调用) -->
-          <input type="file" id="action-clip-uploader" accept="video/mp4,video/quicktime,video/webm" style="display:none;" onchange="handleActionClipFileSelected(this)" title="上传切片文件" aria-label="上传切片文件">
+          <div style="border-bottom: 1px dashed rgba(52, 211, 153, 0.25); padding-bottom: 8px;">
+            • <strong>背景与环境</strong>：必须平整纯绿布（人距幕布1.5米防止绿光返照），切忌大幅晃动或伸手遮挡脸部。
+          </div>
+          <div>
+            • <strong>在哪里上传？</strong> 录好后，在下方主播列表找到目标主播，直接点击操作列的 <span
+              style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 600;">🎬
+              制作数字人</span>（或 <span
+              style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 600;">🔄
+              重新制作</span>）按钮，系统将自动带入主播并定位到上传表单！
+          </div>
         </div>
       </div>
 
+      <!-- 疑问 2：是否需要上传照片？ -->
+      <div
+        style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: flex-start; transition: all 0.2s ease;">
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 8px; user-select: none;"
+          onclick="toggleFaqAnswer('faq-ans-photo', this.querySelector('.faq-toggle-btn'))" title="点击展开/收起说明">
+          <div
+            style="font-size: 13.5px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+            <span>🖼️</span> 2. 是否需要上传形象照 / 照片？
+          </div>
+          <button type="button" class="faq-toggle-btn btn btn-sm"
+            onclick="event.stopPropagation(); toggleFaqAnswer('faq-ans-photo', this);"
+            style="font-size: 12px; padding: 2px 9px; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 4px; flex-shrink: 0; cursor: pointer;">
+            查看说明 ▾
+          </button>
+        </div>
+        <div id="faq-ans-photo"
+          style="display: none; margin-top: 12px; border-top: 1px dashed rgba(56, 189, 248, 0.25); padding-top: 10px; font-size: 13px; color: #cbd5e1; line-height: 1.85; flex-direction: column; gap: 8px;">
+          <div style="border-bottom: 1px dashed rgba(56, 189, 248, 0.25); padding-bottom: 8px;">
+            • <strong>【一般不需要上传！】</strong>
+          </div>
+          <div style="border-bottom: 1px dashed rgba(56, 189, 248, 0.25); padding-bottom: 8px;">
+            • 只要你在下方上传了绿幕视频，系统在制作数字人时会<strong>自动截取最清晰的一帧正面头像</strong>作为主播形象照，省去拍照修图的麻烦；
+          </div>
+          <div>
+            • <strong>什么时候才需要传？</strong> 仅当你暂时没有录好视频，只想先建立一个主播文字档案占位时，才可选填上传一张照片。
+          </div>
+        </div>
+      </div>
+
+      <!-- 疑问 3：什么是动作切片？ -->
+      <div
+        style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(251, 191, 36, 0.25); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: flex-start; transition: all 0.2s ease;">
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 8px; user-select: none;"
+          onclick="toggleFaqAnswer('faq-ans-slices', this.querySelector('.faq-toggle-btn'))" title="点击展开/收起说明">
+          <div
+            style="font-size: 13.5px; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
+            <span>✂️</span> 3. 什么是“动作切片”？
+          </div>
+          <button type="button" class="faq-toggle-btn btn btn-sm"
+            onclick="event.stopPropagation(); toggleFaqAnswer('faq-ans-slices', this);"
+            style="font-size: 12px; padding: 2px 9px; color: #fbbf24; background: rgba(251, 191, 36, 0.12); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 4px; flex-shrink: 0; cursor: pointer;">
+            查看说明 ▾
+          </button>
+        </div>
+        <div id="faq-ans-slices"
+          style="display: none; margin-top: 12px; border-top: 1px dashed rgba(251, 191, 36, 0.25); padding-top: 10px; font-size: 13px; color: #cbd5e1; line-height: 1.85; flex-direction: column; gap: 8px;">
+          <div style="border-bottom: 1px dashed rgba(251, 191, 36, 0.25); padding-bottom: 8px;">
+            • 数字人说话不是循环播放死板视频，而是把视频拆成每秒 25 张画面底模（即<strong>切片</strong>）；
+          </div>
+          <div style="border-bottom: 1px dashed rgba(251, 191, 36, 0.25); padding-bottom: 8px;">
+            • <strong>① 基础底模（必配）</strong>：就是主播平时的日常呼吸与待机微动，AI 实时在脸上替换嘴型；
+          </div>
+          <div>
+            • <strong>② 互动动作切片（选配）</strong>：比如“指购物车/双手点赞/弯腰致谢”等短动作，当观众下单或你说到促销词时智能插播，播完自动平滑回待机。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 极简 3 步配置路线图 -->
+    <div
+      style="background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 16px;">
+      <div
+        style="font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+        <span>🧭</span> 新手极简 3 步开播指引
+      </div>
+      <div
+        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; font-size: 13px; color: #cbd5e1; line-height: 1.85;">
+        <div style="display: flex; gap: 8px;">
+          <span
+            style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">1</span>
+          <div>
+            <strong style="color: #fff;">建立主播档案 (必做)</strong><br>
+            在下方填写主播姓名、风格定位，必须绑定一个主播音色，可以不用上传形象照，提交保存。
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <span
+            style="background: rgba(52, 211, 153, 0.2); color: #34d399; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">2</span>
+          <div>
+            <strong style="color: #fff;">上传绿幕视频生成数字人 (必做)</strong><br>
+            点击主播行右侧 <span style="color:#34d399; font-weight:600;">【🎬 制作数字人】或【🔄 重新制作】</span> 按钮，上传 30秒~1分钟 绿幕出镜视频。
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <span
+            style="background: rgba(251, 191, 36, 0.2); color: #fbbf24; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">3</span>
+          <div>
+            <strong style="color: #fff;">绑定互动特定动作 (进阶可选)</strong><br>
+            想让直播更生动才需要上传额外特定动作（如逼单、感谢），新手可直接跳过！开播后总结领悟，然后补充。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 软硬件体检：数字人系统软硬件要求与实机体检报告 (独立置顶) -->
+  <!-- ========================================================== -->
+  <div class="panel-card" id="hardware-requirements-card"
+    style="margin-bottom: 20px; border: 1px solid rgba(56, 189, 248, 0.35); background: rgba(15, 23, 42, 0.65); border-radius: 12px; padding: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);">
+    <div
+      style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; flex-wrap:wrap; gap:10px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span
+          style="font-size:16px; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+          🖥️ 数字人系统软硬件要求与实机体检报告
+        </span>
+        <span class="badge-recommend"
+          style="font-size:11px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">
+          系统实时感知
+        </span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span id="hw-cloud-status-badge"
+          style="font-size: 12px; padding:3px 12px; border-radius:20px; font-weight:600; display:inline-flex; align-items:center; gap:6px; background:rgba(239, 68, 68, 0.12); color:#f87171; border:1px solid rgba(239, 68, 68, 0.3);">
+          <span id="hw-cloud-status-dot"
+            style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#ef4444;"></span>
+          <span id="hw-cloud-status-text">云端 GPU 算力：检测中...</span>
+        </span>
+        <button class="btn btn-sm" onclick="loadDigitalHumanHardwareRequirements(true)" title="重新探查算力状态"
+          style="padding:3px 10px; font-size:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); color:var(--text-muted); border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
+          🔄 刷新检测
+        </button>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:18px;">
+      <!-- 阶段一体检卡片 -->
+      <div
+        style="background:rgba(16, 185, 129, 0.05); border:1px solid rgba(16, 185, 129, 0.35); border-radius:10px; padding:16px 18px;">
+        <div
+          style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(16, 185, 129, 0.15); padding-bottom:8px;">
+          <strong style="font-size:14px; font-weight:700; color:#34d399; display:flex; align-items:center; gap:6px;">
+            <span>⚡</span> 阶段一：数字人切片与资产制作 (离线工场)
+          </strong>
+          <span id="hw-badge-slicing" class="badge-recommend"
+            style="font-size: 13px; font-weight:600; padding:3px 10px; background:rgba(16, 185, 129, 0.2); color:#34d399; border:1px solid rgba(16, 185, 129, 0.4); border-radius:6px;">
+            🟢 完全达标 (纯CPU极速运行)
+          </span>
+        </div>
+        <div style="font-size:13.5px; color:#e2e8f0; line-height: 1.85;">
+          <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">核心算法：</strong>OpenCV 图像检测 + FFmpeg 抽帧 +
+            平滑滤波 (<span style="color:#38bdf8; font-weight:600;">纯 CPU 流水线</span>)</div>
+          <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">硬件要求：</strong>CPU &gt;= 4核，内存 &gt;=
+            4GB，<span style="color:#34d399; font-weight:700;">无需独立显卡 (0 显存要求)</span></div>
+          <div style="margin-bottom:8px;">• <strong style="color:#94a3b8;">实机状态：</strong><span id="hw-slicing-current"
+              style="color:#ffffff; font-weight:600;">本机 12核高性能 CPU + 32GB 内存 (大幅达标)</span></div>
+          <div
+            style="margin-top:10px; font-size: 13px; line-height: 1.85; color:#a7f3d0; background:rgba(16, 185, 129, 0.08); border:1px solid rgba(16, 185, 129, 0.22); padding:8px 12px; border-radius:6px;">
+            💡 <strong>为何 2G 显卡能生成：</strong>切片任务是纯 CPU 图像与音轨提取，完全不消耗 GPU 显存，数十秒内即可极速完成！
+          </div>
+        </div>
+      </div>
+
+      <!-- 阶段二体检卡片 -->
+      <div
+        style="background:rgba(245, 158, 11, 0.05); border:1px solid rgba(245, 158, 11, 0.35); border-radius:10px; padding:16px 18px;">
+        <div
+          style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(245, 158, 11, 0.15); padding-bottom:8px;">
+          <strong style="font-size:14px; font-weight:700; color:#fbbf24; display:flex; align-items:center; gap:6px;">
+            <span>🔴</span> 阶段二：数字人开播与实时唇形驱动 (在线推流)
+          </strong>
+          <span id="hw-badge-streaming" class="badge-recommend"
+            style="font-size: 13px; font-weight:600; padding:3px 10px; background:rgba(245, 158, 11, 0.18); color:#fbbf24; border:1px solid rgba(245, 158, 11, 0.4); border-radius:6px;">
+            ⚠️ 开播前需启动云端GPU
+          </span>
+        </div>
+        <div style="font-size:13.5px; color:#e2e8f0; line-height: 1.85;">
+          <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">核心算法：</strong>PyTorch CUDA 深度学习神经网络
+            (Wav2Lip / MuseTalk 25 FPS)</div>
+          <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">硬件要求：</strong>NVIDIA 显卡显存 &gt;= 4GB/6GB (支持
+            CUDA) 或 <span style="color:#38bdf8; font-weight:600;">远端租赁 GPU</span></div>
+          <div style="margin-bottom:8px;">• <strong style="color:#94a3b8;">实机状态：</strong><span id="hw-streaming-current"
+              style="color:#ffffff; font-weight:600;">本地 GT 710 (2.0GB，无深度学习算力)；云端:
+              未开机</span></div>
+          <div
+            style="margin-top:10px; font-size: 13px; line-height: 1.85; color:#fde68a; background:rgba(245, 158, 11, 0.08); border:1px solid rgba(245, 158, 11, 0.22); padding:8px 12px; border-radius:6px;">
+            👉 <strong>开播动作引导：</strong>开播时系统需每秒毫秒级计算新嘴唇。请在开播前开机您的 AutoDL 算力云主机即可！
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 第一步：全部主播档案 (置顶首屏展示列表) -->
+  <!-- ========================================================== -->
+  <div class="panel-card">
+    <div class="panel-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="panel-title" style="display: flex; align-items: center; gap: 8px;">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+          全部主播档案
+        </span>
+        <span style="font-size: 13px; color: var(--text-muted); font-weight: normal;">(系统当前已有主播资产与人设风格定位)</span>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-sm" onclick="openStudioHelperModal()"
+          style="border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;" title="OBS 与抖音直播伴侣导播演播室配置助手">
+          🎛️ 演播室配置助手
+        </button>
+        <button class="btn btn-sm" onclick="openShootingGuideModal()"
+          style="border-color: rgba(52, 211, 153, 0.4); color: #34d399;" title="绿幕 3 段式视频录制实战 SOP 指南">
+          🎬 绿幕实拍 SOP 指南
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="focusCreateAnchorForm()" title="新建主播基础档案">
+          ➕ 添加新主播
+        </button>
+        <button class="btn btn-sm" onclick="loadAnchors()" title="重新加载主播数据">
+          <svg class="icon-sm" viewBox="0 0 24 24">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          刷新
+        </button>
+      </div>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width: 17%;">主播姓名与肖像</th>
+          <th style="width: 14%;">主播人设定位</th>
+          <th style="width: 10%;">绑定音色</th>
+          <th style="width: 32%;">数字人模型与切片资产</th>
+          <th style="width: 6%;">备注</th>
+          <th style="width: 21%; text-align: right;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="anchors-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 第二步：添加 / 编辑主播基础档案 (轻量化表单，无需上传视频) -->
+  <!-- ========================================================== -->
+  <div class="panel-card" id="panel-anchor-form" style="margin-top: 20px;">
+    <div class="panel-header">
+      <span class="panel-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+        </svg>
+        <span id="anchor-form-card-title">添加新主播基础档案</span>
+        <span id="anchor-edit-hint" style="font-size: 13px;color:var(--amber);font-weight:500;margin-left:8px;"></span>
+      </span>
+    </div>
+    <div class="grid-3" style="margin-bottom: 16px;">
+      <div>
+        <label class="form-label" for="anchor-name">主播姓名 <span style="color:var(--red)">*</span></label>
+        <input type="text" id="anchor-name" class="form-control" placeholder="如：金牌带货推荐官·艾米" title="主播姓名"
+          aria-label="主播姓名" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label class="form-label" for="anchor-type">主播定位类型 <span
+            style="color:var(--text-muted);font-size:11px;font-weight:normal;">(核心话术与风格)</span></label>
+        <select id="anchor-type" class="form-control" title="主播类型" aria-label="主播类型">
+          <option value="ecommerce">🛍️ 带货主播（促单逼单）</option>
+          <option value="entertainment">🎭 娱乐主播（逗梗陪伴）</option>
+          <option value="expert">⚖️ 专业专家（咨询法理前置免责）</option>
+          <option value="chat">☕ 闲聊扯淡（唠嗑搭子）</option>
+        </select>
+      </div>
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label class="form-label" for="anchor-voice" style="margin-bottom: 0;">绑定音色</label>
+          <span id="anchor-voice-engine-hint" style="font-size: 11px;"></span>
+        </div>
+        <select id="anchor-voice" class="form-control" title="绑定音色" aria-label="绑定音色"></select>
+      </div>
+    </div>
+    <div class="grid-2" style="gap: 16px; margin-bottom: 16px;">
+      <div>
+        <label class="form-label" for="anchor-photo-portrait">
+          🖼️ 主播头像 / 形象照 <span
+            style="font-size:11px; font-weight:normal; color:#34d399; background:rgba(52,211,153,0.12); padding:1px 6px; border-radius:4px; margin-left:4px;">非必传
+            · 系统会自动从视频截取</span>
+        </label>
+        <input type="file" id="anchor-photo-portrait" class="form-control" accept="image/*" title="形象照（正面）"
+          aria-label="形象照（正面）">
+        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.75;">
+          💡 <strong>通常留空即可</strong>。若稍后在下方制作数字人，系统将<strong>自动从绿幕视频中截取最佳正脸</strong>作为形象照，无需手动拍照上传。
+        </span>
+      </div>
+      <div>
+        <label class="form-label" for="anchor-remark">备注说明 <span
+            style="font-size:11px; font-weight:normal; color:var(--text-muted);">(选填)</span></label>
+        <input type="text" id="anchor-remark" class="form-control" placeholder="如：主打美妆个护品类，风格热情高亢" title="备注信息"
+          aria-label="备注信息" autocomplete="off" spellcheck="false">
+        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px; line-height: 1.75;">
+          记录主播的人设特征、带货品类或业务注意事项。
+        </span>
+      </div>
+    </div>
+    <div
+      style="padding: 12px 16px; background: rgba(56, 189, 248, 0.05); border: 1px dashed rgba(56, 189, 248, 0.25); border-radius: 8px; font-size: 13px; color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+      <span>
+        🎬 <strong>操作顺序提醒：</strong>先建立好基础档案并选择音色，接着在下方【制作数字人基础模型】上传 <strong>30秒~1分钟 (最长支持2分钟)</strong> 绿幕出镜视频即可，无需重复传视频。
+      </span>
+      <div style="display: flex; gap: 10px; align-items: center; margin-left: auto;">
+        <button class="btn" id="anchor-reset-btn" onclick="resetAnchorForm()" style="display:none;">取消编辑</button>
+        <button class="btn btn-primary" onclick="submitAnchor()">
+          <svg class="icon-sm" viewBox="0 0 24 24">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17 21 17 13 7 13 7 21" />
+            <polyline points="7 3 7 8 15 8" />
+          </svg>
+          <span id="anchor-submit-btn-text">保存主播档案</span>
+        </button>
+        <input type="hidden" id="anchor-edit-id" value="">
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 阶段二：制作数字人基础模型 (上传 30秒~1分钟 绿幕闭口静默视频 · 动作底模) -->
+  <!-- ========================================================== -->
+  <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(16, 185, 129, 0.25);">
+    <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
+          <svg class="icon" viewBox="0 0 24 24" style="color: #34d399;">
+            <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+            <line x1="7" y1="2" x2="7" y2="22" />
+            <line x1="17" y1="2" x2="17" y2="22" />
+            <line x1="2" y1="12" x2="22" y2="12" />
+            <line x1="2" y1="7" x2="7" y2="7" />
+            <line x1="2" y1="17" x2="7" y2="17" />
+            <line x1="17" y1="17" x2="22" y2="17" />
+            <line x1="17" y1="7" x2="22" y2="7" />
+          </svg>
+          制作数字人基础模型 (上传 30秒~1分钟 绿幕闭口视频 · 最长支持2分钟)
+        </span>
+      </div>
+      <button class="btn btn-sm" onclick="loadAvatarTasks()">
+        <svg class="icon-sm" viewBox="0 0 24 24">
+          <polyline points="23 4 23 10 17 10" />
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+        </svg>
+        刷新任务
+      </button>
+    </div>
+
+    <p style="font-size: 13px; color: var(--text-muted); margin: 12px 0 16px 0; line-height: 1.85;">
+      上传一段 <strong>30秒~1分钟 (最长不超过2分钟)</strong> 真人<strong>全程自然闭口不说话</strong>的绿幕高清视频
+      (MP4/MOV)，系统将自动完成<strong>动作画面逐帧分解</strong>、<strong>人脸与嘴型位置定位</strong>以及<strong>生成 25 FPS 连续动态底模</strong>。开播时由 AI
+      神经网络根据实时语音在此底模上实时驱动嘴型。
+    </p>
+
+    <!-- 视频上传与参数配置表单 -->
+    <div class="grid-3" style="margin-bottom: 16px;">
+      <div>
+        <label class="form-label" for="avatar-task-anchor">关联目标主播 <span style="color:var(--red)">*</span></label>
+        <select id="avatar-task-anchor" class="form-control" title="关联目标主播" aria-label="关联目标主播" required>
+          <option value="">-- 请选择要绑定的主播 (必选) --</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="avatar-task-name">数字人资产名称 <span style="color:var(--red)">*</span></label>
+        <input type="text" id="avatar-task-name" class="form-control" placeholder="如：艾米·高清带货数字人" title="数字人资产名称"
+          aria-label="数字人资产名称" autocomplete="off">
+      </div>
+      <div>
+        <label class="form-label" for="avatar-task-video">真人录像视频 <span style="color:var(--red)">*</span> <span
+            style="color:var(--text-muted); font-size:11px;">(MP4/MOV, &lt;200MB)</span></label>
+        <input type="file" id="avatar-task-video" class="form-control"
+          accept="video/mp4,video/quicktime,video/webm,video/x-matroska" title="选择真人视频文件" aria-label="选择真人视频文件">
+      </div>
+    </div>
+
+    <div
+      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; background: rgba(15, 23, 42, 0.45); border: 1px dashed rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 14px;">
+      <div style="font-size: 13px; color: #cbd5e1; display: flex; align-items: center; gap: 8px;">
+        <span class="brand-badge sky" style="font-size: 11px;">算力提示</span>
+        <span>当前切片步骤由<strong>本地 CPU 流水线极速运算</strong>（无需显卡）；制作生成的写实数字人资产在<strong>直播开播时需独立 GPU 或远端租赁节点</strong>承载。</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px; margin-left: auto;">
+        <span id="avatar-task-hint" style="font-size: 13px; color: var(--text-muted);"></span>
+        <button class="btn btn-primary" id="btn-submit-avatar-task" onclick="submitAvatarTask()">
+          <svg class="icon-sm" viewBox="0 0 24 24">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          🎬 立即启动切片与训练
+        </button>
+      </div>
+    </div>
+
+
+    <!-- 实时进度卡片 (有活动任务时展示) -->
+    <div id="avatar-task-active-box"
+      style="display: none; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-size: 14px; font-weight: 600; color: #34d399; display: flex; align-items: center; gap: 6px;">
+          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
+          <span id="active-task-title">正在处理任务...</span>
+        </span>
+        <span id="active-task-percent" style="font-size: 16px; font-weight: 700; color: #34d399;">0%</span>
+      </div>
+      <!-- 进度条 -->
+      <div
+        style="width: 100%; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+        <div id="active-task-bar"
+          style="width: 0%; height: 100%; background: linear-gradient(90deg, #059669, #10b981); transition: width 0.3s ease;">
+        </div>
+      </div>
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--text-muted);">
+        <span id="active-task-stage">准备中...</span>
+        <button class="btn btn-sm btn-danger" id="active-task-cancel-btn" onclick="cancelActiveAvatarTask()"
+          style="padding: 2px 10px; font-size: 11px;">取消任务</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 阶段三：互动特定动作库 (进阶可选 · 让数字人能指商品、鞠躬致谢) -->
+  <!-- ========================================================== -->
+  <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(245, 158, 11, 0.25);">
+    <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
+          <svg class="icon" viewBox="0 0 24 24" style="color: #f59e0b;">
+            <polygon
+              points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+          🎭 互动特定动作库 (进阶可选 · 让数字人能指商品、鞠躬致谢)
+        </span>
+        <span class="badge-recommend"
+          style="font-size:11px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">
+          进阶选填 · 新手可直接跳过开播
+        </span>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-sm" onclick="loadAvatarActions()">
+          <svg class="icon-sm" viewBox="0 0 24 24">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          刷新动作
+        </button>
+      </div>
+    </div>
+
+    <!-- 状态机实时遥测仪表条 -->
+    <div
+      style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; border: 1px solid rgba(255,255,255,0.06);">
+      <div>
+        <div style="font-size: 11px; color: var(--text-muted);">当前动作状态</div>
+        <div id="action-telemetry-current" style="font-size: 14px; font-weight: 600; color: #34d399; margin-top: 2px;">
+          Action 0: 待机呼吸</div>
+      </div>
+      <div>
+        <div style="font-size: 11px; color: var(--text-muted);">运行中优先级</div>
+        <div id="action-telemetry-priority" style="font-size: 14px; font-weight: 600; color: #fbbf24; margin-top: 2px;">
+          P0 (待机)</div>
+      </div>
+      <div>
+        <div style="font-size: 11px; color: var(--text-muted);">持续倒计时 (自动衰减)</div>
+        <div id="action-telemetry-countdown"
+          style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-top: 2px;">循环常驻</div>
+      </div>
+      <div>
+        <div style="font-size: 11px; color: var(--text-muted);">平滑过渡机制</div>
+        <div style="font-size: 14px; font-weight: 600; color: #38bdf8; margin-top: 2px;">镜像倒放平滑回位 (不跳画)</div>
+      </div>
+    </div>
+
+    <div
+      style="padding: 10px 14px; background: rgba(245, 158, 11, 0.06); border: 1px dashed rgba(245, 158, 11, 0.25); border-radius: 8px; font-size: 13px; color: #cbd5e1; margin-bottom: 16px; line-height: 1.85;">
+      💡 <strong>新手指南：</strong>完成上述二步（添加主播、上传绿幕视频）后，数字人主播就已经具备完整的<strong>日常说话与待机能力，已可正常开播</strong>！<br>
+      本区域仅用于为数字人丰富互动表现（例如：主播口播“点击购物车”时自动插播指引动作、观众送大礼物时自动鞠躬感谢）。若暂无对应动作素材，保持系统默认即可。
+    </div>
+
+    <!-- 动作配置列表 -->
+    <div style="overflow-x: auto;">
+      <table class="data-table" style="margin-bottom: 16px; width: 100%; min-width: 980px;">
+        <thead>
+          <tr>
+            <th style="width: 6%; min-width: 55px;">槽位</th>
+            <th style="width: 13%; min-width: 110px;">动作名称</th>
+            <th style="width: 8%; min-width: 75px;">关联主播</th>
+            <th style="width: 23%; min-width: 160px;">触发机制与关键词</th>
+            <th style="width: 13%; min-width: 110px;">场控事件</th>
+            <th style="width: 8%; min-width: 75px;">持续/优先级</th>
+            <th style="width: 9%; min-width: 85px;">切片资产</th>
+            <th style="width: 20%; min-width: 240px; white-space: nowrap;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="avatar-actions-tbody">
+          <tr>
+            <td colspan="8" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载动作状态机配置...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 动作快速编辑面板 (展开/折叠) -->
+    <div id="action-edit-card"
+      style="display: none; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 16px; margin-top: 16px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span id="action-edit-title" style="font-weight: 600; font-size: 14px; color: #fbbf24;">编辑动作参数</span>
+        <button class="btn btn-sm" onclick="closeActionEditCard()">关闭</button>
+      </div>
+      <div class="grid-3" style="margin-bottom: 12px;">
+        <div>
+          <label class="form-label" for="edit-action-code">动作编号 (Code) <span style="color:var(--red)">*</span></label>
+          <input type="number" id="edit-action-code" class="form-control" placeholder="0:待机, 1:欢迎, 2:关注, 3:逼单, 4:致谢"
+            title="动作编号 Code" aria-label="动作编号 Code">
+          <span
+            style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 3px;">0=待机日常，1~4=特定插播动作</span>
+        </div>
+        <div>
+          <label class="form-label" for="edit-action-name">动作名称 <span style="color:var(--red)">*</span></label>
+          <input type="text" id="edit-action-name" class="form-control" placeholder="如：促单指引购物车" title="动作名称"
+            aria-label="动作名称">
+          <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 3px;">便于识别的动作标签</span>
+        </div>
+        <div>
+          <label class="form-label" for="edit-action-anchor">所属主播</label>
+          <select id="edit-action-anchor" class="form-control" title="所属主播" aria-label="所属主播">
+            <option value="">-- 全局通用 (所有主播生效) --</option>
+          </select>
+          <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 3px;">指定专属主播或通用</span>
+        </div>
+      </div>
+      <div class="grid-3" style="margin-bottom: 12px;">
+        <div>
+          <label class="form-label" for="edit-action-trigger-type">触发方式</label>
+          <select id="edit-action-trigger-type" class="form-control" title="触发方式" aria-label="触发方式">
+            <option value="both">智能双触发 (口播词 + 观众互动)</option>
+            <option value="keyword">仅口播触发 (讲到特定词播放)</option>
+            <option value="event">仅观众互动触发 (点赞/送礼/下单)</option>
+            <option value="manual">仅手动点击触发</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label" for="edit-action-duration">播放时长 (秒)</label>
+          <input type="number" step="0.5" id="edit-action-duration" class="form-control" value="3.5" title="播放时长"
+            aria-label="播放时长">
+        </div>
+        <div>
+          <label class="form-label" for="edit-action-priority">动作优先级 (数字越大越优先插播)</label>
+          <input type="number" id="edit-action-priority" class="form-control" value="3" title="优先级" aria-label="优先级">
+        </div>
+      </div>
+      <div class="grid-2" style="margin-bottom: 12px;">
+        <div>
+          <label class="form-label" for="edit-action-keywords">主播口播触发词 (讲到这些词自动做动作，逗号隔开)</label>
+          <input type="text" id="edit-action-keywords" class="form-control" placeholder="例如：购物车,下单,左下角,手慢无"
+            title="话术触发关键词" aria-label="话术触发关键词">
+        </div>
+        <div>
+          <label class="form-label" for="edit-action-events">观众直播间互动触发 (发生事件时自动做动作)</label>
+          <select id="edit-action-events" class="form-control" title="关联场控事件" aria-label="关联场控事件">
+            <option value="">-- 无事件绑定 --</option>
+            <option value="welcome">进房欢迎 (welcome)</option>
+            <option value="follow">点赞关注 (follow)</option>
+            <option value="order">下单成交 (order)</option>
+            <option value="gift">礼物打赏致谢 (gift)</option>
+          </select>
+        </div>
+      </div>
+      <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px;">
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer;">
+          <input type="checkbox" id="edit-action-mirror" checked> 启用平滑倒放循环 (动作播完后平滑过渡回待机微动，不跳画)
+        </label>
+        <label
+          style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; margin-left: 16px;">
+          <input type="checkbox" id="edit-action-active" checked> 启用该动作
+        </label>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 16px;">
+        <button class="btn btn-primary" onclick="submitSaveAvatarAction()">保存配置</button>
+        <button class="btn" onclick="closeActionEditCard()">取消</button>
+      </div>
+      <input type="hidden" id="edit-action-id" value="">
+    </div>
+
+    <!-- 隐藏的文件上传控件 (点击各动作上传切片时调用) -->
+    <input type="file" id="action-clip-uploader" accept="video/mp4,video/quicktime,video/webm" style="display:none;"
+      onchange="handleActionClipFileSelected(this)" title="上传切片文件" aria-label="上传切片文件">
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 数字人资产沉浸式预览模态框 (Modal) - LiveTalking 工业级对齐与切片透视 -->
+  <!-- ========================================================== -->
+  <div id="modal-avatar-preview"
+    style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:99999; justify-content:center; align-items:center; backdrop-filter:blur(6px);">
+    <div
+      style="background:#0f172a; border:1px solid rgba(56,189,248,0.28); border-radius:14px; width:95%; max-width:1030px; max-height:94vh; overflow-y:auto; box-shadow:0 24px 65px -10px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06); padding:24px; position:relative;">
+      <!-- 弹窗头部 -->
+      <div
+        style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:14px; margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <span
+            style="font-size:16px; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+            🎬 <span id="modal-avatar-title">数字人模型与切片资产预览</span>
+          </span>
+          <span id="modal-avatar-badge" class="badge-recommend"
+            style="font-size: 12px; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3); padding:3px 10px; border-radius:20px;">
+            ● 25 FPS 唇形驱动模型就绪
+          </span>
+        </div>
+        <button class="btn btn-sm" onclick="closeAvatarPreviewModal()" style="padding:4px 12px; font-size:13px;"
+          title="关闭预览">✕ 关闭</button>
+      </div>
+
+      <!-- 视图模式切换选项卡 (默认优先展示：神经切片与面部坐标透视) -->
+      <div
+        style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; gap:14px; flex-wrap:nowrap;">
+        <div style="display:flex; gap:8px; flex-shrink:0;">
+          <button id="tab-btn-preview-slices" class="btn btn-sm btn-primary" onclick="switchPreviewSubTab('slices')"
+            style="font-size:13px; font-weight:500; display:flex; align-items:center; gap:6px; padding:6px 14px; border-radius:6px;">
+            <span>🔬</span> 神经切片与人脸追踪透视
+          </button>
+          <button id="tab-btn-preview-video" class="btn btn-sm" onclick="switchPreviewSubTab('video')"
+            style="font-size:13px; font-weight:500; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.05); padding:6px 14px; border-radius:6px;">
+            <span>🎬</span> 出镜母轨原片 (原始录像参考)
+          </button>
+        </div>
+        <div style="flex-shrink:0; text-align:right;">
+          <span id="preview-tab-desc"
+            style="font-size:12px; color:#38bdf8; white-space:nowrap; display:inline-flex; align-items:center; gap:4px; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); padding:4px 10px; border-radius:20px;">
+            ● 已默认呈现 25 FPS 连续切片与 coords.pkl 动态人脸定位跟踪
+          </span>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; align-items:stretch;">
+        <!-- 左侧视窗区 -->
+        <div style="display:flex; flex-direction:column; height:100%;">
+          <!-- 视图 1 (默认展示): 神经切片特征透视 (含人脸框与 256px 对齐图，支持 25fps 连续动态播放) -->
+          <div id="preview-box-slices"
+            style="display:flex; flex-direction:column; justify-content:space-between; height:100%; background:rgba(0,0,0,0.5); border-radius:10px; overflow:hidden; border:1px solid rgba(56,189,248,0.25); padding:14px; box-sizing:border-box;">
+            <!-- 上半部分：母轨图 + 256px切片卡片 -->
+            <div style="display:grid; grid-template-columns: 1fr 148px; gap:14px; align-items:stretch;">
+              <!-- 连续切片全图 (叠加绿色平滑包围盒) -->
+              <div
+                style="position:relative; width:100%; height:295px; background:#05070a; border-radius:8px; overflow:hidden; display:flex; justify-content:center; align-items:center; border:1px solid rgba(255,255,255,0.06);">
+                <img id="slice-full-img" src="" alt="切片全景"
+                  style="max-width:100%; max-height:100%; display:block; object-fit:contain;">
+                <!-- 人脸包围盒指示层 -->
+                <div id="slice-bbox-box"
+                  style="position:absolute; border:2px dashed #10b981; background:rgba(16,185,129,0.18); border-radius:4px; pointer-events:none; box-sizing:border-box; transition:all 0.04s linear;">
+                  <span
+                    style="position:absolute; top:-18px; left:0; font-size:10px; background:#10b981; color:#000; font-weight:700; padding:1px 4px; border-radius:2px; white-space:nowrap;">
+                    🎯 coords.pkl 面部对齐
+                  </span>
+                </div>
+              </div>
+
+              <!-- 256px 标准对齐人脸切片卡片 -->
+              <div
+                style="display:flex; flex-direction:column; justify-content:space-between; height:295px; box-sizing:border-box; text-align:center; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;">
+                <div
+                  style="font-size: 12px; color:var(--text-secondary); font-weight:600; display:flex; align-items:center; justify-content:center; gap:4px;">
+                  <span>👄</span> 256px 人脸切片
+                </div>
+                <div
+                  style="width:128px; height:128px; background:#000; border:1px solid rgba(167,139,250,0.45); border-radius:8px; overflow:hidden; margin:0 auto; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+                  <img id="slice-face-img" src="" alt="人脸特征切片" style="width:100%; height:100%; object-fit:cover;">
+                </div>
+                <div
+                  style="font-size:11px; color:#cbd5e1; line-height: 1.5; background:rgba(167,139,250,0.08); border:1px solid rgba(167,139,250,0.2); padding:6px 8px; border-radius:6px;">
+                  开播时，神经网络每次实时在此区域进行嘴型形变替换
+                </div>
+              </div>
+            </div>
+
+            <!-- 25 FPS 连续动态播放与抽样帧控制条 -->
+            <div style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <button id="btn-toggle-slice-play" class="btn btn-sm btn-primary" onclick="toggleSliceAnimationPlay()"
+                    style="font-size: 12px; padding:4px 12px; display:flex; align-items:center; gap:5px; border-radius:6px;">
+                    <span id="slice-play-icon">▶️</span> <span id="slice-play-text">连续动效播放</span>
+                  </button>
+                </div>
+                <span id="slice-play-badge"
+                  style="font-size:11px; color:#34d399; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); padding:2px 8px; border-radius:4px;">
+                  ● 25 FPS 神经母轨序列
+                </span>
+              </div>
+
+              <!-- 样本帧快捷点击跳转按钮 -->
+              <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">代表帧快速定位：</div>
+              <div id="slice-frames-selector" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+            </div>
+          </div>
+
+          <!-- 视图 2 (备选参考): 原始出镜母轨视频播放器 -->
+          <div id="preview-box-video"
+            style="display:none; background:rgba(0,0,0,0.5); border-radius:10px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); text-align:center; height:100%; box-sizing:border-box; flex-direction:column; justify-content:space-between;">
+            <video id="modal-avatar-video" controls loop playsinline
+              style="width:100%; height:320px; object-fit:contain; background:#000; display:block;">
+              <source id="modal-avatar-video-src" src="" type="video/mp4">
+              您的浏览器暂不支持内置视频播放
+            </video>
+            <div id="modal-avatar-thumb-box" style="display:none; padding:20px; height:320px; box-sizing:border-box;">
+              <img id="modal-avatar-thumb-img" src="" alt="切片代表帧"
+                style="max-width:100%; max-height:100%; border-radius:6px; object-fit:contain;">
+            </div>
+            <div
+              style="padding:10px 14px; font-size:12px; color:var(--text-muted); border-top:1px solid rgba(255,255,255,0.05); text-align:center; line-height: 1.7;">
+              💡 <strong>原始录像仅供参考：</strong>数字人成品是左侧已被拆解的 25 FPS 神经切片画卷与 coords.pkl 坐标。开播时由神经网络在此基底上实时形变嘴唇输出推流。
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧技术指标与驱动说明区 -->
+        <div style="display:flex; flex-direction:column; gap:14px; height:100%; justify-content:space-between; box-sizing:border-box;">
+          <!-- 参数指标 -->
+          <div
+            style="background:rgba(15,23,42,0.5); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; box-sizing:border-box;">
+            <div
+              style="font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:10px; display:flex; align-items:center; justify-content:space-between;">
+              <span style="display:flex; align-items:center; gap:6px;"><span>📐</span> 数字人切片核心技术指标</span>
+              <span style="font-size:11px; color:#34d399; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); padding:1px 8px; border-radius:10px;">标准工业级 25 FPS</span>
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:11px;">
+              <div
+                style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px;">
+                <span style="color:var(--text-muted); display:block; font-size:11px; margin-bottom:2px;">切片总帧数 (full_imgs/)</span>
+                <strong id="modal-spec-frames" style="color:#34d399; font-size:13px; font-weight:600;">- 帧</strong>
+              </div>
+              <div
+                style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px;">
+                <span style="color:var(--text-muted); display:block; font-size:11px; margin-bottom:2px;">视频原生分辨率</span>
+                <strong id="modal-spec-resolution" style="color:#38bdf8; font-size:13px; font-weight:600;">-</strong>
+              </div>
+              <div
+                style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px;">
+                <span style="color:var(--text-muted); display:block; font-size:11px; margin-bottom:2px;">口型校准坐标 (coords.pkl)</span>
+                <strong id="modal-spec-coords" style="color:#fbbf24; font-size:13px; font-weight:600;">- 组</strong>
+              </div>
+              <div
+                style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px;">
+                <span style="color:var(--text-muted); display:block; font-size:11px; margin-bottom:2px;">面部对齐特征 (face_imgs/)</span>
+                <strong id="modal-spec-faceimgs" style="color:#a78bfa; font-size:13px; font-weight:600;">- 帧</strong>
+              </div>
+            </div>
+            <div
+              style="margin-top:10px; font-size:11.5px; color:var(--text-muted); border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px;">
+              <span style="color:#94a3b8;">资产存储路径：</span>
+              <code id="modal-spec-path"
+                style="color:#cbd5e1; font-size:11.5px; font-family:ui-monospace, monospace; word-break:break-all; background:rgba(0,0,0,0.35); padding:3px 6px; border-radius:4px; display:inline-block; margin-top:2px;">-</code>
+            </div>
+          </div>
+
+          <!-- 🎤 试听主播发音 & 口型驱动原理演示 (对齐 LiveTalking) -->
+          <div
+            style="background:rgba(56,189,248,0.03); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:14px; font-size:13px; display:flex; flex-direction:column; justify-content:space-between; flex:1; box-sizing:border-box;">
+            <div>
+              <div
+                style="font-size:13px; font-weight:600; color:#38bdf8; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                <span style="display:flex; align-items:center; gap:6px;">🎤 主播试讲台词 & 实时驱动演示</span>
+                <span id="preview-voice-name"
+                  style="font-size: 11.5px; font-weight:normal; color:#94a3b8; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:2px 8px; border-radius:10px;">音色: 加载中</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <textarea id="preview-speech-text" class="form-control" rows="3"
+                  style="font-size:12.5px; resize:none; padding:8px 10px; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.1); border-radius:6px; line-height:1.6; min-height:64px;"
+                  placeholder="输入测试台词...">大家好，我是山本五十六，欢迎来到我的直播间！今天为大家带来超值精选好物，记得点赞关注哦！</textarea>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                  <span id="preview-speech-status" style="font-size:12px; color:var(--text-muted);">点击右侧测试主播发音</span>
+                  <button id="btn-preview-speech" class="btn btn-sm btn-primary" onclick="testAnchorSpeechDemo()"
+                    style="font-size: 12px; padding:4px 14px; display:flex; align-items:center; gap:5px; border-radius:6px; flex-shrink:0;">
+                    <span>🔊</span> 试听台词驱动
+                  </button>
+                </div>
+              </div>
+            </div>
+            <!-- 驱动链路说明图解 -->
+            <div
+              style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.05); padding:10px 12px; border-radius:6px; font-size: 11px; color:#94a3b8; line-height: 1.6; margin-top:10px;">
+              <div
+                style="color:#e2e8f0; font-weight:600; margin-bottom:6px; display:flex; align-items:center; justify-content:space-between;">
+                <span style="display:flex; align-items:center; gap:6px;"><span>🔄</span> 实时驱动闭环流水线</span>
+                <span style="font-size:10px; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:1px 6px; border-radius:4px;">全自动音画对齐</span>
+              </div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:4px; text-align:center;">
+                <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#cbd5e1;">① 音频合成<br><span style="color:#94a3b8; font-size:9.5px;">TTS 生成</span></div>
+                <span style="color:#64748b; font-size:10px;">➔</span>
+                <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#cbd5e1;">② 提取特征<br><span style="color:#94a3b8; font-size:9.5px;">梅尔频谱</span></div>
+                <span style="color:#64748b; font-size:10px;">➔</span>
+                <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#cbd5e1;">③ 口型形变<br><span style="color:#a78bfa; font-size:9.5px;">face_imgs</span></div>
+                <span style="color:#64748b; font-size:10px;">➔</span>
+                <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#cbd5e1;">④ 坐标缝合<br><span style="color:#34d399; font-size:9.5px;">coords 回贴</span></div>
+                <span style="color:#64748b; font-size:10px;">➔</span>
+                <div style="flex:1; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#34d399;">⑤ 实时推流<br><span style="color:#34d399; font-size:9.5px;">25 FPS</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 弹窗底部关闭 -->
+      <div
+        style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px; border-top:1px solid rgba(255,255,255,0.08); padding-top:14px;">
+        <button class="btn btn-sm" onclick="closeAvatarPreviewModal()"
+          style="padding:5px 16px; font-size:13px; border-radius:6px;">关闭预览</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 弹窗 A: 绿幕 3 段式视频录制实战 SOP 指南 -->
+  <!-- ========================================================== -->
+  <div id="modal-shooting-guide"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center; backdrop-filter:blur(4px);">
+    <div
+      style="background:#0f172a; border:1px solid rgba(255,255,255,0.12); border-radius:12px; width:92%; max-width:820px; max-height:88vh; display:flex; flex-direction:column; padding:24px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7); overflow-y:auto;">
+      <div
+        style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:20px;">🎬</span>
+          <span style="font-size:16px; font-weight:700; color:#f8fafc;">AI 数字人动态绿幕 3 段式实拍 SOP 指南</span>
+          <span
+            style="font-size:11px; background:rgba(52,211,153,0.15); color:#34d399; padding:2px 8px; border-radius:12px; font-weight:600;">工业级标准</span>
+        </div>
+        <button class="btn btn-sm" onclick="closeShootingGuideModal()"
+          style="border:none; background:transparent; font-size:18px; color:var(--text-muted); cursor:pointer;">✕</button>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:16px; font-size:13px; color:#cbd5e1; line-height: 1.85;">
+        <!-- 核心原则 -->
+        <div
+          style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:12px;">
+          <strong style="color:#fbbf24;">⚡ 黄金三大黄金铁律（避免返工）：</strong>
+          <ul style="margin:6px 0 0 18px; padding:0;">
+            <li><strong>全程闭口不说话：</strong>嘴唇自然微合，严禁开口张嘴或大笑（嘴型开合由 AI 神经引擎根据语音实时形变驱动）；</li>
+            <li><strong>纯绿幕与轮廓光：</strong>平整纯色绿幕布（人距幕布 1.5 米防溢色），打亮发丝轮廓光；</li>
+            <li><strong>恒定 25 FPS：</strong>推荐手机后置镜头 1080P/4K 录制，禁用动态模糊或过度防抖滤镜。</li>
+          </ul>
+        </div>
+
+        <!-- 3段式分镜 -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+          <div
+            style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:12px;">
+            <div style="color:#38bdf8; font-weight:600; margin-bottom:4px;">1. 待机呼吸段 (20~30秒)</div>
+            <div style="font-size: 13px; color:var(--text-muted);">
+              面带自然微笑，身体有微幅起伏呼吸律动，双眼平视镜头，手自然交叠放于桌前或腹部。系统通过镜像循环算法使其无限无缝循环。
+            </div>
+          </div>
+          <div
+            style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:12px;">
+            <div style="color:#34d399; font-weight:600; margin-bottom:4px;">2. 指引小黄车段 (10~15秒)</div>
+            <div style="font-size: 13px; color:var(--text-muted);">
+              身体微前倾，右手或左手专业自然地指向左下角（购物车方向），短暂停留 2 秒后自然收回。带货话术提到“购物车/下单”时自动触发。
+            </div>
+          </div>
+          <div
+            style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:12px;">
+            <div style="color:#a78bfa; font-weight:600; margin-bottom:4px;">3. 互动致谢段 (10~15秒)</div>
+            <div style="font-size: 13px; color:var(--text-muted);">
+              双手微合十欠身致谢、或竖起大拇指点赞。当观众送礼打赏或点赞暴涨时，系统瞬间高优抢占切换。
+            </div>
+          </div>
+        </div>
+
+        <!-- 避坑提醒 -->
+        <div
+          style="background:rgba(0,0,0,0.3); border-radius:8px; padding:12px; font-size: 13px; color:var(--text-muted);">
+          💡 <strong>自动化切片赋能：</strong>
+          录制完成后，直接在主播管理点击【上传出镜视频】，系统将自动运行面部检测、人脸裁剪和 `coords.pkl` 提取，100% 保留实拍高清发丝细节！
+        </div>
+      </div>
+
+      <div
+        style="display:flex; justify-content:flex-end; margin-top:20px; border-top:1px solid rgba(255,255,255,0.08); padding-top:14px;">
+        <button class="btn btn-primary btn-sm" onclick="closeShootingGuideModal()">已了解拍摄规范</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 弹窗 B: OBS 与抖音直播伴侣演播室导播配置助手 -->
+  <!-- ========================================================== -->
+  <div id="modal-studio-helper"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center; backdrop-filter:blur(4px);">
+    <div
+      style="background:#0f172a; border:1px solid rgba(255,255,255,0.12); border-radius:12px; width:92%; max-width:840px; max-height:88vh; display:flex; flex-direction:column; padding:24px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7); overflow-y:auto;">
+      <div
+        style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:20px;">🎛️</span>
+          <span style="font-size:16px; font-weight:700; color:#f8fafc;">OBS Studio 与抖音直播伴侣演播室配置助手</span>
+        </div>
+        <button class="btn btn-sm" onclick="closeStudioHelperModal()"
+          style="border:none; background:transparent; font-size:18px; color:var(--text-muted); cursor:pointer;">✕</button>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:16px; font-size:13px; color:#cbd5e1; line-height: 1.85;">
+        <!-- 拓扑流程说明 -->
+        <div
+          style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:8px; padding:12px;">
+          <div style="color:#38bdf8; font-weight:600; margin-bottom:4px;">🔄 标准演播室推流闭环链路：</div>
+          <div style="font-size: 13px; color:var(--text-muted);">
+            [AI-LiveStream-Agent] 输出虚拟摄像头与音频 ➔ [OBS Studio] 绿幕抠像/贴片/人声闪避 ➔ 点击【启动虚拟摄像机】 ➔ [抖音直播伴侣] 选择摄像头并开启官方合规推流。
+          </div>
+        </div>
+
+        <!-- OBS 滤镜与色度键参数 -->
+        <div
+          style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <span style="font-weight:600; color:#f8fafc;">🎯 OBS 色度键 (Chroma Key) 最佳抠像参数建议</span>
+            <button class="btn btn-sm" onclick="copyObsSettings()" style="font-size:11px; padding:3px 10px;">📋
+              一键复制参数</button>
+          </div>
+          <div
+            style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px; font-size: 13px;">
+            <div style="background:rgba(0,0,0,0.3); padding:8px; border-radius:6px;">
+              <span style="color:var(--text-muted); display:block;">关键颜色类型</span>
+              <strong style="color:#34d399;">绿色 (Green)</strong>
+            </div>
+            <div style="background:rgba(0,0,0,0.3); padding:8px; border-radius:6px;">
+              <span style="color:var(--text-muted); display:block;">相似度 (Similarity)</span>
+              <strong style="color:#38bdf8;">400</strong>
+            </div>
+            <div style="background:rgba(0,0,0,0.3); padding:8px; border-radius:6px;">
+              <span style="color:var(--text-muted); display:block;">平滑 (Smoothness)</span>
+              <strong style="color:#38bdf8;">80</strong>
+            </div>
+            <div style="background:rgba(0,0,0,0.3); padding:8px; border-radius:6px;">
+              <span style="color:var(--text-muted); display:block;">主溢出减少 (Key Spill)</span>
+              <strong style="color:#38bdf8;">100</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- 平台合规防封检查表 -->
+        <div
+          style="background:rgba(16,185,129,0.05); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:14px;">
+          <div style="font-weight:600; color:#34d399; margin-bottom:8px;">🛡️ 抖音/快手平台安全合规防封自检清单：</div>
+          <div style="display:flex; flex-direction:column; gap:6px; font-size: 13px; color:#cbd5e1;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" checked disabled> <span><strong>官方推流客户端：</strong>使用抖音直播伴侣推流，杜绝第三方外挂推流被封禁。</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" checked disabled> <span><strong>AI 标识报备：</strong>在直播伴侣后台声明勾选“本直播间包含 AI
+                生成内容”。</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" checked disabled> <span><strong>视觉动态防录播：</strong>背景添加动态实景（如微风绿植、走动时钟或商品跑马灯）。</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" checked disabled> <span><strong>真实互动弹幕：</strong>保持弹幕应答交互，系统已内置 50ms
+                极速打断应答机制。</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div
+        style="display:flex; justify-content:flex-end; margin-top:20px; border-top:1px solid rgba(255,255,255,0.08); padding-top:14px;">
+        <button class="btn btn-primary btn-sm" onclick="closeStudioHelperModal()">已完成导播配置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- 弹窗 C: 主播动作切片状态机与电商带货手势管理 -->
+  <!-- ========================================================== -->
+  <div id="modal-anchor-actions"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; backdrop-filter:blur(5px);">
+    <div
+      style="background:#0f172a; border:1px solid rgba(255,255,255,0.14); border-radius:12px; width:94%; max-width:960px; max-height:90vh; display:flex; flex-direction:column; padding:22px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.8); overflow-y:auto;">
+      <!-- 模态框头部 -->
+      <div
+        style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:22px;">🎭</span>
+          <div>
+            <div style="font-size:16px; font-weight:700; color:#f8fafc; display:flex; align-items:center; gap:8px;">
+              <span>主播【<span id="modal-actions-anchor-name" style="color:#38bdf8;">-</span>】动作切片与带货状态机</span>
+              <span
+                style="font-size:11px; background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); padding:1px 8px; border-radius:10px;">电商带货高保真</span>
+            </div>
+            <div style="font-size: 13px; color:var(--text-muted); margin-top:2px;">
+              实时唇形同步驱动 + 身体手势切片热重载 (小黄车指引 / 热情致谢 / 欢迎 / 待机呼吸)
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-sm" onclick="closeAnchorActionsModal()"
+          style="border:none; background:transparent; font-size:18px; color:var(--text-muted); cursor:pointer;">✕</button>
+      </div>
+
+      <!-- 当前已绑定动作切片卡片列表 -->
+      <div style="margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <span style="font-weight:600; color:#f8fafc; font-size:13px; display:flex; align-items:center; gap:6px;">
+            <span>📋 已绑定的动作切片列表</span>
+            <span id="modal-actions-count-badge"
+              style="font-size:11px; background:rgba(56,189,248,0.15); color:#38bdf8; padding:1px 6px; border-radius:4px;">0
+              组</span>
+          </span>
+          <span style="font-size:11px; color:var(--text-muted);">
+            💡 动作之间自动应用 5 帧 (200ms) 交叉羽化过渡，杜绝画面卡顿撕裂
+          </span>
+        </div>
+        <div id="modal-actions-list"
+          style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px;">
+          <div style="color:var(--text-muted); font-size: 13px; padding:20px; text-align:center; grid-column:1/-1;">
+            正在加载主播动作切片...</div>
+        </div>
+      </div>
+
+      <!-- 添加 / 录入新动作切片区 (双模态 Tabs) -->
+      <div
+        style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:16px; margin-top:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div style="display:flex; gap:10px;">
+            <button type="button" class="btn btn-sm" id="btn-tab-split-segments" onclick="switchActionInputTab('split')"
+              style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);">
+              ✂️ 单视频多时间戳智能拆解 (推荐)
+            </button>
+            <button type="button" class="btn btn-sm" id="btn-tab-upload-single" onclick="switchActionInputTab('upload')"
+              style="background:transparent; color:var(--text-muted); border:1px solid rgba(255,255,255,0.15);">
+              📤 上传单动作视频切片
+            </button>
+          </div>
+          <span style="font-size:11px; color:var(--text-muted);">系统自动运行面部关键点与 coords.pkl 神经提取</span>
+        </div>
+
+        <!-- 面板 A：单视频多时间戳智能拆解 -->
+        <div id="panel-action-split" style="display:block;">
+          <div style="font-size: 13px; color:#cbd5e1; margin-bottom:10px;">
+            若已为主播上传过完整的 3 段式绿幕视频，可直接配置时间戳区间，系统将自动裁剪并批量生成动作模型：
+          </div>
+          <div
+            style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-bottom:12px;">
+            <div
+              style="background:rgba(0,0,0,0.3); padding:10px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight:600; color:#38bdf8; font-size: 13px; margin-bottom:4px;">1. 待机呼吸段 (代码 0)</div>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input type="number" id="split-idle-start" class="form-control"
+                  style="padding:4px 8px; font-size: 13px;" value="0" min="0" placeholder="起始秒">
+                <span style="color:var(--text-muted); font-size: 13px;">至</span>
+                <input type="number" id="split-idle-end" class="form-control" style="padding:4px 8px; font-size: 13px;"
+                  value="25" min="1" placeholder="结束秒">
+              </div>
+            </div>
+            <div
+              style="background:rgba(0,0,0,0.3); padding:10px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight:600; color:#34d399; font-size: 13px; margin-bottom:4px;">2. 促单指引小黄车 (代码 3)</div>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input type="number" id="split-cart-start" class="form-control"
+                  style="padding:4px 8px; font-size: 13px;" value="25" min="0" placeholder="起始秒">
+                <span style="color:var(--text-muted); font-size: 13px;">至</span>
+                <input type="number" id="split-cart-end" class="form-control" style="padding:4px 8px; font-size: 13px;"
+                  value="40" min="1" placeholder="结束秒">
+              </div>
+            </div>
+            <div
+              style="background:rgba(0,0,0,0.3); padding:10px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+              <div style="font-weight:600; color:#fbbf24; font-size: 13px; margin-bottom:4px;">3. 互动致谢/欢迎 (代码 4)</div>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input type="number" id="split-thanks-start" class="form-control"
+                  style="padding:4px 8px; font-size: 13px;" value="40" min="0" placeholder="起始秒">
+                <span style="color:var(--text-muted); font-size: 13px;">至</span>
+                <input type="number" id="split-thanks-end" class="form-control"
+                  style="padding:4px 8px; font-size: 13px;" value="55" min="1" placeholder="结束秒">
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end;">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-submit-split-actions"
+              onclick="submitSplitVideoActions()">
+              ✂️ 启动多时间戳批量裁剪与切片构建
+            </button>
+          </div>
+        </div>
+
+        <!-- 面板 B：上传单动作视频切片 -->
+        <div id="panel-action-upload" style="display:none;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+            <div>
+              <label class="form-label" style="font-size: 13px;">动作类型/代码</label>
+              <select id="single-action-code" class="form-control" style="font-size: 13px;">
+                <option value="3">促单指引小黄车 (动作代码: 3)</option>
+                <option value="4">大额打赏致谢 (动作代码: 4)</option>
+                <option value="1">热情挥手欢迎 (动作代码: 1)</option>
+                <option value="2">求关注与点赞 (动作代码: 2)</option>
+                <option value="0">基础待机呼吸 (动作代码: 0)</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" style="font-size: 13px;">动作名称与触发关键词 (逗号隔开)</label>
+              <input type="text" id="single-action-keywords" class="form-control" style="font-size: 13px;"
+                placeholder="如: 购物车,下单,左下角,买它">
+            </div>
+          </div>
+          <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+            <div style="flex:1;">
+              <label class="form-label" style="font-size: 13px;">选择切片视频文件 (MP4 / MOV, 建议 3~15 秒)</label>
+              <input type="file" id="single-action-file" class="form-control" accept="video/mp4,video/quicktime"
+                style="font-size: 13px;">
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end;">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-submit-single-action"
+              onclick="submitSingleActionUpload()">
+              📤 上传并处理动作切片
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部按钮 -->
+      <div
+        style="display:flex; justify-content:flex-end; margin-top:16px; border-top:1px solid rgba(255,255,255,0.08); padding-top:12px;">
+        <button class="btn btn-sm" onclick="closeAnchorActionsModal()">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
 
             <div class="tab-content" id="tab-voices">
         <!-- 语音合成与远程算力配置 (TTS 语音 / 远程 GPU) 核心板块 -->
@@ -989,56 +1923,71 @@
           </div>
 
           <p class="page-intro" style="margin-bottom: 18px;">
-            AI 发音枢纽负责<strong>将主播思考话术实时转化为极高拟真度的超自然人声与情感语气</strong>。
-            已内置 <strong>Edge-TTS、CosyVoice、ChatTTS、GPT-SoVITS、ElevenLabs 及本地自建</strong>。
+            AI 发音枢纽负责<strong>将主播思考话术实时转化为自然真人声线与情感语气</strong>。
+            已内置系统自带 <strong>MOSS-TTS-Nano</strong>（端侧神经引擎零样本克隆，GPU 可用时自动加速）、<strong>阿里云 CosyVoice</strong>、<strong>ElevenLabs</strong> 3 大核心语音合成引擎。
             支持多音色管理与试听，可在下方清单中随时一键设为【当前默认发音】。
           </p>
 
           <!-- 区域 1: 内置主流语音合成品牌生态网格 (Logo + 名称 + 简短定位) -->
           <div style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
             <span>选择语音合成引擎 (点击下方卡片即可进行配置)</span>
-            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">支持 6 大主流语音与声音克隆引擎</span>
+            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">精简支持 3 大核心语音与声音克隆引擎</span>
           </div>
-          <div id="tts-ecosystem-grid" class="tts-ecosystem-grid"></div>
+          <div id="tts-ecosystem-grid" class="tts-ecosystem-grid">
+            <!-- 卡片由 10_settings_tts.js renderTTSEcosystemGrid 动态渲染（单一数据源：BUILTIN_TTS_ECOSYSTEM） -->
+          </div>
+
+          <!-- 语音引擎端侧算力与硬件自适应提示条 (两类人群算力透出) -->
+          <div id="tts-gpu-requirement-banner" style="background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; margin-top: 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span class="brand-badge green" style="font-size: 11px;">端侧算力规范</span>
+              <span style="font-size: 12px; color: #cbd5e1;">
+                <strong>MOSS-TTS-Nano</strong> 端侧约 ~100M 参数，<strong>本地 / 云端 GPU 可用时自动独显加速</strong>；本地为轻薄本或显存不足时，<strong>自动采用 CPU 多线程合成</strong>（速度稍慢但稳定可用），或一键切换云端 <strong>百炼 CosyVoice / Edge-TTS</strong>（0 显卡负担）。
+              </span>
+            </div>
+            <div id="tts-hw-status-pill" style="font-size: 11.5px; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.25);">
+              ⚡ 语音算力状态: 自动识别中...
+            </div>
+          </div>
 
           <!-- 区域 2: 当前语音引擎配置编辑面板 (含音色获取 & 试听 & 保存) -->
-          <div id="tts-editor-box" class="tts-editor-box" style="margin-top: 14px; padding: 20px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md);">
+          <div id="tts-editor-box" class="tts-editor-box" style="margin-top: 0; padding: 20px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.12); padding-bottom: 12px; flex-wrap: wrap; gap: 10px;">
               <div style="display: flex; align-items: center; gap: 12px;">
-                <img id="tts-editor-logo" src="/static/svg/tts_edgetts.svg" alt="logo" style="width: 44px; height: 44px; border-radius: 11px; object-fit: cover; flex-shrink: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
+                <img id="tts-editor-logo" src="/static/svg/tts_moss.svg" alt="logo" style="width: 44px; height: 44px; border-radius: 11px; object-fit: cover; flex-shrink: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.35);">
                 <div>
                   <div style="display: flex; align-items: center; gap: 8px;">
-                    <span id="tts-editor-title" style="font-size: 15px; font-weight: 700; color: var(--text-primary);">配置 Edge-TTS 微软超自然云语音</span>
-                    <span id="tts-editor-badge" class="brand-badge green">免 Key · 极速高保真</span>
+                    <span id="tts-editor-title" style="font-size: 15px; font-weight: 700; color: var(--text-primary);">配置当前语音合成引擎</span>
+                    <span id="tts-editor-badge" class="brand-badge sky">加载中...</span>
                   </div>
-                  <div id="tts-editor-desc" style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">微软官方云端超自然神经网络声音，免 API Key，开箱即用首选。</div>
+                  <div id="tts-editor-desc" style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">正在根据用户端配置中心同步当前生效发音引擎...</div>
                 </div>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">
-                <a id="tts-editor-official-link" href="https://github.com/rany2/edge-tts" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 11px; border: 1px solid rgba(16, 185, 129, 0.35); color: #34d399; background: rgba(16, 185, 129, 0.08); border-radius: 6px; text-decoration: none;" title="查阅官方说明与文档 (在新标签页打开)">
+                <a id="tts-editor-official-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display: none; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 11px; border: 1px solid rgba(16, 185, 129, 0.35); color: #34d399; background: rgba(16, 185, 129, 0.08); border-radius: 6px; text-decoration: none;" title="查阅官方说明与文档 (在新标签页打开)">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
                     <polyline points="15 3 21 3 21 9"></polyline>
                     <line x1="10" y1="14" x2="21" y2="3"></line>
                   </svg>
-                  <span>官方说明 ↗</span>
+                  <span>官方仓库 ↗</span>
                 </a>
               </div>
-              <input type="hidden" id="tts-editor-provider" value="edge_tts">
+              <input type="hidden" id="tts-editor-provider" value="">
               <input type="hidden" id="tts-editor-config-id" value="">
               <!-- 存储当前选中的具体音色代号，未配置或未获取时严格为空，禁止虚假填充 -->
               <input type="hidden" id="tts-input-voice" value="">
             </div>
 
             <!-- 第一行：服务端接口地址 (Base URL):（输入框） -->
-            <div style="margin-bottom: 14px;">
+            <div id="tts-url-form-group" style="margin-bottom: 14px; display: none;">
               <label class="form-label" id="tts-url-label" for="tts-input-url">服务端接口地址 (Base URL):</label>
               <input type="text" id="tts-input-url" class="form-control" value="" placeholder="云端直接调用，无需填写 Base URL" title="服务端接口地址 (Base URL)" aria-label="服务端接口地址 (Base URL)">
               <div id="tts-editor-url-pills" class="quick-pills-box" style="margin-top: 6px;"></div>
             </div>
 
             <!-- 第二行：API 访问密钥 (API Key - 硬件级 AES-256 加密):（输入框） -->
-            <div style="margin-bottom: 16px;">
+            <div id="tts-key-form-group" style="margin-bottom: 16px; display: none;">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
                 <label class="form-label" for="tts-input-key" style="margin-bottom: 0;">API 访问密钥 (API Key - 硬件级 AES-256 加密):</label>
                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -1054,9 +2003,10 @@
                   <svg id="icon-tts-eye-show" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 </button>
               </div>
-              <!-- 引擎专属快速开通指引盒子 -->
-              <div id="tts-provider-guide-box" style="margin-top: 10px;"></div>
             </div>
+
+            <!-- 引擎专属快速开通指引盒子 -->
+            <div id="tts-provider-guide-box" style="margin-bottom: 14px; display: none;"></div>
 
             <!-- 第三行：获取音色、测试连通性与试听 （两个按钮） -->
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
@@ -1079,12 +2029,12 @@
                     <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #38bdf8; fill: none; stroke-width: 2;"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>
                     第三方底层生效模型:
                   </span>
-                  <span id="tts-thirdparty-active-model" class="brand-badge sky" style="font-family: var(--font-mono); font-size: 12px; font-weight: 700;">cosyvoice-v3.5-flash</span>
+                  <span id="tts-thirdparty-active-model" class="brand-badge sky" style="font-family: var(--font-mono); font-size: 12px; font-weight: 700;">MOSS-TTS-Nano (100M Ultra-Lightweight)</span>
                   <span style="color: var(--text-muted); margin-left: 6px;">接口通道协议:</span>
-                  <span id="tts-thirdparty-protocol" style="color: #94a3b8; font-family: var(--font-mono);">阿里云百炼 DashScope 语音通道</span>
+                  <span id="tts-thirdparty-protocol" style="color: #94a3b8; font-family: var(--font-mono);">MOSS-TTS-Nano 端侧优先 GPU 极速推理 (广播级 48kHz)</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                  <span id="tts-thirdparty-status-badge" class="brand-badge green">已就绪</span>
+                  <span id="tts-thirdparty-status-badge" class="brand-badge green">系统原生自带 · 开箱即用</span>
                 </div>
               </div>
               <div id="tts-thirdparty-models-pills-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(148, 163, 184, 0.15); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -1126,22 +2076,32 @@
                   <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-weight: 700; font-size: 13px; color: #34d399; display: inline-flex; align-items: center; gap: 6px;">
                       <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #34d399; fill: none; stroke-width: 2;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-                      👑 主播专属声音复刻与试听 (<span id="tts-clone-target-engine-name">阿里云百炼 CosyVoice</span>)
+                      👑 主播专属声音复刻与试听 (<span id="tts-clone-target-engine-name">MOSS-TTS-Nano</span>)
                     </span>
                     <span id="tts-clone-engine-badge" class="brand-badge green">支持声音克隆</span>
                   </div>
                   <div style="display: flex; align-items: center; gap: 6px;">
-                    <button type="button" class="btn btn-xs active" id="btn-clone-tab-bind" onclick="switchTTSCloneTab('bind')" style="padding: 3px 10px; font-size: 11.5px; font-weight: 600;">
+                    <button type="button" class="btn btn-xs" id="btn-clone-tab-bind" onclick="switchTTSCloneTab('bind')" style="padding: 3px 10px; font-size: 11.5px; font-weight: 600; display: none;">
                       🔗 登记百炼 Voice-ID (官方推荐)
                     </button>
-                    <button type="button" class="btn btn-xs" id="btn-clone-tab-upload" onclick="switchTTSCloneTab('upload')" style="padding: 3px 10px; font-size: 11.5px;">
-                      🎙️ 本地上传/公网音频复刻
+                    <button type="button" class="btn btn-xs active" id="btn-clone-tab-upload" onclick="switchTTSCloneTab('upload')" style="padding: 3px 10px; font-size: 11.5px;">
+                      🎙️ 本地上传/零样本克隆
                     </button>
                   </div>
                 </div>
 
+                <!-- MOSS-TTS-Nano 专属零样本声音克隆指引卡片 -->
+                <div id="tts-clone-moss-card" style="display: block; margin-bottom: 12px; padding: 10px 14px; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.3); border-radius: 6px; font-size: 11.5px; color: #cbd5e1; line-height: 1.6;">
+                  <div>
+                    <strong style="color: #38bdf8;">⚡ MOSS-TTS-Nano 端侧原生零样本克隆流程：</strong><br>
+                    <span>① 上传一段 <strong>10~30 秒</strong> 的清晰真人人声录音（WAV/MP3，<strong>无背景音乐、无混响、口距稳定</strong>）——样本质量直接决定克隆相似度；</span><br>
+                    <span>② 系统以您的录音为声学条件全新合成台词，GPU 可用时自动独显加速、否则多线程 CPU 运算，免 Key 开箱即用。</span><br>
+                    <span style="color: #fde68a;">⚠️ 诚实说明：端侧 100M 轻量模型可保留 <strong>音高与韵律特征</strong>，但 <strong>音色相似度存在上限</strong>（无法做到百分百复刻）。对音色相似度要求极高的商业场景，推荐切换 <button type="button" class="btn btn-xs btn-primary" onclick="selectTTSProvider('cosyvoice')" style="background: #10B981; border-color: #10B981; margin: 0 2px; padding: 1px 6px; font-size: 10.5px;">阿里云 CosyVoice 云端复刻 ↗</button>（大模型云端声纹复刻，相似度显著更高）。</span>
+                  </div>
+                </div>
+
                 <!-- 阿里云百炼官方复刻快速指引卡片 -->
-                <div style="margin-bottom: 12px; padding: 10px 14px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; font-size: 11.5px; color: #cbd5e1; line-height: 1.6;">
+                <div id="tts-clone-aliyun-card" style="display: none; margin-bottom: 12px; padding: 10px 14px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; font-size: 11.5px; color: #cbd5e1; line-height: 1.6;">
                   <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
                     <div>
                       <strong style="color: #34d399;">⚡ 阿里云官方两步声音复刻标准流程：</strong><br>
@@ -1154,13 +2114,12 @@
                   </div>
                 </div>
 
-                <!-- 针对不支持克隆的引擎 (如 Edge-TTS) 的引导提示 -->
+                <!-- 针对不支持克隆的引擎的引导提示 -->
                 <div id="tts-clone-unsupported-notice" style="display: none; padding: 12px; background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 6px; font-size: 12px; color: #94a3b8; line-height: 1.6;">
-                  💡 <strong>Edge-TTS</strong> 为微软官方免费提供的预置超自然声音库，不支持上传自定义声音进行声纹克隆。<br>
-                  如需为主播克隆真人专属声音，推荐点击上方引擎卡片一键切换至：
-                  <button type="button" class="btn btn-xs btn-primary" onclick="selectTTSEcosystemCard('cosyvoice')" style="background: #10B981; border-color: #10B981; margin: 0 4px; padding: 2px 8px; font-size: 11px;">切换至 阿里云 CosyVoice (推荐) ↗</button>
+                  💡 当前引擎不支持自定义声音克隆，推荐点击上方引擎卡片一键切换至：
+                  <button type="button" class="btn btn-xs btn-primary" onclick="selectTTSProvider('moss_tts_nano')" style="background: #0284c7; border-color: #0284c7; margin: 0 4px; padding: 2px 8px; font-size: 11px;">MOSS-TTS-Nano (系统自带) ↗</button>
                   或
-                  <button type="button" class="btn btn-xs" onclick="selectTTSEcosystemCard('gpt_sovits')" style="margin: 0 4px; padding: 2px 8px; font-size: 11px;">切换至 GPT-SoVITS ↗</button>
+                  <button type="button" class="btn btn-xs btn-primary" onclick="selectTTSProvider('cosyvoice')" style="background: #10B981; border-color: #10B981; margin: 0 4px; padding: 2px 8px; font-size: 11px;">阿里云 CosyVoice ↗</button>
                 </div>
 
                 <!-- 模式 1: 登记已有云端复刻 Voice-ID (推荐默认模式) -->
@@ -1335,12 +2294,9 @@
             <div style="display: flex; align-items: center; gap: 8px;">
               <div id="voice-engine-filters" style="display: flex; gap: 6px; flex-wrap: wrap;">
                 <button type="button" class="btn btn-xs voice-filter-btn active" data-engine="" onclick="filterVoiceTableByEngine('', this)">全部引擎</button>
-                <button type="button" class="btn btn-xs voice-filter-btn" data-engine="edge_tts" onclick="filterVoiceTableByEngine('edge_tts', this)">Edge-TTS</button>
+                <button type="button" class="btn btn-xs voice-filter-btn" data-engine="moss_tts_nano" onclick="filterVoiceTableByEngine('moss_tts_nano', this)">MOSS-TTS-Nano</button>
                 <button type="button" class="btn btn-xs voice-filter-btn" data-engine="cosyvoice" onclick="filterVoiceTableByEngine('cosyvoice', this)">CosyVoice</button>
-                <button type="button" class="btn btn-xs voice-filter-btn" data-engine="gpt_sovits" onclick="filterVoiceTableByEngine('gpt_sovits', this)">GPT-SoVITS</button>
                 <button type="button" class="btn btn-xs voice-filter-btn" data-engine="elevenlabs" onclick="filterVoiceTableByEngine('elevenlabs', this)">ElevenLabs</button>
-                <button type="button" class="btn btn-xs voice-filter-btn" data-engine="custom_tts" onclick="filterVoiceTableByEngine('custom_tts', this)">本地自建</button>
-                <button type="button" class="btn btn-xs voice-filter-btn" data-engine="chattts" onclick="filterVoiceTableByEngine('chattts', this)">ChatTTS</button>
               </div>
               <button class="btn btn-sm" onclick="loadVoiceTable()">
                 <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -1373,9 +2329,8 @@
             </span>
           </div>
           <p class="page-intro">
-            四大核心角色：<strong>带货主播</strong>（促单逼单）、<strong>娱乐主播</strong>（逗梗陪伴）、<strong>专业专家</strong>（咨询法理前置免责）、<strong>闲聊扯淡</strong>（唠嗑搭子）。
-            点击卡片选择要编辑的主播，修改人设与话术红线后保存。
-            <strong style="color: var(--red);">直播进行中禁止切换角色。</strong>
+            四大核心直播类型：<strong>带货主播</strong>（促单逼单）、<strong>娱乐主播</strong>（逗梗陪伴）、<strong>专业专家</strong>（咨询法理前置免责）、<strong>闲聊扯淡</strong>（唠嗑搭子）。
+            点击卡片选择要编辑的主播类型，修改人设 System Prompt 与话术红线后保存。开播时可在「开播向导」选择具体出镜主播。
           </p>
           <label class="form-label">编辑目标角色（点击卡片选择）</label>
           <div id="role-cards" class="grid-4" style="margin-bottom: 20px;"></div>
@@ -1387,7 +2342,7 @@
               <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
               保存人设修改
             </button>
-            <button class="btn" id="btn-activate-role" onclick="activateRole()">
+            <button class="btn" id="btn-activate-role" onclick="activateRole()" style="display: none;">
               <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               激活为当前直播角色
             </button>
@@ -1563,8 +2518,22 @@
           <!-- 区域 1: 内置主流大模型品牌网格 (Logo + 名称) -->
           <div style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
             <span>选择大模型品牌 (点击下方品牌即可配置)</span>
-            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">已内置 6 大主流模型生态</span>
+            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">已内置 8 大主流模型生态</span>
           </div>
+
+          <!-- 大模型算力与本地部署硬件要求提示条 (针对两类人群提供选型指引) -->
+          <div id="llm-gpu-requirement-banner" style="background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span class="brand-badge gold" style="font-size: 11px;">算力选型指南</span>
+              <span style="font-size: 12px; color: #cbd5e1;">
+                商业云端大模型（<strong>DeepSeek / 通义千问 / Kimi / MiniMax</strong>）走极速云端 API 调用，<strong>对本地显卡零负担（0 显存占用，推荐低配/轻薄本用户使用）</strong>；若自建本地私有化大模型 (Ollama)，需确保本机独立显存 &gt;= 8GB。
+              </span>
+            </div>
+            <div style="font-size: 11.5px; color: #34d399; background: rgba(16, 185, 129, 0.1); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.25);">
+              💡 推荐两类人群首选云端 DeepSeek
+            </div>
+          </div>
+
           <div id="llm-ecosystem-grid" class="llm-ecosystem-grid"></div>
 
           <!-- 区域 2: 当前大模型配置编辑面板 (含获取模型 & 连通性测试) -->
@@ -1666,8 +2635,6 @@
           </div>
         </div>
 
-        <!-- 兼容其它分类的隐藏配置容器 -->
-        <div id="settings-configs-container" style="display: none;"></div>
 
         <!-- 视觉感知通道配置 -->
         <div class="panel-card">
@@ -1701,17 +2668,19 @@
               <input type="number" id="vision-interval" class="form-control" value="2.5" min="0.5" max="30" step="0.5" title="采样间隔（秒）" aria-label="采样间隔（秒）">
             </div>
           </div>
-          <button class="btn btn-primary" onclick="saveVisionConfig()">
-            <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            保存视觉配置
-          </button>
+          <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
+            <button class="btn btn-sm btn-primary" onclick="saveVisionConfig()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
+              <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              保存视觉配置
+            </button>
+          </div>
         </div>
       </div>
 
 
       <div class="tab-content" id="tab-gpu">
-  <!-- 标题与导言栏 -->
-  <div class="panel-card" style="margin-bottom: 20px;">
+  <!-- 1. 标题与顶栏指引 -->
+  <div class="panel-card" style="margin-bottom: 18px;">
     <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
       <div style="display: flex; align-items: center; gap: 10px;">
         <span class="panel-title" style="color: #10B981; display: flex; align-items: center; gap: 8px;">
@@ -1727,116 +2696,249 @@
             <line x1="1" y1="9" x2="4" y2="9" />
             <line x1="1" y1="14" x2="4" y2="14" />
           </svg>
-          GPU配置(2) · 数字人画面与云端渲染
+          GPU配置(2) · 算力调度与数字人渲染
         </span>
-        <span class="brand-badge green">第二步基础设施配置</span>
+        <span class="brand-badge green">核心算力枢纽</span>
       </div>
-      <div style="font-size: 12px; color: var(--text-muted);">
-        系统默认保底：本地程序化形象随时守护，断网不黑屏
+      <div id="gpu-header-active-status" style="font-size: 12px; color: var(--text-muted);">
+        正在探测算力调度状态...
       </div>
     </div>
     <p class="page-intro" style="margin-bottom: 0;">
-      本模块负责<strong>数字人画面的实时生成、唇形驱动与算力节点分配</strong>。系统支持从 0 门槛的免显卡本地卡通/真人微动态，到租用低成本云端 GPU（约 1.2 元/小时）跑高清写实真人，以及大厂官方商业数智人。
+      本系统根据您的<strong>电脑物理硬件实况</strong>，自动研判并提供两类极简运行路径：对于本地配有高性能独立显卡的用户，支持<strong>全单机本地运行</strong>；对于轻薄本、核显或老旧显卡用户，支持一键桥接<strong>云端租赁 GPU 协同加速</strong>。
     </p>
   </div>
 
-  <!-- 一行多个紧凑选项卡片 -->
+  <!-- 2. 当前电脑硬件实况与系统硬件要求对照看板 -->
+  <div class="panel-card" style="margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: inline-flex; align-items: center; gap: 8px;">
+        <svg class="icon-sm" viewBox="0 0 24 24" style="stroke:#38bdf8;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        当前电脑硬件实况 vs 运行本系统硬件要求
+      </span>
+      <button type="button" class="btn btn-xs btn-ghost" onclick="refreshGpuHardwareOverview(true)" style="font-size: 11.5px; color: #38bdf8; display: inline-flex; align-items: center; gap: 4px;">
+        <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2;"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        重新探测硬件
+      </button>
+    </div>
+
+    <!-- 本机三大硬件核心指标实时卡片 -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 14px;">
+      <!-- 显卡 GPU -->
+      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 12px 14px;">
+        <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span>🎮 独立显卡 / GPU 算力</span>
+          <span id="gpu-hw-card-cuda-badge" class="brand-badge amber">探测中</span>
+        </div>
+        <div id="gpu-hw-card-name" style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 4px; word-break: break-all;">
+          正在获取物理显卡...
+        </div>
+        <div id="gpu-hw-card-vram" style="font-size: 12px; color: #94a3b8;">
+          显存负载：— / — GB
+        </div>
+      </div>
+
+      <!-- 处理器 CPU -->
+      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 12px 14px;">
+        <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span>⚡ 处理器 / CPU</span>
+          <span id="gpu-hw-card-cpu-cores" class="brand-badge sky">— 核心</span>
+        </div>
+        <div id="gpu-hw-card-cpu-name" style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 4px; word-break: break-all;">
+          正在获取 CPU 信息...
+        </div>
+        <div id="gpu-hw-card-cpu-usage" style="font-size: 12px; color: #94a3b8;">
+          实时利用率：—%
+        </div>
+      </div>
+
+      <!-- 内存 RAM -->
+      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 12px 14px;">
+        <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span>💾 系统内存 / RAM</span>
+          <span id="gpu-hw-card-ram-percent" class="brand-badge green">—% 占用</span>
+        </div>
+        <div id="gpu-hw-card-ram-total" style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 4px;">
+          — / — GB
+        </div>
+        <div id="gpu-hw-card-ram-status" style="font-size: 12px; color: #94a3b8;">
+          系统可用运存充足
+        </div>
+      </div>
+    </div>
+
+    <!-- 硬件评估与文字提示告警栏（若显存<2G或配置不足时显式醒目提示） -->
+    <div id="gpu-hw-eval-banner" style="display: none; padding: 12px 15px; border-radius: 8px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.7;">
+      <!-- 动态注入提示内容 -->
+    </div>
+
+    <!-- 本系统各项核心功能对显卡的最低要求速查对照表 -->
+    <div style="background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(148, 163, 184, 0.12); border-radius: 8px; padding: 12px 14px;">
+      <div style="font-size: 12.5px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+        <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #10B981; fill: none; stroke-width: 2.2;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        本系统各功能模块硬件要求标准对照：
+      </div>
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; color: #cbd5e1;">
+          <thead>
+            <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.2); color: #94a3b8;">
+              <th style="padding: 6px 8px;">系统核心功能</th>
+              <th style="padding: 6px 8px;">是否必须独立显卡</th>
+              <th style="padding: 6px 8px;">最低硬件配置</th>
+              <th style="padding: 6px 8px;">推荐配置与算力模式</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.1);">
+              <td style="padding: 6px 8px; font-weight: 600;">控制台与主控逻辑</td>
+              <td style="padding: 6px 8px; color: #34d399;">❌ 完全不需要</td>
+              <td style="padding: 6px 8px;">双核 CPU / 4GB 内存</td>
+              <td style="padding: 6px 8px; color: #94a3b8;">任意轻薄本/办公电脑均可畅跑</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.1);">
+              <td style="padding: 6px 8px; font-weight: 600;">LLM 思考大脑</td>
+              <td style="padding: 6px 8px; color: #34d399;">❌ 不需要 (云端API)</td>
+              <td style="padding: 6px 8px;">零显卡要求</td>
+              <td style="padding: 6px 8px; color: #94a3b8;">云端 DeepSeek / Qwen (本地跑 Ollama 需 8G 显存)</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.1);">
+              <td style="padding: 6px 8px; font-weight: 600;">MOSS-TTS 语音合成</td>
+              <td style="padding: 6px 8px; color: #34d399;">❌ 不需要 (CPU保底)</td>
+              <td style="padding: 6px 8px;">普通 4 核 CPU 多线程</td>
+              <td style="padding: 6px 8px; color: #94a3b8;">独显仅占 ~500MB，无显卡由 CPU 极速合成</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.1);">
+              <td style="padding: 6px 8px; font-weight: 600;">数字人切片视频制作</td>
+              <td style="padding: 6px 8px; color: #38bdf8;">⚠️ 可选加速</td>
+              <td style="padding: 6px 8px;">普通 CPU (转码略慢)</td>
+              <td style="padding: 6px 8px; color: #94a3b8;">NVIDIA 独显硬件 NVENC 极速切片</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 8px; font-weight: 600; color: #f87171;">1080P 超写实真人实时驱动</td>
+              <td style="padding: 6px 8px; color: #f87171; font-weight: 700;">🔴 必须具备 GPU</td>
+              <td style="padding: 6px 8px;">NVIDIA 显存 6GB+ (运营推荐 8GB+)</td>
+              <td style="padding: 6px 8px; color: #fbbf24; font-weight: 600;">本机 RTX 3060/4060 (8G~12G) 或 租赁云端 GPU (约 1.2元/h)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 双核心运行模式选择卡片（仅 2 个选项，等宽对比） -->
   <div class="panel-card" style="margin-bottom: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
       <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: inline-flex; align-items: center; gap: 8px;">
         <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        选择数字人画面与渲染引擎（一行横向卡片，点击选中其一）:
+        选择您的数字人渲染与算力运行模式（二选一）：
       </span>
-      <span style="font-size: 12px; color: var(--text-muted);">点击卡片后，下方描述卡片将即刻呈现对应多维解读</span>
+      <span style="font-size: 12px; color: var(--text-muted);">点击卡片切换，下方配置栏即刻同步就绪</span>
     </div>
 
-    <!-- 紧凑一行多卡片容器 -->
-    <div id="gpu-avatar-provider-cards" class="avatar-compact-grid" aria-live="polite">
-      <div class="hw-cell" style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 24px;">
-        正在加载数字人渲染引擎注册表...
+    <!-- 2 列等宽黄金卡片网格 -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
+      <!-- 选项 1：本机完全满足 (本地运行) -->
+      <div id="gpu-mode-card-local" class="gpu-mode-card selected" onclick="selectGpuMode('local_procedural')"
+           style="background: rgba(15, 23, 42, 0.7); border: 2px solid #10B981; border-radius: 10px; padding: 18px; cursor: pointer; transition: all 0.2s ease; position: relative;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center;">
+              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; stroke: #10B981; fill: none; stroke-width: 2;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div>
+              <div style="font-size: 15px; font-weight: 700; color: #f8fafc;">选项 1 · 本机完全满足 (本地运行)</div>
+              <div style="font-size: 12px; color: #34d399; margin-top: 2px;">0 租赁成本 · 免网络配置 · 开箱即用</div>
+            </div>
+          </div>
+          <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+            <span id="gpu-mode-badge-local" class="brand-badge green">已选中</span>
+            <span id="gpu-compliance-badge-local" class="brand-badge amber" style="font-size: 11px;">硬件检测中...</span>
+          </div>
+        </div>
+        <p style="font-size: 12.5px; color: #cbd5e1; line-height: 1.65; margin: 0 0 8px 0;">
+          全链路在当前电脑单机闭环运行。适合<strong>本地拥有达标独立显卡 (RTX 3060 6GB+)</strong> 直接渲染超写实真人，或<strong>选用系统免显卡程序化形象</strong>开箱即播。完全不花一分钱云端算力费，断网亦可正常推流。
+        </p>
+        <div id="gpu-compliance-summary-local" style="font-size: 12px; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); color: #cbd5e1;">
+          正在核验当前电脑物理配置是否达到本地真人渲染要求...
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">全离线私密</span>
+          <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">免外网带宽</span>
+          <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">零租金支出</span>
+        </div>
+      </div>
+
+      <!-- 选项 2：本地硬件 + 租赁云端GPU -->
+      <div id="gpu-mode-card-cloud" class="gpu-mode-card" onclick="selectGpuMode('sidecar_v3')"
+           style="background: rgba(15, 23, 42, 0.7); border: 2px solid rgba(148, 163, 184, 0.2); border-radius: 10px; padding: 18px; cursor: pointer; transition: all 0.2s ease; position: relative;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); display: flex; align-items: center; justify-content: center;">
+              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; stroke: #38bdf8; fill: none; stroke-width: 2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            </div>
+            <div>
+              <div style="font-size: 15px; font-weight: 700; color: #f8fafc;">选项 2 · 本地硬件 + 租赁云端GPU</div>
+              <div style="font-size: 12px; color: #38bdf8; margin-top: 2px;">低配电脑救星 · 约1.2元/小时 · 1080P写实真人</div>
+            </div>
+          </div>
+          <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+            <span id="gpu-mode-badge-cloud" class="brand-badge sky">端云协同</span>
+            <span id="gpu-compliance-badge-cloud" class="brand-badge amber" style="font-size: 11px;">协同核验中...</span>
+          </div>
+        </div>
+        <p style="font-size: 12.5px; color: #cbd5e1; line-height: 1.65; margin: 0 0 8px 0;">
+          当本地显卡配置不足（如核显、轻薄本或老显卡 GT 710）时，将最耗显卡的数字人画面实时渲染<strong>外包给低成本云端 GPU (如 AutoDL RTX 4090，约 1.2 元/小时)</strong>。本地仅负责互动推流，0 显存负担畅享电影级真人！
+        </p>
+        <div id="gpu-compliance-summary-cloud" style="font-size: 12px; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); color: #cbd5e1;">
+          正在核验本地推流环境与云端 GPU 配合协同状态...
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">超写实 1080P</span>
+          <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">本地 0 显存开销</span>
+          <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">按需租用随关随停</span>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 选中的专属独立描述与配置卡片 -->
-  <div id="gpu-provider-detail-card" class="panel-card" style="border: 1.5px solid rgba(16, 185, 129, 0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.25);">
+  <!-- 4. 选定模式的配置与生效操作面板 -->
+  <input type="hidden" id="gpu-avatar-config-id" value="">
+  <div id="gpu-mode-config-panel" class="panel-card" style="border: 1.5px solid rgba(16, 185, 129, 0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.25);">
     <div class="panel-header" style="border-bottom: 1px solid rgba(148, 163, 184, 0.15); padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
       <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="font-size: 16px; font-weight: 700; color: #f8fafc;" id="gpu-detail-title">
-          数字人渲染方案详情
+        <span style="font-size: 15px; font-weight: 700; color: #f8fafc;" id="gpu-config-panel-title">
+          模式配置详情
         </span>
-        <span id="gpu-detail-badge" class="brand-badge green">已选中</span>
+        <span id="gpu-config-panel-badge" class="brand-badge green">已就绪</span>
       </div>
-      <div id="gpu-detail-official-link-box"></div>
+      <div id="gpu-config-panel-link-box"></div>
     </div>
 
-    <!-- 关键指标独立行呈现（画面效果、硬件门槛、适合人群各占整整一行） -->
-    <div class="avatar-spec-rows-container" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px;">
-      <!-- 画面效果（独立一行） -->
-      <div class="spec-row-item">
-        <div class="spec-row-badge visual">
-          <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke-width: 2.2;"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-          画面效果
-        </div>
-        <div class="spec-row-content" id="gpu-detail-visual">—</div>
-      </div>
-
-      <!-- 硬件门槛（独立一行） -->
-      <div class="spec-row-item">
-        <div class="spec-row-badge hardware">
-          <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke-width: 2.2;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-          硬件门槛
-        </div>
-        <div class="spec-row-content" id="gpu-detail-hardware">—</div>
-      </div>
-
-      <!-- 适合人群（独立一行） -->
-      <div class="spec-row-item">
-        <div class="spec-row-badge audience">
-          <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke-width: 2.2;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          适合人群
-        </div>
-        <div class="spec-row-content" id="gpu-detail-audience">—</div>
-      </div>
+    <!-- 表单内容区域（动态切换） -->
+    <div id="gpu-mode-dynamic-content">
+      <!-- 动态注入：本地模式说明 或 云端节点极简输入 -->
     </div>
 
-    <!-- 白话解读与深度指引 -->
-    <div class="avatar-detail-plain-box" id="gpu-detail-plain-box" style="margin-bottom: 20px;">
-      <div style="display: flex; align-items: flex-start; gap: 8px;">
-        <span style="font-size: 16px; flex-shrink: 0;">💡</span>
-        <div id="gpu-detail-plain-text" style="font-size: 12.5px; color: #cbd5e1; line-height: 1.7;">
-          请选择上方任意一个数字人选项。
-        </div>
-      </div>
+    <!-- 底部统一操作按钮栏 -->
+    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed rgba(148, 163, 184, 0.15); flex-wrap: wrap;">
+      <button id="gpu-avatar-copy-cloud-cmd-btn" type="button" class="btn btn-sm btn-ghost" onclick="copyCloudBootstrapCommand()" style="display: none; font-size: 12px; color: #38bdf8; align-items: center; gap: 5px; margin-right: auto;" title="点击复制一键命令，在云主机终端粘贴回车，自动检测 GPU、穿透隧道并启动 /ws/render-v3 对接端点（供连通性联调与真实渲染侧车接入）">
+        <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        复制云端节点一键启动命令
+      </button>
+
+      <button id="gpu-avatar-test-btn" type="button" class="btn btn-sm btn-secondary" onclick="testCurrentGpuAvatarConnection()" style="display: none; font-weight: 500; padding: 6px 14px; align-items: center; gap: 6px;">
+        <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+        测试通信连接
+      </button>
+
+      <button id="gpu-avatar-save-btn" type="button" class="btn btn-sm btn-primary" onclick="handleSaveGpuAvatarConfig()" style="background: #10B981; border-color: #10B981; font-weight: 600; padding: 6px 20px; display: inline-flex; align-items: center; gap: 6px;">
+        <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        保存并启用此算力模式
+      </button>
     </div>
 
-    <!-- 对应 Provider 实例配置输入表单区域 -->
-    <input type="hidden" id="gpu-avatar-config-id" value="">
-    <div id="gpu-avatar-config-fields-panel" class="settings-sub-card" style="display: none; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 8px; padding: 18px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px dashed rgba(148, 163, 184, 0.15); padding-bottom: 10px;">
-        <span style="font-size: 13.5px; font-weight: 700; color: var(--text-primary); display: inline-flex; align-items: center; gap: 6px;">
-          <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          实例连接参数配置
-        </span>
-        <span id="gpu-avatar-status-hint" style="font-size: 12px; color: var(--text-muted);"></span>
-      </div>
-      <div id="gpu-avatar-fields-container" class="grid-2"></div>
-      <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed rgba(148, 163, 184, 0.15);">
-        <button id="gpu-avatar-copy-cloud-cmd-btn" type="button" class="btn btn-sm btn-ghost" onclick="copyCloudBootstrapCommand()" style="font-size: 12px; color: #38bdf8; display: inline-flex; align-items: center; gap: 5px; margin-right: auto;" title="点击复制一行命令，在云端服务器终端粘贴回车即可秒级拉起 A100 渲染服务">
-          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          复制云端 A100 一键启动命令
-        </button>
-        <button id="gpu-avatar-test-btn" type="button" class="btn btn-sm btn-secondary" onclick="testCurrentGpuAvatarConnection()" style="font-weight: 500; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
-          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
-          测试通信连接
-        </button>
-        <button id="gpu-avatar-save-btn" type="button" class="btn btn-sm btn-primary" onclick="handleSaveGpuAvatarConfig()" style="background: #10B981; border-color: #10B981; font-weight: 600; padding: 6px 20px; display: inline-flex; align-items: center; gap: 6px;">
-          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          保存并启用此数字人方案
-        </button>
-      </div>
-      <div id="gpu-avatar-conn-result" style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px; align-items: center; gap: 8px;"></div>
-    </div>
+    <!-- 测试结果呈现横幅 -->
+    <div id="gpu-avatar-conn-result" style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px; align-items: center; gap: 8px;"></div>
   </div>
 </div>
 
@@ -1990,21 +3092,21 @@
 
 
   <!-- ============ 前端控制台主脚本 (已拆分为 modules/*.js，聚合脚本为 console.js) ============ -->
-  <script src="/static/js/modules/00_core.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/01_navigation.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/02_websocket_audio.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/03_live_control.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/04_hardware_prereq.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/05_roles.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/06_guardrails.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/07_products.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/08_voices.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/09_settings_llm.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/10_settings_tts.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/11_settings_general.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/12_wizard_preflight.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/13_anchors.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/14_knowledge.js?v=20260917_v15"></script>
-  <script src="/static/js/modules/15_settings_gpu.js?v=20260917_v15"></script>
+  <script src="/static/js/modules/00_core.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/01_navigation.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/02_websocket_audio.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/03_live_control.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/04_hardware_prereq.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/05_roles.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/06_guardrails.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/07_products.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/08_voices.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/09_settings_llm.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/10_settings_tts.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/11_settings_general.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/12_wizard_preflight.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/13_anchors.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/14_knowledge.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/15_settings_gpu.js?v=20260920_v6"></script>
 </body>
 </html>

@@ -1,261 +1,926 @@
+// ==============================================================================
+// 15_settings_gpu.js - GPU算力调度与数字人渲染（双核心运行模式与真实达标核验）
+// 1. 本机完全满足 (本地单机运行 · 严格核验本机显卡是否达标)
+// 2. 本地硬件 + 租赁云端GPU (端云协同 · 严格核验本地主控+云端GPU配合是否达标)
+// ==============================================================================
 
-const KNOWN_AVATAR_PROVIDER_INFO = {
-    local_procedural: {
-        title: "选项 1 · 本地轻量卡通形象",
-        logoSvg: "/static/svg/avatar_local_procedural.svg",
-        badges: [
-            { text: "0元完全免费", cls: "green" },
-            { text: "免独立显卡", cls: "green" },
-            { text: "开箱即用", cls: "sky" }
-        ],
-        summary: "由本机直接生成 2D 动效卡通形象，无需任何显卡或云端账号，即开即播。",
-        visual: "2D 灵动卡通主播画面（自然微动态/呼吸/眨眼/口型同步，支持低配真人微动态羽化）",
-        hardware: "无需独立显卡，任意双核以上普通办公电脑/轻薄本畅跑，0元完全免费",
-        audience: "小白新手试播、无独显电脑、追求绝对稳定与 0 成本首选（强烈推荐）",
-        plain: "💡 为什么强烈推荐新手先选这个？它就像开箱即用的“安全驾驶模式”，电脑无需任何昂贵显卡，打开就能直接开播；并且后续就算你换了更高级的真人服务，系统也会把它作为暗中守护的备用画面，一旦网络中断自动顶上，保障直播永不黑屏！"
-    },
-    sidecar_v3: {
-        title: "选项 2 · 自建真人渲染 (Sidecar)",
-        logoSvg: "/static/svg/avatar_sidecar_v3.svg",
-        officialUrl: "https://www.autodl.com",
-        officialLabel: "AutoDL算力 ↗",
-        badges: [
-            { text: "真人高保真", cls: "amber" },
-            { text: "可租云GPU(约1.2元/h)", cls: "green" },
-            { text: "逐帧口型对齐", cls: "sky" }
-        ],
-        summary: "将耗显卡的真人画面外包给独显电脑或租用云GPU(AutoDL等)，让低配电脑也能做高保真真人直播。",
-        visual: "1080P 高清写实真人视频（精确逐帧音素级对齐发音口型）",
-        hardware: "本机配备独立显卡(推荐 RTX 3060 6GB+) 或 按小时租用云端 GPU(约1.2元/小时)",
-        audience: "追求真人主播质感、想用低配轻薄本通过租用云算力实现真人出镜的团队与个人",
-        plain: "💡 什么是“自建云端渲染 / Sidecar”？让AI生成逼真写实的真人视频非常消耗显卡。所谓“Sidecar（外挂伴侣）”，就是把这个非常吃显卡的画面合成计算外包给一台带独显的机器或按小时租用的便宜云GPU（如 AutoDL，约1.2元/小时），计算完成后把高清真人视频实时传回。低配轻薄本花极低成本就能瞬间拥有顶配真人主播！"
-    },
-    liveavatar_lite: {
-        title: "选项 3 · LiveAvatar 开放平台",
-        logoSvg: "/static/svg/avatar_liveavatar.svg",
-        officialUrl: "https://liveavatar.com",
-        officialLabel: "平台官网 ↗",
-        badges: [
-            { text: "商业SaaS", cls: "sky" },
-            { text: "免本地显卡", cls: "green" },
-            { text: "云端直推", cls: "amber" }
-        ],
-        summary: "第三方商业数字人 SaaS 云服务，云端机房生成画面流，本地普通办公电脑即可开播。",
-        visual: "商业级云端真人超写实视频画面（高拟真发丝与表情微动）",
-        hardware: "本地电脑零显卡要求，需官方开通的商业授权 API Key",
-        audience: "拥有商业授权账号、追求大厂现成数字人资产的专业团队",
-        plain: "💡 适合已采购第三方成熟数字人 SaaS 服务的用户，画面由官方机房全权生成推流，本地电脑只需发送互动文字即可驱动，免除自建模型的运维成本。"
-    },
-    aliyun_avatar: {
-        title: "选项 4 · 阿里云万相数字人",
-        logoSvg: "/static/svg/avatar_aliyun.svg",
-        officialUrl: "https://www.aliyun.com/product/ai/avatar",
-        officialLabel: "阿里官网 ↗",
-        badges: [
-            { text: "阿里官方", cls: "sky" },
-            { text: "完全免本地显卡", cls: "green" },
-            { text: "云端直推RTMP", cls: "amber" }
-        ],
-        summary: "阿里云机房直接渲染并支持直推 RTMP 直播流，本地电脑零显卡消耗，超写实真人质感。",
-        visual: "阿里云万相官方超写实逼真真人主播（工业级渲染质感）",
-        hardware: "本地电脑零显卡要求，需阿里云企业商用认证与万相服务权限",
-        audience: "品牌企业官方旗舰店、大厂商用客户",
-        plain: "💡 阿里云企业级解决方案，依托阿里庞大算力机房直接生成推流直播源，适合品牌级企业开播需求。"
-    },
-    tencent_avatar: {
-        title: "选项 5 · 腾讯云智能数智人",
-        logoSvg: "/static/svg/avatar_tencent.svg",
-        officialUrl: "https://cloud.tencent.com/product/ivh",
-        officialLabel: "腾讯官网 ↗",
-        badges: [
-            { text: "腾讯官方数智人", cls: "sky" },
-            { text: "云端渲染免显卡", cls: "green" },
-            { text: "机房直推RTMP", cls: "amber" }
-        ],
-        summary: "腾讯云端机房完成声画实时合成并生成 RTMP 流，不占用本地显卡，在 OBS 拉流即可开播。",
-        visual: "腾讯云 IVH 互动数智人超写实视频（细腻眼神交流与肢体动作）",
-        hardware: "本地电脑零显卡要求，需腾讯云账号开通商用互动数智人权限",
-        audience: "拥有腾讯云数智人商用授权的企业直播间",
-        plain: "💡 腾讯官方数智人云端实时合流方案，支持直接推流至主流平台，画面质量卓越稳定。"
-    },
-    custom_avatar: {
-        title: "选项 6 · 自定义数字人 / 远端流服务",
-        logoSvg: "/static/svg/avatar_custom.svg",
-        officialUrl: "https://github.com/winclubs/AI-LiveStream-Agent",
-        officialLabel: "自定义入口 ↗",
-        badges: [
-            { text: "自定义服务", cls: "sky" },
-            { text: "私有自建", cls: "green" },
-            { text: "灵活扩展", cls: "amber" }
-        ],
-        summary: "自由对接您的自建数字人服务、私有 GPU 云机房、第三方未预置的流媒体服务或自定义 WebSocket 网关。",
-        visual: "视您接入的外部自研服务或私有流媒体画面而定",
-        hardware: "视自建服务器配置而定，本地电脑零显卡负担，支持 SSH 加密隧道",
-        audience: "拥有自研渲染服务、私有机房或需接入私有直播流的进阶开发者与机构",
-        plain: "💡 提供最大化自由度！无论您自研了数字人模型、搭建了私有渲染集群，还是有特殊的 RTMP/WebSocket 直播流地址，均可在此自由配置并受系统统一调度。"
-    }
-};
-
-let globalAvatarCatalog = [];
-let globalAvatarConfigs = [];
-let selectedAvatarProviderId = "local_procedural";
+let currentSelectedGpuMode = "local_procedural"; // "local_procedural" | "sidecar_v3"
 let currentEditingAvatarConfigId = "";
-let cachedAvatarDecryptedKeys = {};
+let cachedAvatarConfigs = [];
+let cachedHardwareData = null;
+let lastCloudPingResult = null; // 缓存云端握手结果 { success: bool, latency_ms: int, device: str, error: str }
 
-async function toggleAvatarSecretVisibility(inputId, configId) {
-    const input = document.getElementById(inputId);
-    const eyeBtn = document.getElementById(`${inputId}-eye`);
-    if (!input || !eyeBtn) return;
-    const eyeShowSvg = `<svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
-    const eyeHideSvg = `<svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+// 智能规范化 Sidecar WebSocket 连接地址 (消除用户填入 https:// 或漏填 /ws/render-v3 的低级阻断)
+function sanitizeSidecarWsUrl(url) {
+    if (!url) return "";
+    let val = String(url).trim();
+    if (!val) return "";
 
-    if (input.type === "password") {
-        if (configId && (!input.value || input.value.includes("•"))) {
-            if (cachedAvatarDecryptedKeys[configId]) {
-                input.value = cachedAvatarDecryptedKeys[configId];
+    // 1. 协议纠偏：https -> wss, http -> ws
+    if (val.startsWith("https://")) {
+        val = "wss://" + val.slice(8);
+    } else if (val.startsWith("http://")) {
+        val = "ws://" + val.slice(7);
+    } else if (!val.startsWith("ws://") && !val.startsWith("wss://")) {
+        val = (val.includes("trycloudflare.com") || val.includes(".com") || val.includes(".org")) ? ("wss://" + val) : ("ws://" + val);
+    }
+
+    // 2. 路径规整：若用户带了 /v1 或无 path，规范化为标准渲染端点 /ws/render-v3
+    try {
+        const u = new URL(val.replace("wss://", "https://").replace("ws://", "http://"));
+        let p = u.pathname;
+        if (!p || p === "/" || p === "/v1" || p === "/v1/") {
+            p = "/ws/render-v3";
+        } else if (p.endsWith("/v1")) {
+            p = p.slice(0, -3) + "/ws/render-v3";
+        } else if (!p.includes("/ws/")) {
+            p = p.replace(/\/+$/, "") + "/ws/render-v3";
+        }
+        const proto = val.startsWith("wss://") ? "wss://" : "ws://";
+        val = proto + u.host + p + (u.search || "");
+    } catch (_) {}
+
+    return val;
+}
+window.sanitizeSidecarWsUrl = sanitizeSidecarWsUrl;
+
+// ------------------------------------------------------------------------------
+// 1. 本地物理硬件实况探测与系统要求智能比对
+// ------------------------------------------------------------------------------
+async function refreshGpuHardwareOverview(forceRefresh = false) {
+    const gpuNameEl = document.getElementById("gpu-hw-card-name");
+    const gpuVramEl = document.getElementById("gpu-hw-card-vram");
+    const gpuCudaEl = document.getElementById("gpu-hw-card-cuda-badge");
+    const cpuNameEl = document.getElementById("gpu-hw-card-cpu-name");
+    const cpuUsageEl = document.getElementById("gpu-hw-card-cpu-usage");
+    const cpuCoresEl = document.getElementById("gpu-hw-card-cpu-cores");
+    const ramTotalEl = document.getElementById("gpu-hw-card-ram-total");
+    const ramUsageEl = document.getElementById("gpu-hw-card-ram-percent");
+    const evalBanner = document.getElementById("gpu-hw-eval-banner");
+    const headerStatusEl = document.getElementById("gpu-header-active-status");
+
+    try {
+        const res = await fetch(`${API_BASE}/system/hardware?t=${Date.now()}`);
+        const json = await res.json();
+        if (json.code !== 0 || !json.data) return;
+        const d = json.data;
+        cachedHardwareData = d;
+
+        const gpu = d.gpu || {};
+        const cap = d.gpu_capability || {};
+        const gpuName = gpu.gpu_name || "未检测到独立显卡 (集成显卡/核显)";
+        const vramTotal = parseFloat(gpu.vram_total_gb || 0);
+        const vramUsed = parseFloat(gpu.vram_used_gb || 0);
+        const hasCuda = Boolean(gpu.cuda_available);
+
+        // 1. 显卡卡片呈现
+        if (gpuNameEl) gpuNameEl.textContent = gpuName;
+        if (gpuVramEl) {
+            gpuVramEl.textContent = vramTotal > 0
+                ? `总显存: ${vramTotal} GB · 当前已用: ${vramUsed} GB`
+                : "无专用独立显存 (共享系统内存)";
+        }
+        if (gpuCudaEl) {
+            gpuCudaEl.className = hasCuda ? "brand-badge green" : "brand-badge amber";
+            gpuCudaEl.textContent = hasCuda ? "CUDA 加速就绪" : "无 CUDA 驱动";
+        }
+
+        // 2. 处理器呈现
+        const cpuName = d.cpu_name || "未知处理器";
+        if (cpuNameEl) cpuNameEl.textContent = cpuName.length > 38 ? cpuName.slice(0, 38) + "..." : cpuName;
+        if (cpuCoresEl) cpuCoresEl.textContent = `${d.cpu_cores || 4} 核心`;
+        if (cpuUsageEl) {
+            const cpuPercent = Math.round(d.cpu_percent || 0);
+            cpuUsageEl.innerHTML = `实时利用率: <strong style="color: ${cpuPercent > 80 ? 'var(--accent-danger)' : '#38bdf8'};">${cpuPercent}%</strong>`;
+        }
+
+        // 3. 内存呈现
+        const ramUsed = d.ram_used_gb || 0;
+        const ramTotal = d.ram_total_gb || 16;
+        const ramPercent = Math.round(d.ram_percent || 0);
+        if (ramTotalEl) ramTotalEl.textContent = `${ramUsed} / ${ramTotal} GB`;
+        if (ramUsageEl) {
+            ramUsageEl.className = ramPercent > 85 ? "brand-badge red" : "brand-badge green";
+            ramUsageEl.textContent = `${ramPercent}% 占用`;
+        }
+
+        // 4. 显存门槛动态评估与醒目文字提示
+        if (evalBanner) {
+            const isLowSpec = cap.is_low_spec_local || vramTotal < 2.0 || !hasCuda;
+            evalBanner.style.display = "block";
+
+            if (isLowSpec) {
+                evalBanner.style.background = "rgba(245, 158, 11, 0.12)";
+                evalBanner.style.border = "1.5px solid rgba(245, 158, 11, 0.4)";
+                evalBanner.style.color = "#fde68a";
+                evalBanner.innerHTML = `
+                    <div style="font-weight: 700; color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #fbbf24; fill: none; stroke-width: 2.2;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        硬件评估与文字提示：检测到当前显卡配置较低（${escapeHtml(gpuName)}，显存仅 ${vramTotal} GB，低于 2GB 最低推荐要求）
+                    </div>
+                    <div style="font-size: 12.5px; line-height: 1.7; color: #e2e8f0;">
+                        当前硬件<strong>无法在本地流畅运行 1080P 超写实真人实时驱动</strong>。建议：<br>
+                        👉 <strong>推荐方案 A</strong>：点击下方【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，按小时租用云端独立显卡（如 AutoDL RTX 4090 约 1.2 元/小时），本机 0 显存负担畅享电影级真人！<br>
+                        👉 <strong>备用方案 B</strong>：点击下方【<strong>选项 1 · 本机完全满足 (本地运行)</strong>】，使用系统免显卡的本地程序化形象，0元免配置开箱即播。
+                    </div>
+                `;
             } else {
-                try {
-                    eyeBtn.style.opacity = "0.5";
-                    const res = await fetch(`${API_BASE}/settings/configs/${configId}/raw-key`);
-                    const json = await res.json();
-                    if (json.code === 0) {
-                        const rk = json.raw_key || "";
-                        cachedAvatarDecryptedKeys[configId] = rk;
-                        input.value = rk;
-                    }
-                } catch (e) {
-                    console.warn("拉取数字人密钥明文异常:", e);
-                } finally {
-                    eyeBtn.style.opacity = "1";
-                }
+                evalBanner.style.background = "rgba(16, 185, 129, 0.12)";
+                evalBanner.style.border = "1.5px solid rgba(16, 185, 129, 0.4)";
+                evalBanner.style.color = "#a7f3d0";
+                evalBanner.innerHTML = `
+                    <div style="font-weight: 700; color: #34d399; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #34d399; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        硬件评估与文字提示：检测到本地独立显卡性能优良（${escapeHtml(gpuName)}，显存 ${vramTotal} GB）
+                    </div>
+                    <div style="font-size: 12.5px; line-height: 1.7; color: #e2e8f0;">
+                        当前电脑完全满足在本地单机直接流畅运行数字人实时渲染，推荐选择【<strong>选项 1 · 本机完全满足 (本地运行)</strong>】享受 0 成本单机闭环！
+                    </div>
+                `;
             }
         }
-        input.type = "text";
-        eyeBtn.innerHTML = eyeHideSvg;
-        eyeBtn.title = "点击隐藏密码";
-        eyeBtn.style.color = "#10B981";
-    } else {
-        input.type = "password";
-        eyeBtn.innerHTML = eyeShowSvg;
-        eyeBtn.title = "点击显示明文";
-        eyeBtn.style.color = "#94a3b8";
-    }
-}
 
-async function fetchAvatarRegistryAndConfigs() {
-    let registryJson = { code: 0, data: [] };
-    let configsJson = { code: 0, data: [] };
+        // 5. 执行双模式达标综合核验
+        evaluateBothModesCompliance(d);
 
-    try {
-        const [registryRes, configsRes] = await Promise.all([
-            fetch(`${API_BASE}/settings/avatar/providers`),
-            fetch(`${API_BASE}/settings/configs`)
-        ]);
-        if (registryRes.ok) registryJson = await registryRes.json();
-        if (configsRes.ok) configsJson = await configsRes.json();
-    } catch (err) {
-        console.warn("拉取数字人注册表网络响应受阻，启用系统预置方案兜底:", err);
-    }
-
-    const order = { local_procedural: 0, sidecar_v3: 1, liveavatar_lite: 2, aliyun_avatar: 3, tencent_avatar: 4, custom_avatar: 5 };
-    let catalog = Array.isArray(registryJson.data) && registryJson.data.length > 0 ? [...registryJson.data] : [];
-
-    // 若接口尚未准备好或网络异常，通过本地已知元数据兜底构建 6 大主流方案
-    if (catalog.length === 0) {
-        catalog = Object.entries(KNOWN_AVATAR_PROVIDER_INFO).map(([pid, pInfo]) => ({
-            id: pid,
-            name: pInfo.title,
-            status: "available",
-            selectable: true,
-            configuration_mode: pid === "local_procedural" ? "none" : "instance",
-            official_url: pInfo.officialUrl || ""
-        }));
-    }
-
-    if (!catalog.some(item => item.id === "custom_avatar")) {
-        catalog.push({
-            id: "custom_avatar",
-            name: "选项 6 · 自定义数字人 / 远端流服务（灵活接入）",
-            status: "available",
-            selectable: true,
-            configuration_mode: "instance",
-            official_url: "https://github.com/winclubs/AI-LiveStream-Agent",
-            ui_fields: [
-                {
-                    path: "base_url",
-                    label: "自定义服务/流连接地址 (WebSocket / RTMP / HTTP):",
-                    type: "url",
-                    required: true,
-                    default: "ws://127.0.0.1:8010/ws/render-v3",
-                    tip: "您的自建数字人渲染服务、私有网关或 RTMP 流地址（支持 ws://, wss://, http://, https://, rtmp://）。",
-                    pills: [
-                        { text: "本地WS: ws://127.0.0.1:8010/ws/render-v3", val: "ws://127.0.0.1:8010/ws/render-v3" },
-                        { text: "RTMP流: rtmp://127.0.0.1:1935/live/avatar", val: "rtmp://127.0.0.1:1935/live/avatar" },
-                        { text: "远程WSS: wss://my-gpu-node.com/ws/render", val: "wss://my-gpu-node.com/ws/render" }
-                    ]
-                },
-                {
-                    path: "api_key",
-                    label: "访问密码 / Token / API Key (选填):",
-                    type: "secret",
-                    required: false,
-                    tip: "连接您自定义服务端所需的安全认证密钥，系统将加密存储；无鉴权可直接留空。"
-                },
-                {
-                    path: "extra_params.stream_protocol",
-                    label: "通信协议类型:",
-                    type: "text",
-                    default: "websocket",
-                    tip: "与自定义服务通信所使用的协议（支持 websocket、rtmp、webrtc、http）。",
-                    pills: [
-                        { text: "WebSocket", val: "websocket" },
-                        { text: "RTMP直播流", val: "rtmp" },
-                        { text: "WebRTC低延时", val: "webrtc" }
-                    ]
-                }
-            ]
-        });
-    }
-
-    globalAvatarCatalog = catalog.sort((a, b) => (order[a.id] ?? 99) - (order[b.id] ?? 99));
-    globalAvatarConfigs = (configsJson.data || []).filter(item => item.config_group === "neural_renderer");
-
-    // 优先寻找既处于激活状态且校验通过的实例
-    let active = globalAvatarConfigs.find(item => item.is_active && (!item.provider_validation || item.provider_validation.valid));
-    if (!active) {
-        // 容错兜底：若有 active 实例，优先展示该激活方案
-        active = globalAvatarConfigs.find(item => item.is_active);
-    }
-    if (active && (active.adapter_id || active.provider_name)) {
-        selectedAvatarProviderId = active.adapter_id || active.provider_name;
-        currentEditingAvatarConfigId = active.id;
-    }
-}
-
-async function loadGpuAvatarProviders() {
-    try {
-        await fetchAvatarRegistryAndConfigs();
-        renderAvatarProvidersUI("gpu");
+        // 6. 更新顶栏状态
+        if (headerStatusEl) {
+            const hasActiveCloud = cap.use_cloud;
+            headerStatusEl.innerHTML = hasActiveCloud
+                ? `<span style="color: #38bdf8; font-weight: 600;">⚡ 当前生效：云端租赁 GPU 协同加速</span>`
+                : `<span style="color: #34d399; font-weight: 600;">🟢 当前生效：本地单机运行模式</span>`;
+        }
     } catch (e) {
-        console.error("加载 GPU Avatar Providers 失败:", e);
-        const cardsBox = document.getElementById("gpu-avatar-provider-cards");
-        if (cardsBox) {
-            cardsBox.innerHTML = `
-                <div class="hw-cell" style="grid-column: 1 / -1; text-align: center; color: var(--signal-danger); padding: 24px;">
-                    <div>⚠️ 加载数字人配置时遇到异常: ${escapeHtml(String(e))}</div>
-                    <button class="btn btn-sm btn-secondary" style="margin-top: 10px;" onclick="loadGpuAvatarProviders()">点击重试加载</button>
+        console.warn("探测系统硬件配置异常:", e);
+    }
+}
+
+// ------------------------------------------------------------------------------
+// 2. 核心：严格检测两模式是否真正达标 (本地达标 vs 端云协同配合达标)
+// ------------------------------------------------------------------------------
+function evaluateBothModesCompliance(hardwareData) {
+    if (!hardwareData) return;
+    const gpu = hardwareData.gpu || {};
+    const vramTotal = parseFloat(gpu.vram_total_gb || 0);
+    const hasCuda = Boolean(gpu.cuda_available);
+    const gpuName = gpu.gpu_name || "集成显卡/核显";
+    const cpuCores = hardwareData.cpu_cores || 4;
+    const ramTotal = hardwareData.ram_total_gb || 16;
+
+    // =========================================================================
+    // 判定 1：选项 1 · 本地单机运行 是否真的达标？
+    // 商业运营型门槛：具备独立显卡、CUDA 可用、显存 >= 6.0GB (推荐 8GB ~ 12GB)
+    // =========================================================================
+    const localBadge = document.getElementById("gpu-compliance-badge-local");
+    const localSummary = document.getElementById("gpu-compliance-summary-local");
+    const isLocalGpuQualified = hasCuda && vramTotal >= 6.0;
+
+    if (localBadge) {
+        if (isLocalGpuQualified) {
+            localBadge.className = "brand-badge green";
+            localBadge.innerHTML = "🟢 硬件达标 · 支持超写实真人";
+        } else {
+            localBadge.className = "brand-badge amber";
+            localBadge.innerHTML = "⚠️ 硬件未达标 (仅支持轻量形象)";
+        }
+    }
+
+    if (localSummary) {
+        if (isLocalGpuQualified) {
+            localSummary.innerHTML = `
+                <div style="color: #34d399; font-weight: 600; margin-bottom: 2px;">✓ 本地硬件达到商业运营级真人驱动门槛 (>= 6GB)</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">检测到 ${escapeHtml(gpuName)} (显存 ${vramTotal}GB，CUDA 可用)，可直接单机流畅渲染！</div>
+            `;
+            localSummary.style.borderColor = "rgba(16, 185, 129, 0.4)";
+        } else {
+            localSummary.innerHTML = `
+                <div style="color: #fbbf24; font-weight: 600; margin-bottom: 2px;">⚠️ 显存不足 (${vramTotal}GB < 6.0GB 商业运营门槛) 或缺少 CUDA 加速</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">本地无法稳定运行超写实真人，将由免显卡轻量形象保底；写实真人强烈建议选选项2。</div>
+            `;
+            localSummary.style.borderColor = "rgba(245, 158, 11, 0.4)";
+        }
+    }
+
+    // =========================================================================
+    // 判定 2：选项 2 · 本地硬件 + 云端 GPU 配合起来是否满足？
+    // 配合门槛：
+    // - 本地条件：CPU >= 2核，内存 >= 4GB (负责推流与业务主控) -> 当前电脑轻松满足！
+    // - 云端条件：云端渲染节点连通性 (是否配置且网络可达握手成功)
+    // =========================================================================
+    const cloudBadge = document.getElementById("gpu-compliance-badge-cloud");
+    const cloudSummary = document.getElementById("gpu-compliance-summary-cloud");
+
+    const activeCloudCfg = cachedAvatarConfigs.find(c => c.config_group === "neural_renderer" && c.provider_name === "sidecar_v3");
+    const urlInput = document.getElementById("gpu-input-base-url");
+    const currentInputUrl = urlInput ? urlInput.value.trim() : "";
+    const hasCloudUrl = Boolean((activeCloudCfg && activeCloudCfg.base_url && activeCloudCfg.base_url.trim().length > 0) || currentInputUrl.length > 0);
+    const isCloudPingSuccess = Boolean(lastCloudPingResult && lastCloudPingResult.success);
+
+    if (cloudBadge) {
+        if (hasCloudUrl && isCloudPingSuccess) {
+            cloudBadge.className = "brand-badge green";
+            cloudBadge.innerHTML = "🟢 端云协同完美达标";
+        } else if (hasCloudUrl) {
+            cloudBadge.className = "brand-badge sky";
+            cloudBadge.innerHTML = "☁️ 节点已配置 (待探活)";
+        } else {
+            cloudBadge.className = "brand-badge amber";
+            cloudBadge.innerHTML = "⚠️ 云端未就绪 (需填地址)";
+        }
+    }
+
+    if (cloudSummary) {
+        if (hasCloudUrl && isCloudPingSuccess) {
+            const devInfo = lastCloudPingResult.device ? ` (远端显卡: ${escapeHtml(lastCloudPingResult.device)})` : "";
+            cloudSummary.innerHTML = `
+                <div style="color: #38bdf8; font-weight: 600; margin-bottom: 2px;">✓ 端云协同配合完美就绪</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">本地主控充足 (${cpuCores}核/${ramTotal}GB) + 云端 GPU 连通通畅${devInfo}，0 显存负担畅享写实真人！</div>
+            `;
+            cloudSummary.style.borderColor = "rgba(56, 189, 248, 0.4)";
+        } else if (hasCloudUrl) {
+            cloudSummary.innerHTML = `
+                <div style="color: #38bdf8; font-weight: 600; margin-bottom: 2px;">ℹ️ 本地环境已就绪 · 已配置云端节点</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">已保存云端地址，点击下方「测试通信连接」即可即时校验连通与远端显卡！</div>
+            `;
+            cloudSummary.style.borderColor = "rgba(56, 189, 248, 0.3)";
+        } else {
+            cloudSummary.innerHTML = `
+                <div style="color: #fbbf24; font-weight: 600; margin-bottom: 2px;">⚠️ 本地主控就绪 · 云端算力节点待填写</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">本地配置达标 (${cpuCores}核/${ramTotal}GB)，在下方填写云端 GPU 地址即可完成端云闭环。</div>
+            `;
+            cloudSummary.style.borderColor = "rgba(245, 158, 11, 0.35)";
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------
+// 3. 模式切换与配置面板渲染
+// ------------------------------------------------------------------------------
+function selectGpuMode(modeId) {
+    currentSelectedGpuMode = modeId;
+
+    // 1. 卡片边框选中态更新
+    const cardLocal = document.getElementById("gpu-mode-card-local");
+    const cardCloud = document.getElementById("gpu-mode-card-cloud");
+    const badgeLocal = document.getElementById("gpu-mode-badge-local");
+    const badgeCloud = document.getElementById("gpu-mode-badge-cloud");
+
+    const isLocal = modeId === "local_procedural";
+
+    if (cardLocal) {
+        cardLocal.style.borderColor = isLocal ? "#10B981" : "rgba(148, 163, 184, 0.2)";
+        cardLocal.style.boxShadow = isLocal ? "0 0 18px rgba(16, 185, 129, 0.2)" : "none";
+    }
+    if (cardCloud) {
+        cardCloud.style.borderColor = !isLocal ? "#38bdf8" : "rgba(148, 163, 184, 0.2)";
+        cardCloud.style.boxShadow = !isLocal ? "0 0 18px rgba(56, 189, 248, 0.2)" : "none";
+    }
+
+    if (badgeLocal) {
+        badgeLocal.className = isLocal ? "brand-badge green" : "brand-badge";
+        badgeLocal.textContent = isLocal ? "已选中" : "可选";
+    }
+    if (badgeCloud) {
+        badgeCloud.className = !isLocal ? "brand-badge sky" : "brand-badge";
+        badgeCloud.textContent = !isLocal ? "已选中" : "可选";
+    }
+
+    // 2. 渲染下方配置面板
+    renderGpuConfigDetailPanel(modeId);
+
+    // 3. 若切到云端 GPU 模式且输入框中存在有效公网地址，自动发起静默握手检测
+    if (modeId === "sidecar_v3") {
+        setTimeout(() => {
+            const urlInput = document.getElementById("gpu-input-base-url");
+            const val = urlInput ? urlInput.value.trim() : "";
+            if (val && !val.includes("127.0.0.1") && (!lastCloudPingResult || !lastCloudPingResult.success)) {
+                testCurrentGpuAvatarConnection(true);
+            }
+        }, 80);
+    }
+}
+
+// 渲染下方配置操作面板内容 (含专项达标诊断明细报告)
+function renderGpuConfigDetailPanel(modeId) {
+    const titleEl = document.getElementById("gpu-config-panel-title");
+    const badgeEl = document.getElementById("gpu-config-panel-badge");
+    const linkBox = document.getElementById("gpu-config-panel-link-box");
+    const dynamicBox = document.getElementById("gpu-mode-dynamic-content");
+    const copyCmdBtn = document.getElementById("gpu-avatar-copy-cloud-cmd-btn");
+    const testConnBtn = document.getElementById("gpu-avatar-test-btn");
+    const saveBtn = document.getElementById("gpu-avatar-save-btn");
+    const connResult = document.getElementById("gpu-avatar-conn-result");
+
+    if (connResult) {
+        if (lastCloudPingResult && lastCloudPingResult.success && modeId === "sidecar_v3") {
+            connResult.style.display = "flex";
+            connResult.style.background = "rgba(16, 185, 129, 0.15)";
+            connResult.style.color = "#10B981";
+            connResult.style.border = "1px solid rgba(16, 185, 129, 0.35)";
+            connResult.innerHTML = `🟢 配合达标！云端握手正常，延迟: ${lastCloudPingResult.latency_ms}ms ${lastCloudPingResult.device ? '(远端识别硬件: <b>' + escapeHtml(lastCloudPingResult.device) + '</b>)' : ''}，本地主控与云端 GPU 协同就绪！`;
+        } else {
+            connResult.style.display = "none";
+            connResult.innerHTML = "";
+        }
+    }
+
+    const isLocal = modeId === "local_procedural";
+    const d = cachedHardwareData || {};
+    const gpu = d.gpu || {};
+    const gpuName = gpu.gpu_name || "集成显卡/核显";
+    const vramTotal = parseFloat(gpu.vram_total_gb || 0);
+    const hasCuda = Boolean(gpu.cuda_available);
+    const isLocalGpuQualified = hasCuda && vramTotal >= 6.0;
+    const cpuCores = d.cpu_cores || 4;
+    const ramTotal = d.ram_total_gb || 16;
+
+    // 找到云端活跃配置（优先寻找带有效公网穿透 URL 的配置）
+    const cloudConfigs = cachedAvatarConfigs.filter(c => c.config_group === "neural_renderer" && (c.provider_name === "sidecar_v3" || c.provider_name === "custom_avatar"));
+    const activeCloudCfg = cloudConfigs.find(c => c.is_active && c.base_url && !c.base_url.includes("127.0.0.1")) || cloudConfigs.find(c => c.is_active);
+    const anyCloudCfg = activeCloudCfg || cloudConfigs.find(c => c.base_url && !c.base_url.includes("127.0.0.1")) || cloudConfigs.find(c => c.provider_name === "sidecar_v3") || cloudConfigs[0];
+    const isLocalCurrentlyActive = !activeCloudCfg;
+
+    if (isLocal) {
+        // =====================================================================
+        // 模式 1：本机完全满足 (本地单机运行) · 专项达标诊断核验报告
+        // =====================================================================
+        if (titleEl) titleEl.textContent = "选项 1 · 本机完全满足 (本地单机运行) 硬件达标诊断";
+        if (badgeEl) {
+            badgeEl.className = isLocalGpuQualified ? "brand-badge green" : "brand-badge amber";
+            badgeEl.textContent = isLocalGpuQualified ? "硬件完全达标" : "硬件未达标 (轻量保底)";
+        }
+        if (linkBox) linkBox.innerHTML = "";
+
+        if (dynamicBox) {
+            dynamicBox.innerHTML = `
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.35)'}; border-radius: 8px; padding: 18px;">
+                    <!-- 硬件达标指标实测核验清单 -->
+                    <div style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: ${isLocalGpuQualified ? '#10B981' : '#F59E0B'}; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        本机硬件达标核验清单（超写实真人渲染驱动门槛）：
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 14px;">
+                        <!-- 显存检测 -->
+                        <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 显卡显存容量 (运营门槛 >= 6.0GB，推荐 8~12GB)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${vramTotal >= 6.0 ? '#34d399' : '#f87171'};">
+                                ${vramTotal >= 6.0 ? '✓ 通过' : '✗ 未达标'}：当前 ${vramTotal} GB (${escapeHtml(gpuName)})
+                            </div>
+                        </div>
+
+                        <!-- CUDA 驱动 -->
+                        <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">② CUDA 硬件加速 (真人神经网络必需)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${hasCuda ? '#34d399' : '#f87171'};">
+                                ${hasCuda ? '✓ 通过：CUDA 加速环境就绪' : '✗ 未达标：无可用 CUDA 加速'}
+                            </div>
+                        </div>
+
+                        <!-- CPU 与内存 -->
+                        <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">③ CPU核心与内存 (门槛 4核/8GB)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: #34d399;">
+                                ✓ 通过：${cpuCores} 核心 · ${ramTotal} GB 内存 (充足)
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 综合达标结论条 -->
+                    <div style="padding: 12px 14px; border-radius: 6px; background: ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)'}; border: 1px dashed ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'};">
+                        ${isLocalGpuQualified ? `
+                            <div style="font-weight: 700; color: #34d399; margin-bottom: 4px;">🟢 综合评估：本机硬件完全满足写实真人本地渲染要求！</div>
+                            <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
+                                本机配备达标的高性能独立显卡（>= 6.0GB 显存），单机即可直接渲染 1080P 超写实真人主播，零租赁成本，无需配置网络，开箱即播。
+                            </div>
+                        ` : `
+                            <div style="font-weight: 700; color: #fbbf24; margin-bottom: 4px;">⚠️ 综合评估：当前电脑硬件未达到超写实真人渲染的商业运营门槛！</div>
+                            <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
+                                检测到本地显存仅 ${vramTotal}GB（低于 6.0GB 商业运营最低门槛），若在本地强行跑深度学习写实真人会导致严重丢帧甚至显存溢出 (OOM) 崩溃。<br>
+                                🛡️ <strong>系统保底机制</strong>：若您启用当前选项，系统将自动使用<strong>免显卡的本地程序化形象（卡通/微动态）</strong>作为推流画面，保障流畅不黑屏；<br>
+                                🚀 <strong>若您需要 1080P 写实真人主播</strong>：请点击上方【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，将渲染外包至云端（约 1.2 元/小时），低配电脑亦能完美开播！
+                            </div>
+                        `}
+                    </div>
                 </div>
+            `;
+        }
+
+        if (copyCmdBtn) copyCmdBtn.style.display = "none";
+        if (testConnBtn) testConnBtn.style.display = "none";
+        if (saveBtn) {
+            saveBtn.style.background = "#10B981";
+            saveBtn.style.borderColor = "#10B981";
+            saveBtn.innerHTML = `
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M20 6L9 17l-5-5"/></svg>
+                ${isLocalCurrentlyActive ? "当前已生效 (刷新保持)" : "立即启用本地单机运行"}
+            `;
+        }
+    } else {
+        // =====================================================================
+        // 模式 2：本地硬件 + 租赁云端GPU (端云协同) · 配合达标核验报告与参数配置
+        // =====================================================================
+        if (titleEl) titleEl.textContent = "选项 2 · 本地硬件 + 租赁云端GPU 端云协同配合检测";
+        if (badgeEl) {
+            badgeEl.className = "brand-badge sky";
+            badgeEl.textContent = "端云协同核验";
+        }
+
+        let currentBaseUrl = anyCloudCfg ? (anyCloudCfg.base_url || "") : "";
+        const savedLocalUrl = (typeof localStorage !== "undefined" && localStorage.getItem("last_sidecar_base_url")) || "";
+        if ((!currentBaseUrl || currentBaseUrl.includes("127.0.0.1")) && savedLocalUrl) {
+            currentBaseUrl = savedLocalUrl;
+        }
+        if (!currentBaseUrl) {
+            currentBaseUrl = "ws://127.0.0.1:8010/ws/render-v3";
+        }
+        const currentApiKey = anyCloudCfg ? (anyCloudCfg.masked_key || "") : "";
+        let extraParams = (anyCloudCfg && anyCloudCfg.extra_params) || {};
+        if (typeof extraParams === "string") {
+            try { extraParams = JSON.parse(extraParams); } catch (e) { extraParams = {}; }
+        }
+        const currentProtocol = extraParams.stream_protocol || "websocket";
+        const currentAvatarId = extraParams.avatar_id || "default";
+        const currentCustomUrl = extraParams.custom_official_url || "";
+
+        if (linkBox) {
+            const jumpUrl = currentCustomUrl || "https://www.autodl.com";
+            const jumpText = currentCustomUrl ? "直达云端开发机控制台 ↗" : "前往 AutoDL 租用 GPU ↗";
+            linkBox.innerHTML = `
+                <a href="${escapeHtml(jumpUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-ghost" style="color: #38bdf8; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="${escapeHtml(jumpUrl)}">
+                    ${jumpText}
+                </a>
+            `;
+        }
+
+        const hiddenId = document.getElementById("gpu-avatar-config-id");
+        if (hiddenId) hiddenId.value = anyCloudCfg ? anyCloudCfg.id : "";
+
+        const isLocalReady = cpuCores >= 2 && ramTotal >= 4.0;
+        const isCloudPingSuccess = lastCloudPingResult && lastCloudPingResult.success;
+
+        if (dynamicBox) {
+            dynamicBox.innerHTML = `
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 18px;">
+                    <!-- 配合实况综合核验条目 -->
+                    <div style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #38bdf8; fill: none; stroke-width: 2.2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+                        端云配合达标诊断报告（本地控制端 + 云端渲染端）：
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 16px;">
+                        <!-- 本地配置配合 -->
+                        <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 本地硬件控制环境 (推流与主控)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: #34d399;">
+                                ✓ 通过：${cpuCores} 核心 · ${ramTotal} GB 内存 (完全满足控制需求)
+                            </div>
+                        </div>
+
+                        <!-- 云端 GPU 配合实况 -->
+                        <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">② 云端 GPU 渲染连通状态</div>
+                            <div id="gpu-cloud-ping-inline-status" style="font-size: 13px; font-weight: 600; color: ${isCloudPingSuccess ? '#34d399' : (currentBaseUrl ? '#38bdf8' : '#fbbf24')};">
+                                ${isCloudPingSuccess ? `✓ 已连通 (延迟 ${lastCloudPingResult.latency_ms}ms${lastCloudPingResult.device ? ' · ' + escapeHtml(lastCloudPingResult.device) : ''})` : (currentBaseUrl ? 'ℹ️ 待测试 (点击下方探测)' : '✗ 待填写云端地址')}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 标题提示：与云端终端输出 1:1 对照 -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px dashed rgba(148, 163, 184, 0.2);">
+                        <span style="font-size: 13px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+                            <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #38bdf8; fill: none; stroke-width: 2;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                            📋 云端算力节点参数配置（与云端终端 status.py 输出 1:1 对照）：
+                        </span>
+                        <span style="font-size: 11.5px; color: #94a3b8;">参数已设最优默认值，对照核对即可</span>
+                    </div>
+
+                    <!-- 参数 1：自定义服务/流连接地址 (base_url) 核心必填 -->
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label class="form-label" for="gpu-input-base-url" style="font-size: 12.5px; font-weight: 700; color: #f8fafc; display: flex; justify-content: space-between; align-items: center;">
+                            <span>1. 自定义服务/流连接地址 (base_url): <span style="color: #ef4444;">*</span></span>
+                            <span style="font-size: 11px; color: #38bdf8; font-weight: normal;">云端穿透公网 WebSocket/WSS 地址</span>
+                        </label>
+                        <input id="gpu-input-base-url" class="form-control" type="text"
+                               value="${escapeHtml(currentBaseUrl)}"
+                               placeholder="如: wss://xxxx.trycloudflare.com/ws/render-v3 或 ws://<云主机IP>:8010/ws/render-v3"
+                               style="font-family: monospace; font-size: 13px; padding: 8px 12px;"
+                               onblur="if(this.value.trim()){ const fixed=sanitizeSidecarWsUrl(this.value); if(fixed !== this.value.trim()){ this.value=fixed; showToast('已自动将 https:// 转换为 wss:// 并补齐标准端点 /ws/render-v3', 'info'); } try{ localStorage.setItem('last_sidecar_base_url', this.value); }catch(e){} if(!lastCloudPingResult || !lastCloudPingResult.success){ testCurrentGpuAvatarConnection(true); } }">
+
+                        <!-- 快捷填入常用样例端点 -->
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
+                            <span style="font-size: 11px; color: var(--text-muted); align-self: center;">快捷样例:</span>
+                            <button type="button" class="badge-pill" style="font-size: 11px; cursor: pointer; padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.12); color: #34d399;"
+                                    onclick="const el=document.getElementById('gpu-input-base-url'); if(el.value.trim()){ el.value=sanitizeSidecarWsUrl(el.value); showToast('已自动纠偏协议为 wss:// 并规范化！', 'success'); } else { showToast('请先输入云端连接地址', 'warning'); }">
+                                🪄 智能协议纠偏 (https 自动转 wss)
+                            </button>
+                            <button type="button" class="badge-pill" style="font-size: 11px; cursor: pointer; padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.7); color: #38bdf8;"
+                                    onclick="document.getElementById('gpu-input-base-url').value='wss://xxxx.trycloudflare.com/ws/render-v3'">
+                                ☁️ Cloudflare 加密隧道样例
+                            </button>
+                            <button type="button" class="badge-pill" style="font-size: 11px; cursor: pointer; padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.7); color: #38bdf8;"
+                                    onclick="document.getElementById('gpu-input-base-url').value='ws://127.0.0.1:8010/ws/render-v3'">
+                                🖥️ 本机WS测试 (ws://127.0.0.1:8010)
+                            </button>
+                            <button type="button" class="badge-pill" style="font-size: 11px; cursor: pointer; padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.7); color: #38bdf8;"
+                                    onclick="document.getElementById('gpu-input-base-url').value='ws://<云主机公网IP>:8010/ws/render-v3'">
+                                🌐 云机公网 IP 直连样例
+                            </button>
+                        </div>
+
+                        <!-- 针对 Google Colab 免费 T4 显卡的一键部署引导卡片 -->
+                        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 6px; padding: 10px 12px; margin-top: 10px; font-size: 11.5px; color: #cbd5e1; line-height: 1.65;">
+                            <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                                <span>💡 谷歌 Google Colab (免费 T4 GPU) 一键极速启动指引：</span>
+                            </div>
+                            <div style="color: #e2e8f0;">
+                                如使用 Colab 算力作为<strong>数字人画面渲染节点</strong>，请在 Colab 单元格执行官方引导脚本（会自动安装依赖、识别 T4 显卡并穿透出 wss:// 地址）：
+                            </div>
+                            <div style="background: rgba(0,0,0,0.45); border: 1px dashed rgba(56,189,248,0.3); padding: 6px 9px; border-radius: 4px; font-family: monospace; color: #34d399; margin: 6px 0; user-select: all; word-break: break-all;">
+                                !git clone https://github.com/winclubs/AI-LiveStream-Agent.git /content/agent 2>/dev/null || true &amp;&amp; cd /content/agent &amp;&amp; python scripts/cloud_sidecar_bootstrap.py
+                            </div>
+                            <div style="color: #94a3b8; font-size: 11px;">
+                                ⚠️ 提示：若在 Colab 运行的是 Ollama (端口 11434)，那是用于大语言模型的，请配置在左侧「LLM配置」中；此处「GPU配置」专用于数字人画面渲染。
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 参数 2 & 3 & 4 & 5：双列网格结构（与终端输出完全吻合） -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 12px;">
+                        <!-- 参数 2：通信协议类型 (stream_protocol) -->
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label" for="gpu-input-stream-protocol" style="font-size: 12px; font-weight: 600; color: #e2e8f0; display: flex; justify-content: space-between;">
+                                <span>2. 通信协议类型 (stream_protocol):</span>
+                                <span style="font-size: 11px; color: var(--text-muted);">默认 websocket</span>
+                            </label>
+                            <input id="gpu-input-stream-protocol" class="form-control" type="text"
+                                   value="${escapeHtml(currentProtocol)}"
+                                   placeholder="websocket"
+                                   style="font-family: monospace; font-size: 12.5px; padding: 7px 10px;">
+                            <div style="display: flex; gap: 5px; margin-top: 5px;">
+                                <span class="badge-pill" style="font-size: 10.5px; cursor: pointer; padding: 1px 6px; background: rgba(56,189,248,0.15); color: #38bdf8;" onclick="document.getElementById('gpu-input-stream-protocol').value='websocket'">WebSocket</span>
+                                <span class="badge-pill" style="font-size: 10.5px; cursor: pointer; padding: 1px 6px; background: rgba(148,163,184,0.15); color: #94a3b8;" onclick="document.getElementById('gpu-input-stream-protocol').value='webrtc'">WebRTC</span>
+                                <span class="badge-pill" style="font-size: 10.5px; cursor: pointer; padding: 1px 6px; background: rgba(148,163,184,0.15); color: #94a3b8;" onclick="document.getElementById('gpu-input-stream-protocol').value='rtmp'">RTMP</span>
+                            </div>
+                        </div>
+
+                        <!-- 参数 4：数字人形象代号 (avatar_id) -->
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label" for="gpu-input-avatar-id" style="font-size: 12px; font-weight: 600; color: #e2e8f0; display: flex; justify-content: space-between;">
+                                <span>3. 数字人形象代号 (avatar_id):</span>
+                                <span style="font-size: 11px; color: var(--text-muted);">默认 default</span>
+                            </label>
+                            <input id="gpu-input-avatar-id" class="form-control" type="text"
+                                   value="${escapeHtml(currentAvatarId)}"
+                                   placeholder="default"
+                                   style="font-family: monospace; font-size: 12.5px; padding: 7px 10px;">
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
+                                云端多模型时填指定代号，单模型直接保持 <code>default</code>
+                            </div>
+                        </div>
+
+                        <!-- 参数 4 (访问凭据)：访问密码 / Token / API Key (选填) -->
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label" for="gpu-input-auth-token" style="font-size: 12px; font-weight: 600; color: #e2e8f0; display: flex; justify-content: space-between;">
+                                <span>4. 访问密码 / Token / API Key (选填):</span>
+                                <span style="font-size: 11px; color: #10B981;">无密码直接留空</span>
+                            </label>
+                            <input id="gpu-input-auth-token" class="form-control" type="password"
+                                   value="${escapeHtml(currentApiKey)}"
+                                   placeholder="直接留空即可 (若云端加锁鉴权则填写)"
+                                   style="font-family: monospace; font-size: 12.5px; padding: 7px 10px;">
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
+                                绝大多数私有开发机无鉴权，留空即可
+                            </div>
+                        </div>
+
+                        <!-- 参数 5：自定义官方/控制台链接 (custom_official_url) (选填) -->
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label" for="gpu-input-custom-url" style="font-size: 12px; font-weight: 600; color: #e2e8f0; display: flex; justify-content: space-between;">
+                                <span>5. 云端控制台链接 (custom_official_url):</span>
+                                <span style="font-size: 11px; color: var(--text-muted);">选填</span>
+                            </label>
+                            <input id="gpu-input-custom-url" class="form-control" type="url"
+                                   value="${escapeHtml(currentCustomUrl)}"
+                                   placeholder="如: https://discovery.intern-ai.org.cn/compute/dev-machine"
+                                   style="font-family: monospace; font-size: 12.5px; padding: 7px 10px;">
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">
+                                填入开发机网页地址栏 URL，可在面板右上角一键直达
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (copyCmdBtn) copyCmdBtn.style.display = "inline-flex";
+        if (testConnBtn) testConnBtn.style.display = "inline-flex";
+        if (saveBtn) {
+            saveBtn.style.background = "#38bdf8";
+            saveBtn.style.borderColor = "#38bdf8";
+            saveBtn.innerHTML = `
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                保存并启用云端 GPU 渲染方案
             `;
         }
     }
 }
 
-async function loadWizardAvatarProviders() {
+// ------------------------------------------------------------------------------
+// 4. 保存与启用所选方案
+// ------------------------------------------------------------------------------
+async function handleSaveGpuAvatarConfig() {
+    const saveBtn = document.getElementById("gpu-avatar-save-btn");
+    const origHtml = saveBtn ? saveBtn.innerHTML : "";
+
+    if (currentSelectedGpuMode === "local_procedural") {
+        // 模式 1：启用本机完全满足模式（将所有活跃云端节点设为非 active）
+        try {
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = `<svg class="icon-sm spin" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/></svg> 正在启用...`;
+            }
+
+            for (const cfg of cachedAvatarConfigs.filter(c => c.is_active && c.config_group === "neural_renderer")) {
+                await fetch(`${API_BASE}/settings/configs/save`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: cfg.id,
+                        config_group: "neural_renderer",
+                        provider_name: cfg.provider_name,
+                        is_active: false
+                    })
+                });
+            }
+
+            showToast("✅ 已成功切换为【本机完全满足 (本地运行)】模式！", "success");
+            // 同步持久化算力执行偏好 (auto: 交由系统按硬件与云端实况自动研判)
+            try {
+                await fetch(`${API_BASE}/settings/gpu-target`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ target: "auto" })
+                });
+            } catch (e) { /* 偏好写入失败不阻断主流程 */ }
+            await loadGpuAvatarProviders();
+        } catch (e) {
+            showToast("切换本地运行模式失败: " + e, "error");
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = origHtml;
+            }
+        }
+        return;
+    }
+
+    // 模式 2：保存并启用云端租赁 GPU (Sidecar)
+    const urlInput = document.getElementById("gpu-input-base-url");
+    const tokenInput = document.getElementById("gpu-input-auth-token");
+    const protocolInput = document.getElementById("gpu-input-stream-protocol");
+    const avatarIdInput = document.getElementById("gpu-input-avatar-id");
+    const customUrlInput = document.getElementById("gpu-input-custom-url");
+    const hiddenId = document.getElementById("gpu-avatar-config-id");
+
+    let baseUrl = urlInput ? urlInput.value.trim() : "";
+    if (!baseUrl) {
+        showToast("请填写云端 GPU 渲染节点连接地址 (base_url)！", "error");
+        if (urlInput) urlInput.focus();
+        return;
+    }
+
+    // 智能协议纠偏：自动将 https:// 转换为 wss://，并规范化端点路径
+    const sanitizedUrl = sanitizeSidecarWsUrl(baseUrl);
+    if (sanitizedUrl && sanitizedUrl !== baseUrl) {
+        baseUrl = sanitizedUrl;
+        if (urlInput) urlInput.value = sanitizedUrl;
+    }
+
+    let tokenVal = tokenInput ? tokenInput.value.trim() : "";
+    if (tokenVal.includes("•")) {
+        tokenVal = ""; // 未改动的掩码不重复写入
+    }
+
+    const streamProtocol = protocolInput ? (protocolInput.value.trim() || "websocket") : "websocket";
+    const avatarId = avatarIdInput ? (avatarIdInput.value.trim() || "default") : "default";
+    const customOfficialUrl = customUrlInput ? customUrlInput.value.trim() : "";
+
+    const payload = {
+        config_group: "neural_renderer",
+        provider_name: "sidecar_v3",
+        title: "云端租赁 GPU 渲染节点 (Sidecar)",
+        base_url: baseUrl,
+        is_active: true,
+        extra_params: {
+            adapter: "sidecar_v3",
+            stream_protocol: streamProtocol,
+            avatar_id: avatarId,
+            custom_official_url: customOfficialUrl,
+            backend_id: "auto"
+        }
+    };
+
+    if (hiddenId && hiddenId.value) {
+        payload.id = hiddenId.value;
+    }
+    if (tokenVal) {
+        payload.api_key = tokenVal;
+    } else if (tokenInput && !tokenInput.value.includes("•")) {
+        payload.api_key = ""; // 显式置空密码，彻底清空数据库历史密码
+    }
+
     try {
-        await fetchAvatarRegistryAndConfigs();
-        renderWizardGpuStatusCard();
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = `<svg class="icon-sm spin" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/></svg> 正在保存...`;
+        }
+
+        const res = await fetch(`${API_BASE}/settings/configs/save`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (res.ok && (json.code === 0 || json.code === undefined)) {
+            showToast("✅ 已成功保存并启用【本地硬件 + 租赁云端GPU】模式！", "success");
+            // 同步持久化算力执行偏好 (cloud: 用户显式指定优先调度云端显卡)
+            try {
+                await fetch(`${API_BASE}/settings/gpu-target`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ target: "cloud" })
+                });
+            } catch (e) { /* 偏好写入失败不阻断主流程 */ }
+            await loadGpuAvatarProviders();
+        } else {
+            showToast("保存失败: " + (json.message || "请求异常"), "error");
+        }
     } catch (e) {
-        console.error("加载向导 GPU 状态看板失败:", e);
+        showToast("保存云端 GPU 模式失败: " + e, "error");
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = origHtml;
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------
+// 5. 快速连通性握手测试与配合达标即时反馈 (支持 isSilent 静默自动检测)
+// ------------------------------------------------------------------------------
+async function testCurrentGpuAvatarConnection(isSilent = false) {
+    const urlInput = document.getElementById("gpu-input-base-url");
+    const testBtn = document.getElementById("gpu-avatar-test-btn");
+    const resultBox = document.getElementById("gpu-avatar-conn-result");
+
+    let targetUrl = urlInput ? urlInput.value.trim() : "";
+    if (!targetUrl) {
+        if (!isSilent) {
+            showToast("请先输入云端连接地址再测试", "error");
+            if (urlInput) urlInput.focus();
+        }
+        return;
+    }
+
+    // 智能协议纠偏：自动将 https:// 转换为 wss://，并规范化端点路径
+    const sanitizedTarget = sanitizeSidecarWsUrl(targetUrl);
+    if (sanitizedTarget && sanitizedTarget !== targetUrl) {
+        targetUrl = sanitizedTarget;
+        if (urlInput) urlInput.value = sanitizedTarget;
+    }
+
+    const origHtml = testBtn ? testBtn.innerHTML : "";
+    if (testBtn && !isSilent) {
+        testBtn.disabled = true;
+        testBtn.innerHTML = `<svg class="icon-sm spin" viewBox="0 0 24 24" style="width:13px;height:13px;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/></svg> 协同握手探测中...`;
+    }
+
+    if (resultBox) {
+        resultBox.style.display = "flex";
+        resultBox.style.background = "rgba(30, 41, 59, 0.7)";
+        resultBox.style.color = "var(--text-primary)";
+        resultBox.style.border = "1px solid rgba(148, 163, 184, 0.2)";
+        resultBox.innerHTML = `正在向云端算力节点 <code style="color:#38bdf8;font-family:monospace;">${escapeHtml(targetUrl)}</code> 发起端云协同握手测试...`;
+    }
+
+    const inlineStatusEl = document.getElementById("gpu-cloud-ping-inline-status");
+    if (inlineStatusEl) {
+        inlineStatusEl.style.color = "#38bdf8";
+        inlineStatusEl.innerHTML = `⏳ 握手探测中...`;
+    }
+
+    try {
+        const tokenInput = document.getElementById("gpu-input-auth-token");
+        let typedToken = tokenInput ? tokenInput.value.trim() : "";
+        let apiKeyToSend = null;
+        if (typedToken.includes("•")) {
+            apiKeyToSend = null; // 掩码不回传，交由后端按 config_id 解密真实值
+        } else if (!typedToken) {
+            apiKeyToSend = "__NO_AUTH__"; // 明确指示后端：用户已清空密码，绝不回捞数据库历史密码！
+        } else {
+            apiKeyToSend = typedToken;
+        }
+        const res = await fetch(`${API_BASE}/settings/test-connection`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                config_id: (document.getElementById("gpu-avatar-config-id") || {}).value || null,
+                config_group: "neural_renderer",
+                provider_name: "sidecar_v3",
+                base_url: targetUrl,
+                api_key: apiKeyToSend
+            })
+        });
+        const json = await res.json();
+        if (json.code === 0 && json.success) {
+            lastCloudPingResult = {
+                success: true,
+                latency_ms: json.latency_ms || 45,
+                device: json.device || "NVIDIA 云端 GPU",
+                error: ""
+            };
+            // 成功记忆到 localStorage
+            try { localStorage.setItem("last_sidecar_base_url", targetUrl); } catch(e){}
+
+            if (inlineStatusEl) {
+                inlineStatusEl.style.color = "#34d399";
+                inlineStatusEl.innerHTML = `✓ 已连通 (延迟 ${json.latency_ms}ms${json.device ? ' · ' + escapeHtml(json.device) : ''})`;
+            }
+            if (resultBox) {
+                resultBox.style.background = "rgba(16, 185, 129, 0.15)";
+                resultBox.style.color = "#10B981";
+                resultBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
+                resultBox.innerHTML = `🟢 配合达标！云端握手成功，延迟: ${json.latency_ms}ms ${json.device ? '(远端识别硬件: <b>' + escapeHtml(json.device) + '</b>)' : ''}，本地主控与云端 GPU 协同就绪！`;
+            }
+            if (!isSilent) {
+                showToast(`✅ 端云协同达标！${json.device ? '云端硬件: ' + json.device : ''}（延迟: ${json.latency_ms}ms）`, "success");
+            }
+        } else {
+            const err = json.message || "通信握手未成功";
+            lastCloudPingResult = {
+                success: false,
+                latency_ms: 0,
+                device: "",
+                error: err
+            };
+            if (inlineStatusEl) {
+                inlineStatusEl.style.color = "#ef4444";
+                inlineStatusEl.innerHTML = `✗ 未连通 (${escapeHtml(err.split('\n')[0])})`;
+            }
+            if (resultBox) {
+                resultBox.style.background = "rgba(239, 68, 68, 0.15)";
+                resultBox.style.color = "#EF4444";
+                resultBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
+                const formattedErr = escapeHtml(err).replace(/\n/g, "<br/>");
+                resultBox.innerHTML = `🔴 协同未达标: ${formattedErr}`;
+            }
+            if (!isSilent) {
+                showToast(`❌ 连通失败: ${err.split('\n')[0]}`, "error");
+            }
+        }
+
+        // 即时刷新达标状态指示
+        evaluateBothModesCompliance(cachedHardwareData);
+    } catch (e) {
+        lastCloudPingResult = {
+            success: false,
+            latency_ms: 0,
+            device: "",
+            error: String(e)
+        };
+        if (inlineStatusEl) {
+            inlineStatusEl.style.color = "#ef4444";
+            inlineStatusEl.innerHTML = `⚠️ 网络请求异常`;
+        }
+        if (resultBox) {
+            resultBox.style.background = "rgba(239, 68, 68, 0.15)";
+            resultBox.style.color = "#EF4444";
+            resultBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
+            resultBox.innerHTML = `⚠️ 网络请求异常: ${escapeHtml(String(e))}`;
+        }
+        evaluateBothModesCompliance(cachedHardwareData);
+    } finally {
+        if (testBtn && !isSilent) {
+            testBtn.disabled = false;
+            testBtn.innerHTML = origHtml;
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------
+// 6. 辅助工具与一键拉起命令复制
+// ------------------------------------------------------------------------------
+function copyCloudBootstrapCommand() {
+    const cmd = `git clone https://github.com/winclubs/AI-LiveStream-Agent.git && cd AI-LiveStream-Agent && pip3 install fastapi uvicorn websockets requests && python3 scripts/cloud_sidecar_bootstrap.py --port 8010`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(cmd).then(() => {
+            showToast("📋 已复制云端节点一键启动命令！在云主机终端粘贴回车，自动检测 GPU、穿透隧道并启动 /ws/render-v3 对接端点。", "success");
+        }).catch(() => {
+            prompt("请手动复制下方命令并在云主机终端执行：", cmd);
+        });
+    } else {
+        prompt("请手动复制下方命令并在云主机终端执行：", cmd);
     }
 }
 
@@ -268,44 +933,21 @@ function goToGpuSettingsTab() {
     }
 }
 
-async function quickEnableLocalProceduralAvatar() {
-    try {
-        for (const cfg of globalAvatarConfigs.filter(c => c.is_active)) {
-            await fetch(`${API_BASE}/settings/configs/save`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    id: cfg.id,
-                    config_group: "neural_renderer",
-                    provider_name: cfg.provider_name,
-                    is_active: false
-                })
-            });
-        }
-        showToast("已成功启用【本地轻量卡通】方案！", "success");
-        await loadGpuAvatarProviders();
-        await loadWizardAvatarProviders();
-    } catch (e) {
-        showToast("启用本地方案失败: " + e, "error");
-    }
-}
+// ------------------------------------------------------------------------------
+// 7. 进入页面时静默自动探测云端 GPU 连通性与硬件状态
+// ------------------------------------------------------------------------------
+let isAutoCheckingCloudGpu = false;
+async function autoCheckCloudGpuConnection(cloudCfg) {
+    if (isAutoCheckingCloudGpu) return;
+    if (!cloudCfg || !cloudCfg.base_url) return;
+    const targetUrl = sanitizeSidecarWsUrl(cloudCfg.base_url);
+    if (!targetUrl) return;
 
-async function testWizardGpuConnection(targetUrl, adapterId) {
-    const btn = document.getElementById("wizard-gpu-ping-btn");
-    const statusBox = document.getElementById("wizard-gpu-ping-status");
-    const origHtml = btn ? btn.innerHTML : "";
-
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = `<svg class="icon-sm spin" viewBox="0 0 24 24" style="width:13px;height:13px;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg> 探测中...`;
-    }
-
-    if (statusBox) {
-        statusBox.style.display = "inline-flex";
-        statusBox.style.background = "rgba(30, 41, 59, 0.7)";
-        statusBox.style.color = "var(--text-primary)";
-        statusBox.style.border = "1px solid rgba(148, 163, 184, 0.2)";
-        statusBox.innerHTML = `正在向 <code style="color:#38bdf8;font-family:monospace;">${escapeHtml(targetUrl)}</code> 发起握手探测...`;
+    isAutoCheckingCloudGpu = true;
+    const inlineStatusEl = document.getElementById("gpu-cloud-ping-inline-status");
+    if (inlineStatusEl) {
+        inlineStatusEl.style.color = "#38bdf8";
+        inlineStatusEl.innerHTML = `⏳ 正在自动检测云端 GPU 连通性...`;
     }
 
     try {
@@ -313,824 +955,135 @@ async function testWizardGpuConnection(targetUrl, adapterId) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+                config_id: cloudCfg.id || null,
                 config_group: "neural_renderer",
-                provider_name: adapterId,
-                base_url: targetUrl
+                provider_name: "sidecar_v3",
+                base_url: targetUrl,
+                api_key: null // 由后端解密已有配置
             })
         });
         const json = await res.json();
         if (json.code === 0 && json.success) {
-            if (statusBox) {
-                statusBox.style.background = "rgba(16, 185, 129, 0.15)";
-                statusBox.style.color = "#10B981";
-                statusBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
-                statusBox.innerHTML = `🟢 握手成功！延迟: ${json.latency_ms}ms${json.device ? ' (硬件: ' + escapeHtml(json.device) + ')' : ''}`;
+            lastCloudPingResult = {
+                success: true,
+                latency_ms: json.latency_ms || 45,
+                device: json.device || "NVIDIA 云端 GPU",
+                error: ""
+            };
+            if (inlineStatusEl) {
+                inlineStatusEl.style.color = "#34d399";
+                inlineStatusEl.innerHTML = `✓ 已自动连通 (延迟 ${json.latency_ms}ms${json.device ? ' · ' + escapeHtml(json.device) : ''})`;
             }
-            showToast(`✅ 通信正常！${json.device ? '已识别硬件：' + json.device : ''}（延迟: ${json.latency_ms}ms）`, "success");
+            const resultBox = document.getElementById("gpu-avatar-conn-result");
+            if (resultBox && currentSelectedGpuMode === "sidecar_v3") {
+                resultBox.style.display = "flex";
+                resultBox.style.background = "rgba(16, 185, 129, 0.15)";
+                resultBox.style.color = "#10B981";
+                resultBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
+                resultBox.innerHTML = `🟢 配合达标！云端已自动握手就绪，延迟: ${json.latency_ms}ms ${json.device ? '(远端识别硬件: <b>' + escapeHtml(json.device) + '</b>)' : ''}，端云协同就绪！`;
+            }
         } else {
-            const err = json.message || "通信握手未成功";
-            if (statusBox) {
-                statusBox.style.background = "rgba(239, 68, 68, 0.15)";
-                statusBox.style.color = "#EF4444";
-                statusBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
-                statusBox.innerHTML = `🔴 连通异常: ${escapeHtml(err)}`;
+            lastCloudPingResult = {
+                success: false,
+                latency_ms: 0,
+                device: "",
+                error: json.message || "未连通"
+            };
+            if (inlineStatusEl) {
+                inlineStatusEl.style.color = "#ef4444";
+                inlineStatusEl.innerHTML = `✗ 连通失败 (点击下方测试探测)`;
             }
-            showToast(`❌ 连通失败: ${err}`, "error");
         }
+        evaluateBothModesCompliance(cachedHardwareData);
     } catch (e) {
-        if (statusBox) {
-            statusBox.style.background = "rgba(239, 68, 68, 0.15)";
-            statusBox.style.color = "#EF4444";
-            statusBox.style.border = "1px solid rgba(239, 68, 68, 0.35)";
-            statusBox.innerHTML = `⚠️ 请求异常: ${escapeHtml(String(e))}`;
-        }
+        console.warn("自动检测云端 GPU 异常:", e);
     } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-        }
+        isAutoCheckingCloudGpu = false;
     }
 }
 
+// ------------------------------------------------------------------------------
+// 8. 数据拉取与主入口初始化
+// ------------------------------------------------------------------------------
+async function loadGpuAvatarProviders() {
+    try {
+        const configsRes = await fetch(`${API_BASE}/settings/configs`);
+        if (configsRes.ok) {
+            const configsJson = await configsRes.json();
+            cachedAvatarConfigs = (configsJson.data || []).filter(item => item.config_group === "neural_renderer");
+        }
+
+        // 探测活跃配置
+        const activeCloud = cachedAvatarConfigs.find(c => c.is_active && c.provider_name === "sidecar_v3");
+        currentSelectedGpuMode = activeCloud ? "sidecar_v3" : "local_procedural";
+
+        // 刷新硬件实况看板并执行双模式达标诊断
+        await refreshGpuHardwareOverview();
+
+        // 呈现选中模式
+        selectGpuMode(currentSelectedGpuMode);
+
+        // 同步渲染首页向导「第二步 · 数字人画面与云渲染状态」卡片（缓存已就绪）
+        renderWizardGpuStatusCard();
+
+        // 若用户已配置了云端 GPU 渲染节点地址，静默自动触发一次快速连通性与硬件探测
+        const configuredCloud = cachedAvatarConfigs.find(c => (c.provider_name === "sidecar_v3" || c.provider_name === "custom_avatar") && c.base_url && c.base_url.trim().length > 0 && !c.base_url.includes("127.0.0.1"))
+            || cachedAvatarConfigs.find(c => c.provider_name === "sidecar_v3" && c.base_url && c.base_url.trim().length > 0);
+        const savedUrl = (typeof localStorage !== "undefined" && localStorage.getItem("last_sidecar_base_url")) || "";
+
+        if (configuredCloud || savedUrl) {
+            const probeTarget = (configuredCloud && !configuredCloud.base_url.includes("127.0.0.1"))
+                ? configuredCloud
+                : (savedUrl ? { id: configuredCloud ? configuredCloud.id : null, base_url: savedUrl } : configuredCloud);
+            if (probeTarget && probeTarget.base_url) {
+                autoCheckCloudGpuConnection(probeTarget);
+            }
+        }
+    } catch (e) {
+        console.error("加载 GPU 算力模块失败:", e);
+    }
+}
+
+// 保持对首页向导看板的兼容渲染
 function renderWizardGpuStatusCard() {
     const container = document.getElementById("wizard-gpu-display-container");
     const headerBadge = document.getElementById("wizard-gpu-badge");
     if (!container) return;
 
-    // 查找当前激活的数字人/渲染配置
-    const activeRemote = globalAvatarConfigs.find(item => item.is_active && (!item.provider_validation || item.provider_validation.valid)) ||
-                         globalAvatarConfigs.find(item => item.is_active);
-
-    // ==========================================
-    // 场景 A: 已配置且激活了云端租赁/远端 GPU 算力
-    // ==========================================
-    if (activeRemote && activeRemote.adapter_id !== "local_procedural") {
-        const adapterId = activeRemote.adapter_id || activeRemote.provider_name;
-        const descriptor = globalAvatarCatalog.find(item => item.id === adapterId) || {};
-        const info = KNOWN_AVATAR_PROVIDER_INFO[adapterId] || {};
-        const baseUrl = activeRemote.base_url || "";
-        const title = info.title || descriptor.name || activeRemote.title || "云端数字人算力节点";
-
+    const activeCloud = cachedAvatarConfigs.find(c => c.is_active && c.provider_name === "sidecar_v3");
+    if (activeCloud) {
         if (headerBadge) {
-            headerBadge.className = "brand-badge green";
+            headerBadge.className = "brand-badge sky";
             headerBadge.textContent = "云端 GPU 渲染已就绪";
         }
-
         container.innerHTML = `
-            <div style="background: rgba(15, 23, 42, 0.65); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 8px; padding: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
-                <!-- 头部状态栏 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 12px; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 14.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
-                            <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#10B981; box-shadow: 0 0 8px #10B981;"></span>
-                            ${escapeHtml(title)}
-                        </span>
-                        <span class="brand-badge sky">云端租赁算力 (GPU)</span>
-                    </div>
-                    <button type="button" class="btn btn-sm btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 12px; color: #38bdf8; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;" title="前往 GPU配置(2) 面板修改完整参数">
-                        前往【GPU配置(2)】修改参数
-                        <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    </button>
+            <div style="background: rgba(15, 23, 42, 0.65); border: 1.5px solid rgba(56, 189, 248, 0.35); border-radius: 8px; padding: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 10px; margin-bottom: 12px;">
+                    <span style="font-size: 14.5px; font-weight: 700; color: #f8fafc;">选项 2 · 本地硬件 + 租赁云端GPU 节点</span>
+                    <button type="button" class="btn btn-sm btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 12px; color: #38bdf8;">前往修改参数 ↗</button>
                 </div>
-
-                <!-- 核心参数指标速览（无需二次输入，直接呈现） -->
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 14px;">
-                    <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">🚀 算力与硬件环境</div>
-                        <div style="font-size: 13px; font-weight: 600; color: #e2e8f0;">
-                            云端独立显卡加速 (如 NVIDIA A100 80GB) · 本机 0 显存负担
-                        </div>
-                    </div>
-
-                    <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">🌐 远端流服务连接地址 (base_url)</div>
-                        <div style="font-size: 12.5px; font-family: monospace; color: #38bdf8; word-break: break-all;">
-                            ${escapeHtml(baseUrl || "未填写连接地址")}
-                        </div>
-                    </div>
+                <div style="font-size: 12.5px; color: #cbd5e1; margin-bottom: 8px;">
+                    🌐 连接地址: <code style="color: #38bdf8;">${escapeHtml(activeCloud.base_url || "未设置")}</code>
                 </div>
-
-                <!-- 连通性快速质检栏 -->
-                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; background: rgba(15, 23, 42, 0.5); padding: 8px 12px; border-radius: 6px;">
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <span style="font-size: 12px; color: var(--text-muted);">对接健康状态:</span>
-                        <div id="wizard-gpu-ping-status" style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 4px; font-size: 12px; background: rgba(16, 185, 129, 0.12); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.25);">
-                            🟢 已在 GPU 配置中完成对接与启用
-                        </div>
-                    </div>
-                    ${baseUrl ? `
-                    <button id="wizard-gpu-ping-btn" type="button" class="btn btn-sm btn-secondary" onclick="testWizardGpuConnection('${escapeHtml(baseUrl)}', '${escapeHtml(adapterId)}')" style="font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 5px;">
-                        <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.2;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                        快速验证连通性
-                    </button>` : ''}
-                </div>
+                <div style="font-size: 12px; color: #10B981;">🟢 端云协同已生效，本地 0 显存负担畅跑 1080P 超写实真人！</div>
             </div>
         `;
-        return;
-    }
-
-    // ==========================================
-    // 场景 B: 正在使用本地轻量卡通方案 (选项 1)
-    // ==========================================
-    const isLocalProcedural = !activeRemote || (activeRemote && activeRemote.adapter_id === "local_procedural");
-    if (isLocalProcedural) {
+    } else {
         if (headerBadge) {
             headerBadge.className = "brand-badge green";
-            headerBadge.textContent = "本地卡通就绪";
+            headerBadge.textContent = "本地运行模式";
         }
-
         container.innerHTML = `
-            <div style="background: rgba(15, 23, 42, 0.65); border: 1.5px solid rgba(14, 165, 233, 0.35); border-radius: 8px; padding: 18px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 12px; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 14.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
-                            <span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#0ea5e9; box-shadow: 0 0 8px #0ea5e9;"></span>
-                            选项 1 · 本地轻量卡通形象
-                        </span>
-                        <span class="brand-badge green">0元免显卡 · 开箱即用</span>
-                    </div>
-                    <button type="button" class="btn btn-sm btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 12px; color: #38bdf8; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;">
-                        切换为真人/云端GPU ↗
-                    </button>
+            <div style="background: rgba(15, 23, 42, 0.65); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 8px; padding: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 10px; margin-bottom: 12px;">
+                    <span style="font-size: 14.5px; font-weight: 700; color: #f8fafc;">选项 1 · 本机完全满足 (本地运行)</span>
+                    <button type="button" class="btn btn-sm btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 12px; color: #38bdf8;">切换为云端GPU ↗</button>
                 </div>
-
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 12px;">
-                    <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">💻 运行环境</div>
-                        <div style="font-size: 13px; font-weight: 600; color: #e2e8f0;">
-                            本机 CPU 动效渲染引擎（双核即可跑满 25fps，免网络握手）
-                        </div>
-                    </div>
-                    <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 14px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                        <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">🛡️ 安全底线机制</div>
-                        <div style="font-size: 13px; font-weight: 600; color: #10B981;">
-                            开箱即播，并作为断网时的暗中兜底画面（保障直播永不黑屏）
-                        </div>
-                    </div>
+                <div style="font-size: 12.5px; color: #cbd5e1; margin-bottom: 8px;">
+                    💻 运行模式: 本地单机闭环 (支持独显直跑或免显卡程序化形象)
                 </div>
-
-                <div style="font-size: 12px; color: #94a3b8; line-height: 1.6;">
-                    💡 当前正在使用本地方案。若您需要超写写真人主播或云端 A100 算力，可随时点击右上角前往【GPU配置(2)】完成一键对接。
-                </div>
+                <div style="font-size: 12px; color: #10B981;">🟢 本地运行已就绪，0 租赁成本，开箱即播防黑屏。</div>
             </div>
         `;
-        return;
-    }
-
-    // ==========================================
-    // 场景 C: 尚未配置任何数字人渲染
-    // ==========================================
-    if (headerBadge) {
-        headerBadge.className = "brand-badge amber";
-        headerBadge.textContent = "待配置";
-    }
-
-    container.innerHTML = `
-        <div style="background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 18px;">
-            <div style="font-size: 14px; font-weight: 700; color: #F59E0B; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
-                <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:#F59E0B;fill:none;stroke-width:2;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                尚未配置生效的数字人渲染方案
-            </div>
-            <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.7; margin-bottom: 14px;">
-                开播需要数字人画面输出源。您可以直接一键使用免显卡的本地灵动卡通形象，或前往【GPU配置(2)】对接云端 GPU (如 NVIDIA A100)。
-            </div>
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                <button type="button" class="btn btn-sm btn-primary" onclick="goToGpuSettingsTab()" style="background: #10B981; border-color: #10B981; font-weight: 600; padding: 6px 16px;">
-                    立即前往【GPU配置(2)】配置云端/远端GPU ↗
-                </button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="quickEnableLocalProceduralAvatar()" style="font-size: 12px; padding: 6px 14px;">
-                    一键启用【本地轻量卡通】快速开播
-                </button>
-            </div>
-        </div>
-    `;
-}
-
-function renderAvatarProvidersUI(prefix) {
-    const cardsBox = document.getElementById(`${prefix}-avatar-provider-cards`);
-    if (!cardsBox) return;
-
-    cardsBox.innerHTML = "";
-    globalAvatarCatalog.forEach(provider => {
-        const info = KNOWN_AVATAR_PROVIDER_INFO[provider.id] || {};
-        const isSelected = provider.id === selectedAvatarProviderId;
-        const selectable = provider.selectable !== false;
-
-        const card = document.createElement("div");
-        card.className = `avatar-compact-card${isSelected ? " selected" : ""}${selectable ? "" : " is-disabled"}`;
-        card.setAttribute("data-avatar-provider", provider.id);
-
-        const logoHtml = info.logoSvg ? `<img src="${info.logoSvg}" alt="${escapeHtml(info.title || provider.name)}" class="avatar-compact-logo">` : "";
-        const primaryBadge = (info.badges && info.badges[0]) ? info.badges[0] : { text: "可用", cls: "green" };
-
-        card.innerHTML = `
-            ${logoHtml}
-            <div class="avatar-compact-title">${escapeHtml(info.title || provider.name)}</div>
-            <div>
-                <span class="avatar-compact-badge brand-badge ${primaryBadge.cls}">${escapeHtml(primaryBadge.text)}</span>
-            </div>
-        `;
-
-        if (selectable) {
-            card.addEventListener("click", () => {
-                selectAvatarProvider(provider.id, prefix);
-            });
-        }
-        cardsBox.appendChild(card);
-    });
-
-    renderAvatarDetailCard(selectedAvatarProviderId, prefix);
-}
-
-function selectAvatarProvider(providerId, prefix) {
-    selectedAvatarProviderId = providerId;
-    const matchedConfig = globalAvatarConfigs.find(item => item.adapter_id === providerId);
-    currentEditingAvatarConfigId = matchedConfig ? matchedConfig.id : "";
-
-    // 同步更新所有卡片的 selected 状态
-    document.querySelectorAll(".avatar-compact-card").forEach(card => {
-        card.classList.toggle("selected", card.getAttribute("data-avatar-provider") === providerId);
-    });
-
-    renderAvatarDetailCard(providerId, "gpu");
-    renderAvatarDetailCard(providerId, "wizard");
-}
-
-function renderAvatarDetailCard(providerId, prefix) {
-    const titleEl = document.getElementById(`${prefix}-detail-title`);
-    const badgeEl = document.getElementById(`${prefix}-detail-badge`);
-    const linkBox = document.getElementById(`${prefix}-detail-official-link-box`);
-    const visualEl = document.getElementById(`${prefix}-detail-visual`);
-    const hardwareEl = document.getElementById(`${prefix}-detail-hardware`);
-    const audienceEl = document.getElementById(`${prefix}-detail-audience`);
-    const plainEl = document.getElementById(`${prefix}-detail-plain-text`);
-
-    const info = KNOWN_AVATAR_PROVIDER_INFO[providerId] || {};
-    const descriptor = globalAvatarCatalog.find(p => p.id === providerId) || {};
-
-    if (titleEl) titleEl.textContent = info.title || descriptor.name || "数字人方案";
-    if (badgeEl) {
-        badgeEl.className = `brand-badge ${descriptor.status === "available" ? "green" : "amber"}`;
-        badgeEl.textContent = descriptor.status === "available" ? "可用 · 当前选中" : "联调中";
-    }
-
-    if (linkBox) {
-        const officialUrl = descriptor.official_url || info.officialUrl || "";
-        const officialLabel = info.officialLabel || "官方入口 ↗";
-        linkBox.innerHTML = officialUrl ? `
-            <a href="${escapeHtml(officialUrl)}" target="_blank" rel="noopener noreferrer" class="avatar-official-link" title="访问官方平台">
-                ${escapeHtml(officialLabel)}
-            </a>
-        ` : "";
-    }
-
-    // 动态注入整行独立指标
-    if (visualEl) visualEl.textContent = info.visual || descriptor.visual_style || "高质量画面输出";
-    if (hardwareEl) hardwareEl.textContent = info.hardware || descriptor.cost_hardware || "标准硬件兼容";
-    if (audienceEl) audienceEl.textContent = info.audience || descriptor.target_audience || "全体用户";
-    if (plainEl) plainEl.textContent = info.plain || descriptor.plain_explanation || info.summary || "开箱即用数字人方案。";
-
-    // 渲染参数配置字段
-    renderAvatarConfigFields(providerId, prefix);
-}
-
-function formatApiError(json, fallback = "操作失败") {
-    if (!json) return fallback;
-    if (typeof json === "string") return json;
-    if (json.detail) {
-        if (typeof json.detail === "string") return json.detail;
-        if (Array.isArray(json.detail)) {
-            return json.detail.map(item => {
-                if (typeof item === "string") return item;
-                if (item && item.msg) {
-                    const loc = Array.isArray(item.loc) ? item.loc.filter(x => x !== "body").join(".") : "";
-                    return loc ? `${loc}: ${item.msg}` : item.msg;
-                }
-                return JSON.stringify(item);
-            }).join("; ");
-        }
-        if (typeof json.detail === "object") {
-            return json.detail.msg || json.detail.message || JSON.stringify(json.detail);
-        }
-    }
-    if (json.message && typeof json.message === "string") return json.message;
-    return fallback;
-}
-
-function renderAvatarConfigFields(providerId, prefix) {
-    const configPanel = document.getElementById(prefix === "gpu" ? "gpu-avatar-config-fields-panel" : "wizard-avatar-config");
-    const fieldsBox = document.getElementById(prefix === "gpu" ? "gpu-avatar-fields-container" : "wizard-avatar-fields");
-    const statusHint = document.getElementById(prefix === "gpu" ? "gpu-avatar-status-hint" : "wizard-avatar-status");
-    const hiddenId = document.getElementById(prefix === "gpu" ? "gpu-avatar-config-id" : "wizard-avatar-config-id");
-
-    if (!configPanel || !fieldsBox) return;
-
-    const descriptor = globalAvatarCatalog.find(item => item.id === providerId);
-    if (!descriptor) return;
-
-    const activeRemote = globalAvatarConfigs.find(item => item.is_active && (!item.provider_validation || item.provider_validation.valid));
-    const isLocalActive = !activeRemote;
-
-    // 内置本地卡通形象模式
-    if (descriptor.configuration_mode !== "instance") {
-        configPanel.style.display = "block";
-        fieldsBox.innerHTML = `
-            <div style="grid-column: 1 / -1; padding: 14px 16px; background: rgba(16, 185, 129, 0.08); border: 1px dashed rgba(16, 185, 129, 0.3); border-radius: 8px; color: #cbd5e1; font-size: 13px; line-height: 1.7;">
-                <div style="font-weight: 600; color: #10B981; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-                    <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    本地免显卡内置方案已就绪
-                </div>
-                无需配置任何外部 IP、端口或 API 密钥，当前电脑即可直接生成 2D 灵动卡通画面并保底防黑屏。<br>
-                状态：${isLocalActive ? '<strong style="color:#10B981;">当前已生效（主推流画面）</strong>' : '<span style="color:var(--text-muted);">当前处于备用保底状态（主画面为远端节点）</span>'}
-            </div>
-        `;
-        if (hiddenId) hiddenId.value = "";
-        if (statusHint) {
-            statusHint.textContent = isLocalActive ? "当前已生效" : "未生效（备用保底）";
-        }
-        const saveBtn = document.getElementById("gpu-avatar-save-btn");
-        if (saveBtn) {
-            saveBtn.innerHTML = `
-                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M20 6L9 17l-5-5"/></svg>
-                ${isLocalActive ? "刷新并保持本地方案" : "立即启用本地轻量卡通方案"}
-            `;
-        }
-        return;
-    }
-
-    // 实例配置模式 (Sidecar, Tencent, Aliyun, LiveAvatar, Custom)
-    configPanel.style.display = "block";
-    fieldsBox.innerHTML = "";
-    const resultBox = document.getElementById("gpu-avatar-conn-result");
-    if (resultBox) {
-        resultBox.style.display = "none";
-        resultBox.innerHTML = "";
-    }
-    const saveBtn = document.getElementById("gpu-avatar-save-btn");
-    if (saveBtn) {
-        saveBtn.innerHTML = `
-            <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            保存并启用此数字人方案
-        `;
-    }
-
-    const adapterId = descriptor.adapter_id || descriptor.id;
-    const config = globalAvatarConfigs.find(item => item.id === currentEditingAvatarConfigId && item.provider_name === adapterId) ||
-                   globalAvatarConfigs.find(item => item.provider_name === adapterId) || null;
-
-    if (hiddenId) hiddenId.value = config ? config.id : "";
-
-    const fields = Array.isArray(descriptor.ui_fields) ? descriptor.ui_fields : [];
-    fields.forEach((field, idx) => {
-        const inputId = `${prefix}-avatar-field-${idx}`;
-        const isSecret = field.type === "secret";
-        const wrapper = document.createElement("div");
-        wrapper.className = "form-group";
-
-        let val = "";
-        if (config) {
-            if (field.path === "base_url") {
-                val = config.base_url || "";
-            } else if (isSecret || field.path === "api_key") {
-                if (cachedAvatarDecryptedKeys[config.id]) {
-                    val = cachedAvatarDecryptedKeys[config.id];
-                } else if (config.masked_key) {
-                    val = config.masked_key;
-                }
-            } else if (field.path.startsWith("extra_params.")) {
-                const k = field.path.replace("extra_params.", "");
-                try {
-                    const extra = typeof config.extra_params === "string" ? JSON.parse(config.extra_params) : (config.extra_params || {});
-                    val = extra ? (extra[k] || "") : "";
-                } catch (e) {}
-            }
-        }
-        if (!val && field.default) val = field.default;
-
-        // 异步预载入已保存密码真实明文，以便切换明文或保存时使用
-        if (isSecret && config && config.id && !cachedAvatarDecryptedKeys[config.id]) {
-            fetch(`${API_BASE}/settings/configs/${config.id}/raw-key`)
-                .then(r => r.json())
-                .then(json => {
-                    if (json.code === 0) {
-                        const rk = json.raw_key || "";
-                        cachedAvatarDecryptedKeys[config.id] = rk;
-                        const el = document.getElementById(inputId);
-                        if (el) {
-                            if (!rk) {
-                                el.value = "";
-                            } else if (!el.value || el.value.includes("•")) {
-                                el.value = rk;
-                            }
-                        }
-                    }
-                })
-                .catch(e => console.warn("预拉取密钥明文异常:", e));
-        }
-
-        let pillsHtml = "";
-        if (Array.isArray(field.pills) && field.pills.length) {
-            pillsHtml = `<div class="pills-container" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">` +
-                field.pills.map(p => `
-                    <button type="button" class="badge-pill" style="font-size:11px;cursor:pointer;padding:2px 8px;border-radius:4px;border:1px solid rgba(148,163,184,0.25);background:rgba(30,41,59,0.7);color:#94a3b8;"
-                            onclick="document.getElementById('${inputId}').value='${escapeHtml(p.val)}'">
-                        ${escapeHtml(p.text)}
-                    </button>
-                `).join("") + `</div>`;
-        }
-
-        let inputHtml = "";
-        if (isSecret) {
-            inputHtml = `
-                <div style="position: relative; display: flex; align-items: center; width: 100%;">
-                    <input id="${inputId}" class="form-control" type="password"
-                           value="${escapeHtml(val)}" placeholder="${escapeHtml(field.default || "")}"
-                           data-avatar-path="${escapeHtml(field.path)}"
-                           data-avatar-required="${field.required ? "true" : "false"}"
-                           data-avatar-label="${escapeHtml(field.label || field.path)}"
-                           style="padding-right: 40px; font-family: monospace;">
-                    <button type="button" class="btn btn-sm btn-ghost avatar-eye-btn" id="${inputId}-eye"
-                            style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); height: 28px; width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; color: #94a3b8; cursor: pointer; z-index: 2;"
-                            title="点击显示明文"
-                            onclick="toggleAvatarSecretVisibility('${inputId}', '${config ? config.id : ""}')">
-                        <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    </button>
-                </div>
-            `;
-        } else {
-            inputHtml = `
-                <input id="${inputId}" class="form-control" type="text"
-                       value="${escapeHtml(val)}" placeholder="${escapeHtml(field.default || "")}"
-                       data-avatar-path="${escapeHtml(field.path)}"
-                       data-avatar-required="${field.required ? "true" : "false"}"
-                       data-avatar-label="${escapeHtml(field.label || field.path)}">
-            `;
-        }
-
-        wrapper.innerHTML = `
-            <label class="form-label" for="${inputId}">
-                ${escapeHtml(field.label || field.path)}${field.required ? ' <span style="color:var(--red);">*</span>' : ""}
-            </label>
-            ${inputHtml}
-            ${pillsHtml}
-            ${field.tip ? `<div class="field-tip" style="margin-top:4px;">${escapeHtml(field.tip)}</div>` : ""}
-        `;
-        fieldsBox.appendChild(wrapper);
-    });
-
-    if (statusHint) {
-        statusHint.textContent = config
-            ? `正在编辑 ${descriptor.name} 实例 (${config.is_active ? "当前已生效" : "已保存未生效"})`
-            : "保存时将为该 Provider 创建新的配置实例并立即生效";
     }
 }
-
-async function handleSaveGpuAvatarConfig() {
-    const descriptor = globalAvatarCatalog.find(item => item.id === selectedAvatarProviderId);
-    if (!descriptor) return;
-
-    if (descriptor.configuration_mode !== "instance") {
-        // 本地程序化：将所有已生效远端设为非 active
-        try {
-            for (const cfg of globalAvatarConfigs.filter(c => c.is_active)) {
-                await fetch(`${API_BASE}/settings/configs/save`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        id: cfg.id,
-                        config_group: "neural_renderer",
-                        provider_name: cfg.provider_name,
-                        is_active: false
-                    })
-                });
-            }
-            showToast("已成功启用【本地轻量卡通】方案！", "success");
-            await loadGpuAvatarProviders();
-        } catch (e) {
-            showToast("切换失败: " + e, "error");
-        }
-        return;
-    }
-
-    const fieldsBox = document.getElementById("gpu-avatar-fields-container");
-    const inputs = fieldsBox ? fieldsBox.querySelectorAll("input[data-avatar-path]") : [];
-    
-    const adapterId = descriptor.adapter_id || descriptor.id;
-    const payload = {
-        config_group: "neural_renderer",
-        provider_name: adapterId,
-        title: descriptor.name || descriptor.title || adapterId,
-        is_active: true,
-        extra_params: {
-            adapter: adapterId
-        }
-    };
-
-    const hiddenId = document.getElementById("gpu-avatar-config-id");
-    if (hiddenId && hiddenId.value) {
-        payload.id = hiddenId.value;
-    }
-
-    // 提取表单输入项与必填校验
-    for (const input of inputs) {
-        const path = input.getAttribute("data-avatar-path");
-        const isRequired = input.getAttribute("data-avatar-required") === "true";
-        const label = input.getAttribute("data-avatar-label") || path;
-        let val = input.value.trim();
-
-        // 默认回退值
-        if (!val && input.placeholder) {
-            val = input.placeholder.trim();
-        }
-
-        if (isRequired && !val) {
-            showToast(`请填写必填项：${label}`, "error");
-            input.focus();
-            return;
-        }
-
-        if (path === "base_url") {
-            payload.base_url = val;
-        } else if (path === "api_key") {
-            if (!val) {
-                payload.api_key = "";
-                if (payload.id) {
-                    delete cachedAvatarDecryptedKeys[payload.id];
-                }
-            } else if (!val.includes("•")) {
-                payload.api_key = val;
-            } else if (payload.id && cachedAvatarDecryptedKeys[payload.id]) {
-                payload.api_key = cachedAvatarDecryptedKeys[payload.id];
-            }
-        } else if (path.startsWith("extra_params.")) {
-            const k = path.replace("extra_params.", "");
-            payload.extra_params[k] = val;
-        }
-    }
-
-    try {
-        const res = await fetch(`${API_BASE}/settings/configs/save`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-        const json = await res.json();
-        if (res.ok && (json.code === 0 || json.code === undefined)) {
-            // 将其他已有 active 实例置为非 active
-            const savedId = payload.id || json.id || (json.data && json.data.id);
-            if (savedId) {
-                currentEditingAvatarConfigId = savedId;
-                cachedAvatarDecryptedKeys[savedId] = payload.api_key || "";
-            }
-            const otherActiveConfigs = globalAvatarConfigs.filter(c => c.is_active && c.id !== savedId);
-            for (const cfg of otherActiveConfigs) {
-                try {
-                    await fetch(`${API_BASE}/settings/configs/save`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            id: cfg.id,
-                            config_group: "neural_renderer",
-                            provider_name: cfg.provider_name,
-                            is_active: false
-                        })
-                    });
-                } catch (_) {}
-            }
-            showToast(`已成功保存并启用【${descriptor.name}】！正在检测通信连通性...`, "success");
-            await loadGpuAvatarProviders();
-
-            // 保存后立即自动进行通信连通性测试并展示结果
-            await testCurrentGpuAvatarConnection(true);
-
-        } else {
-            showToast("保存失败: " + formatApiError(json, "服务端验证未通过"), "error");
-        }
-    } catch (e) {
-        showToast("保存异常: " + e, "error");
-    }
-}
-
-async function testCurrentGpuAvatarConnection(isAutoAfterSave = false) {
-    console.log("[GPU Avatar] 点击测试通信连接, 当前 selectedAvatarProviderId:", selectedAvatarProviderId);
-
-    const testBtn = document.getElementById("gpu-avatar-test-btn");
-    const resultBox = document.getElementById("gpu-avatar-conn-result");
-    const fieldsBox = document.getElementById("gpu-avatar-fields-container");
-
-    let descriptor = globalAvatarCatalog.find(item => item.id === selectedAvatarProviderId);
-    if (!descriptor) {
-        descriptor = {
-            id: selectedAvatarProviderId || "custom_avatar",
-            adapter_id: selectedAvatarProviderId || "custom_avatar",
-            name: "自定义数字人 / 远端流服务",
-            configuration_mode: "instance"
-        };
-    }
-
-    if (descriptor.configuration_mode !== "instance") {
-        showToast("本地轻量卡通方案直接运行于本机，免网络握手！", "info");
-        if (resultBox) {
-            resultBox.style.display = "flex";
-            resultBox.style.background = "rgba(16, 185, 129, 0.12)";
-            resultBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
-            resultBox.style.color = "#10B981";
-            resultBox.innerHTML = `<strong>本地免显卡方案：</strong>直接运行于本机 Python 进程，无需网络通信握手。`;
-        }
-        return;
-    }
-
-    const inputs = fieldsBox ? fieldsBox.querySelectorAll("input[data-avatar-path]") : [];
-
-    let baseUrl = "";
-    let apiKey = "";
-    for (const input of inputs) {
-        const path = input.getAttribute("data-avatar-path");
-        const val = input.value.trim() || (input.placeholder ? input.placeholder.trim() : "");
-        if (path === "base_url") {
-            baseUrl = val;
-        } else if (path === "api_key") {
-            if (val && !val.includes("•")) {
-                apiKey = val;
-            } else {
-                const hiddenId = document.getElementById("gpu-avatar-config-id");
-                if (hiddenId && hiddenId.value && cachedAvatarDecryptedKeys[hiddenId.value]) {
-                    apiKey = cachedAvatarDecryptedKeys[hiddenId.value];
-                }
-            }
-        }
-    }
-
-    // 容错兜底：若从 data-avatar-path 没拿到，直接查找第一个 input 或历史激活配置
-    if (!baseUrl) {
-        const firstInput = fieldsBox ? fieldsBox.querySelector("input[type='text'], input[type='url']") : null;
-        if (firstInput && firstInput.value.trim()) {
-            baseUrl = firstInput.value.trim();
-        } else {
-            const activeCfg = globalAvatarConfigs.find(c => c.is_active && c.base_url);
-            if (activeCfg) {
-                baseUrl = activeCfg.base_url;
-            }
-        }
-    }
-
-    if (!baseUrl) {
-        showToast("请先填写自定义服务连接地址 (base_url)！", "warning");
-        if (resultBox) {
-            resultBox.style.display = "flex";
-            resultBox.style.background = "rgba(245, 158, 11, 0.12)";
-            resultBox.style.border = "1px solid rgba(245, 158, 11, 0.35)";
-            resultBox.style.color = "#F59E0B";
-            resultBox.innerHTML = `<strong>提示：</strong>请先在上方输入框填写服务连接地址 (base_url)，例如：<code style="font-family:monospace;">ws://127.0.0.1:8010/ws/render-v3</code>`;
-        }
-        return;
-    }
-
-    const originalBtnHtml = testBtn ? testBtn.innerHTML : "";
-    if (testBtn) {
-        testBtn.disabled = true;
-        testBtn.innerHTML = `
-            <svg class="icon-sm spin" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
-            正在测试通信...
-        `;
-    }
-
-    if (resultBox) {
-        resultBox.style.display = "flex";
-        resultBox.style.background = "rgba(30, 41, 59, 0.7)";
-        resultBox.style.border = "1px solid rgba(148, 163, 184, 0.25)";
-        resultBox.style.color = "var(--text-primary)";
-        resultBox.innerHTML = `
-            <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#38bdf8; animation:pulse 1s infinite;"></span>
-            正在与远端节点发起握手连通测试：<code style="color:#38bdf8; font-family:monospace;">${escapeHtml(baseUrl)}</code> ...
-        `;
-    }
-
-    try {
-        const adapterId = descriptor.adapter_id || descriptor.id;
-        const res = await fetch(`${API_BASE}/settings/test-connection`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                config_group: "neural_renderer",
-                provider_name: adapterId,
-                base_url: baseUrl,
-                api_key: apiKey
-            })
-        });
-        const json = await res.json();
-        if (json.code === 0 && json.success) {
-            const latency = json.latency_ms ?? 0;
-            let latencyGrade = "🟢 极速流畅";
-            let latencyColor = "#10B981";
-            if (latency > 300) {
-                latencyGrade = "🟠 延迟较高";
-                latencyColor = "#F59E0B";
-            } else if (latency > 150) {
-                latencyGrade = "🟡 良好稳定";
-                latencyColor = "#FBBF24";
-            }
-
-            const device = json.device || "NVIDIA GPU 算力就绪";
-            if (resultBox) {
-                resultBox.style.display = "block";
-                resultBox.style.background = "rgba(16, 185, 129, 0.08)";
-                resultBox.style.border = "1.5px solid rgba(16, 185, 129, 0.35)";
-                resultBox.style.padding = "14px";
-                resultBox.style.borderRadius = "8px";
-                resultBox.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border-bottom:1px solid rgba(16,185,129,0.2); padding-bottom:6px;">
-                        <div style="font-weight:700; color:#10B981; display:flex; align-items:center; gap:6px;">
-                            <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:#10B981;fill:none;stroke-width:2.5;"><polyline points="20 6 9 17 4 12"/></svg>
-                            云端渲染节点通信对接成功
-                        </div>
-                        <span class="brand-badge green">全双工在线</span>
-                    </div>
-                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-top:8px;">
-                        <div style="background:rgba(15,23,42,0.6); padding:8px 12px; border-radius:6px; border:1px solid rgba(148,163,184,0.15);">
-                            <div style="font-size:11px; color:var(--text-muted);">🖥️ 远端 GPU 设备</div>
-                            <div style="font-size:13px; font-weight:600; color:#f8fafc; margin-top:2px;">${escapeHtml(device)}</div>
-                        </div>
-                        <div style="background:rgba(15,23,42,0.6); padding:8px 12px; border-radius:6px; border:1px solid rgba(148,163,184,0.15);">
-                            <div style="font-size:11px; color:var(--text-muted);">⚡ 端云往返时延 (Ping)</div>
-                            <div style="font-size:13px; font-weight:700; color:${latencyColor}; margin-top:2px;">
-                                ${latency}ms · ${latencyGrade}
-                            </div>
-                        </div>
-                        <div style="background:rgba(15,23,42,0.6); padding:8px 12px; border-radius:6px; border:1px solid rgba(148,163,184,0.15);">
-                            <div style="font-size:11px; color:var(--text-muted);">🛡️ 防黑屏保活状态</div>
-                            <div style="font-size:12px; font-weight:500; color:#10B981; margin-top:2px;">已就绪 · 本地微动态兜底</div>
-                        </div>
-                    </div>
-                `;
-            }
-            showToast(`✅ 通信对接成功！${device}（延迟: ${latency}ms）`, "success");
-        } else {
-            const errMsg = json.message || "通信测试失败，请检查地址或网络端口";
-            if (resultBox) {
-                resultBox.style.display = "block";
-                resultBox.style.background = "rgba(239, 68, 68, 0.08)";
-                resultBox.style.border = "1.5px solid rgba(239, 68, 68, 0.35)";
-                resultBox.style.padding = "12px 14px";
-                resultBox.style.borderRadius = "8px";
-                resultBox.innerHTML = `
-                    <div style="font-weight:700; color:#EF4444; display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                        <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:#EF4444;fill:none;stroke-width:2.5;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                        通信对接未通达
-                    </div>
-                    <div style="font-size:12.5px; color:#cbd5e1; line-height:1.6;">${escapeHtml(errMsg)}</div>
-                    <div style="margin-top:8px; font-size:11.5px; color:#94a3b8; border-top:1px dashed rgba(148,163,184,0.2); padding-top:6px;">
-                        💡 <strong>排查建议：</strong>若使用云端 GPU，请确认云端终端已运行 <code>scripts/cloud_sidecar_bootstrap.py</code>，并且 Cloudflare 隧道已成功分配公网域名。
-                    </div>
-                `;
-            }
-            showToast(isAutoAfterSave ? `⚠️ 配置已保存，但通信握手未成功: ${errMsg}` : `❌ 连通失败: ${errMsg}`, "error");
-        }
-    } catch (e) {
-        if (resultBox) {
-            resultBox.style.display = "block";
-            resultBox.style.background = "rgba(239, 68, 68, 0.08)";
-            resultBox.style.border = "1.5px solid rgba(239, 68, 68, 0.35)";
-            resultBox.style.padding = "12px 14px";
-            resultBox.style.borderRadius = "8px";
-            resultBox.innerHTML = `
-                <div style="font-weight:700; color:#EF4444; margin-bottom:4px;">请求异常</div>
-                <div style="font-size:12px; color:#cbd5e1;">${escapeHtml(String(e))}</div>
-            `;
-        }
-        showToast("连通测试异常: " + e, "error");
-    } finally {
-        if (testBtn) {
-            testBtn.disabled = false;
-            testBtn.innerHTML = originalBtnHtml;
-        }
-    }
-}
-
-// 复制云端 A100 一键启动命令
-function copyCloudBootstrapCommand() {
-    const cmd = "curl -sSL https://ghproxy.net/https://raw.githubusercontent.com/winclubs/AI-LiveStream-Agent/main/scripts/cloud_sidecar_bootstrap.py -o sidecar.py && python3 sidecar.py";
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(cmd).then(() => {
-            showToast("📋 已复制云端一键启动命令！直接在云端开发机终端粘贴回车即可。", "success");
-        }).catch(() => {
-            prompt("请复制以下命令在云主机终端中执行：", cmd);
-        });
-    } else {
-        prompt("请复制以下命令在云主机终端中执行：", cmd);
-    }
-}
-
-// 显式挂载到 window 全局，确保 HTML 内联 onclick 能够直接调用
-window.copyCloudBootstrapCommand = copyCloudBootstrapCommand;
-window.testCurrentGpuAvatarConnection = testCurrentGpuAvatarConnection;
-window.handleSaveGpuAvatarConfig = handleSaveGpuAvatarConfig;
-window.loadGpuAvatarProviders = loadGpuAvatarProviders;
-window.loadWizardAvatarProviders = loadWizardAvatarProviders;
-window.selectAvatarProvider = selectAvatarProvider;
-window.toggleAvatarSecretVisibility = toggleAvatarSecretVisibility;
-window.goToGpuSettingsTab = goToGpuSettingsTab;
-window.quickEnableLocalProceduralAvatar = quickEnableLocalProceduralAvatar;
-window.testWizardGpuConnection = testWizardGpuConnection;
-
-

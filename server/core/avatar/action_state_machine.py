@@ -13,6 +13,7 @@
 """
 import asyncio
 import logging
+import pickle
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -74,17 +75,30 @@ class ActionClip:
         self.preload_memory = preload_memory
         self.frames: List[np.ndarray] = []
         self.frame_paths: List[Path] = []
+        self.coords: List[Any] = []
         self.total_frames: int = 0
 
     def load_frames(self) -> int:
-        """加载切片帧 (含防爆截断与低频 I/O 自动内存预加载)"""
+        """加载切片帧与人脸坐标 (含防爆截断与低频 I/O 自动内存预加载)"""
         self.frames.clear()
         self.frame_paths.clear()
+        self.coords.clear()
 
-        # 1. 优先从已切片目录加载
+        # 1. 优先从已切片目录加载 (兼容 full_imgs/ 子目录与 coords.pkl)
         if self.frames_dir and Path(self.frames_dir).exists():
+            f_dir = Path(self.frames_dir)
+            coords_file = f_dir / "coords.pkl"
+            if coords_file.exists():
+                try:
+                    with open(coords_file, "rb") as cf:
+                        self.coords = pickle.load(cf)
+                except Exception as e:
+                    logger.debug(f"加载动作切片坐标异常: {e}")
+
+            full_subdir = f_dir / "full_imgs"
+            scan_dir = full_subdir if full_subdir.exists() else f_dir
             p_list = sorted(
-                Path(self.frames_dir).glob("*.jpg"),
+                list(scan_dir.glob("*.jpg")) + list(scan_dir.glob("*.png")),
                 key=lambda p: int(p.stem) if p.stem.isdigit() else p.name,
             )
             if p_list:
@@ -146,6 +160,13 @@ class ActionClip:
         if frame is not None and as_rgb:
             return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return frame
+
+    def get_coords(self, index: int) -> Optional[Any]:
+        """获取指定索引切片的人脸对齐包围盒坐标"""
+        if not self.coords:
+            return None
+        target_idx = mirror_index(index, len(self.coords)) if self.mirror_loop else (index % len(self.coords))
+        return self.coords[target_idx]
 
 
 class ActionStateMachine:
@@ -463,6 +484,16 @@ class ActionStateMachine:
             if cnt > 0:
                 loaded += 1
         return loaded
+
+    def get_current_coords(self, frame_idx: int) -> Optional[Any]:
+        """获取当前动作切片对应的人脸对齐包围盒坐标 (支持动作自适应与待机兜底)"""
+        clip = self.clips.get(self.current_action)
+        if clip and clip.coords:
+            return clip.get_coords(frame_idx)
+        idle_clip = self.clips.get(0)
+        if idle_clip and idle_clip.coords:
+            return idle_clip.get_coords(frame_idx)
+        return None
 
     def get_status(self) -> Dict[str, Any]:
         """获取动作状态机当前遥测状态"""

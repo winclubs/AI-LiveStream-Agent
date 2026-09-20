@@ -17,6 +17,11 @@ OUTPUT_FILE = STATIC_DIR / "index.html"
 def split_index_html():
     """
     [一次性/维护工具] 将当前 index.html 精确拆分为 11 个独立组件和 1 个精简主模板
+
+    ⚠️ 警告：本工具为一次性快照工具，切片行号仅对应最初生成组件时的历史结构。
+    components/ 目录现已包含 tab_gpu.html 等后续新增组件，而下方切片字典未随之更新；
+    若对重新合成后的 index.html 重跑本工具，将产生错误切片并静默丢失组件。
+    后续维护请直接编辑 components/*.html 与 index.template.html，严禁重跑本工具。
     """
     if not OUTPUT_FILE.exists():
         raise FileNotFoundError(f"未找到原始 HTML 文件: {OUTPUT_FILE}")

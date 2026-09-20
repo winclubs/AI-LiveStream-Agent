@@ -5,6 +5,7 @@ async function checkLiveStatus() {
         if (json.code === 0) {
             updateLiveStateUI(json.is_live);
         }
+        refreshLiveGpuTelemetry();
     } catch (e){}
 }
 
@@ -267,16 +268,6 @@ function triggerBargeInVisual(reason) {
     setTimeout(() => {
         badge.style.display = "none";
     }, 2500);
-}
-
-function escapeHtml(text) {
-    if (text === null || text === undefined) return "";
-    return String(text)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
 }
 
 function updateSpeakingWave(speaking) {
@@ -720,4 +711,49 @@ async function deleteRecording(recordId) {
     }
 }
 window.deleteRecording = deleteRecording;
+
+async function refreshLiveGpuTelemetry() {
+    try {
+        const badge = document.getElementById("live-gpu-source-badge");
+        const detail = document.getElementById("live-gpu-detail-text");
+        const tip = document.getElementById("live-gpu-requirement-tip");
+        if (!badge || !detail) return;
+
+        const res = await fetch(`${API_BASE}/live/hardware`);
+        const json = await res.json();
+        if (json.code !== 0 || !json.data) return;
+
+        const d = json.data;
+        const cap = d.gpu_capability || {};
+        const localGpu = cap.local_gpu || d.gpu || {};
+        const cloudGpu = cap.cloud_gpu || {};
+
+        if (cap.use_cloud && cap.can_execute) {
+            // 模式 2: 远端租赁 GPU
+            badge.className = "brand-badge sky";
+            badge.innerText = "⚡ 远端租赁 GPU";
+            const provider = cloudGpu.provider_name || "AutoDL/云端算力";
+            detail.innerHTML = `已实测连通远端算力节点【${escapeHtml(provider)}】· <span style="color:#38bdf8;font-weight:600;">本地 0 显存负担</span> · 1080P 写实真人就绪`;
+            if (tip) tip.innerHTML = `远端算力模式：本地仅需轻薄本 CPU 调度与推流`;
+        } else if (cap.can_execute && !cap.is_low_spec_local) {
+            // 模式 1: 本地高性能独立显卡
+            badge.className = "brand-badge green";
+            badge.innerText = "🟢 本地高性能显卡";
+            const gpuName = localGpu.gpu_name || "NVIDIA 独显";
+            const vramTotal = localGpu.vram_total_gb || 0;
+            detail.innerHTML = `已启用本机独显【${escapeHtml(gpuName)}】(显存 ${vramTotal}GB) · <span style="color:#34d399;font-weight:600;">完全满足写实真人生产需求</span>`;
+            if (tip) tip.innerHTML = `全单机闭环模式：0 租金支出，免外网带宽依赖`;
+        } else {
+            // 轻量免显卡 CPU 模式
+            badge.className = "brand-badge amber";
+            badge.innerText = "⚠️ 轻量 CPU 免显卡";
+            const gpuName = localGpu.gpu_name || "轻薄本/核显";
+            detail.innerHTML = `当前硬件：${escapeHtml(gpuName)} (显存不足 2.0GB) · <span style="color:#fbbf24;font-weight:600;">已安全切换免显卡程序化驱动</span>`;
+            if (tip) tip.innerHTML = `如需 1080P 写实真人直播，建议前往配置远端租赁 GPU (约 1.2元/h)`;
+        }
+    } catch (e) {
+        console.warn("更新直播大屏算力状态失败:", e);
+    }
+}
+window.refreshLiveGpuTelemetry = refreshLiveGpuTelemetry;
 

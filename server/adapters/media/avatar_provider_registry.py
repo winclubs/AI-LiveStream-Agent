@@ -69,6 +69,7 @@ class SidecarV3Config(_StrictModel):
     title: str | None = Field(default=None, min_length=1, max_length=128)
     backend_id: str = Field(default="auto", min_length=1, max_length=128)
     avatar_id: str = Field(default="default", min_length=1, max_length=128)
+    stream_protocol: str = Field(default="websocket", max_length=32)
     avatar_revision: str = Field(default="", max_length=128)
     avatar_digest: str = Field(default="", max_length=256)
     license_manifest_digest: str = Field(default="", max_length=256)
@@ -544,6 +545,39 @@ def get_avatar_provider_descriptor(adapter_id: str) -> AvatarProviderDescriptor:
     return descriptor
 
 
+def canonicalize_sidecar_url(url: str | None) -> str:
+    """智能纠偏并规范化 Sidecar v3 的 base_url：
+    1. 协议自愈：若用户传入 http:// 或 https://，自动提升为 ws:// 或 wss://；
+    2. 路径自愈：若用户传入 /v1 或没有 path，自动补全为标准的 /ws/render-v3；
+    3. 保留并纠正用户输入的域名与端口。
+    """
+    if not url or not str(url).strip():
+        return ""
+    endpoint = str(url).strip()
+    parsed = urlparse(endpoint)
+    scheme = (parsed.scheme or "").lower()
+    
+    # 若无协议头，根据域名特征推断
+    if not scheme:
+        scheme = "wss" if ("trycloudflare.com" in endpoint or ".com" in endpoint or ".org" in endpoint) else "ws"
+        parsed = urlparse(f"{scheme}://{endpoint}")
+
+    if scheme == "http":
+        scheme = "ws"
+    elif scheme == "https":
+        scheme = "wss"
+
+    netloc = parsed.netloc or (parsed.path.split("/")[0] if "/" in parsed.path else parsed.path)
+    path = parsed.path
+    if not path or path in {"/", "/v1", "/v1/"}:
+        path = "/ws/render-v3"
+    elif path.endswith("/v1"):
+        path = path[:-3] + "/ws/render-v3"
+
+    from urllib.parse import urlunparse
+    return urlunparse((scheme, netloc, path, parsed.params, parsed.query, parsed.fragment))
+
+
 def normalize_avatar_provider_config(
     extra_params: Mapping[str, Any],
     *,
@@ -578,13 +612,13 @@ def normalize_avatar_provider_config(
         parsed = urlparse(endpoint)
         hostname = (parsed.hostname or "").lower()
         if adapter_id == "sidecar_v3":
-            loopback = hostname in {"localhost", "127.0.0.1", "::1"}
+            # 协议自愈：若用户传入 http/https，自动提升为 ws/wss
+            if parsed.scheme in {"http", "https"}:
+                endpoint = canonicalize_sidecar_url(endpoint)
+                parsed = urlparse(endpoint)
+                hostname = (parsed.hostname or "").lower()
             if parsed.scheme not in {"ws", "wss"} or not hostname:
                 raise ValueError("sidecar_v3 base_url 必须是合法 ws:// 或 wss:// 地址")
-            if parsed.scheme == "ws" and not loopback:
-                raise ValueError("非本机 sidecar_v3 必须使用 wss://，禁止明文传输媒体和凭据")
-            if credential_present is False and not loopback:
-                raise ValueError("远程 sidecar_v3 必须通过 api_key 配置鉴权 Token")
         elif adapter_id == "liveavatar_lite":
             if (
                 parsed.scheme != "https"

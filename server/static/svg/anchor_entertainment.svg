@@ -74,5 +74,5 @@
 
   <!-- 底部标签 -->
   <rect x="25" y="96" width="70" height="18" rx="9" fill="#18181B" stroke="#2DD4A0" stroke-width="1.2"/>
-  <text x="60" y="108" fill="#2DD4A0" font-family="-apple-system, sans-serif" font-size="9" font-weight="700" text-anchor="middle">元气娱乐·娜娜</text>
+  <text x="60" y="108" fill="#2DD4A0" font-family="-apple-system, sans-serif" font-size="9" font-weight="700" text-anchor="middle">娱乐主播</text>
 </svg>

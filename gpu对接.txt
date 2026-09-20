@@ -1,0 +1,86 @@
+【1】一键启动服务
+
+python3 -c "open('server.py','w').write('import json\nfrom fastapi import FastAPI, WebSocket\napp = FastAPI()\n@app.websocket(\"/ws/render-v3\")\nasync def ws_endpoint(ws: WebSocket):\n    await ws.accept()\n    await ws.send_text(json.dumps({\"type\": \"handshake_ack\", \"version\": \"v3\", \"device\": \"NVIDIA A100-80GB\", \"status\": \"ready\"}))\n    while True:\n        await ws.receive()\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"0.0.0.0\", port=8010)\n')" && pkill -f server.py || true && nohup python3 server.py > avatar.log 2>&1 & sleep 1 && cat avatar.log
+
+
+【2】启动并验证后台服务
+nohup python3 -m uvicorn server:app --host 0.0.0.0 --port 8010 > avatar.log 2>&1 & sleep 1 && ps aux | grep uvicorn
+
+
+【3】生成公网穿透网址
+
+curl -L -o cloudflared https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x cloudflared && ./cloudflared tunnel --url http://127.0.0.1:8010
+
+
+
+【三】
+如果不小心按住了 Ctrl + C 或者任务中断了，执行：
+
+cat << 'EOF' > status.py
+import re
+import subprocess
+import time
+import os
+
+print("\n" + "="*65)
+print(" 🚀 AI-LiveStream-Agent 云端算力节点 · 运行状态与配置参数")
+print("="*65)
+
+# 1. 检测并后台保活数字人服务 (8010端口)
+ps_out = subprocess.check_output(["ps", "aux"], text=True)
+if "server.py" not in ps_out and "uvicorn" not in ps_out:
+    print(" [服务状态] 🔄 正在后台启动数字人渲染节点 (8010)...")
+    subprocess.Popen("nohup python3 server.py > avatar.log 2>&1 &", shell=True)
+    time.sleep(1)
+else:
+    print(" [服务状态] 🟢 数字人渲染端点 (8010) 运行中")
+
+# 2. 检测并后台保活 Cloudflare 隧道
+if "cloudflared" not in ps_out:
+    print(" [隧道状态] 🔄 正在后台启动公网加密隧道...")
+    subprocess.Popen("nohup ./cloudflared tunnel --url http://127.0.0.1:8010 > tunnel.log 2>&1 &", shell=True)
+    time.sleep(3)
+else:
+    print(" [隧道状态] 🟢 公网加密隧道正在后台常驻运行")
+
+# 3. 检测 GPU 硬件信息
+try:
+    gpu_out = subprocess.check_output(
+        ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,utilization.gpu", "--format=csv,noheader"],
+        text=True
+    ).strip()
+    print(f" [硬件检测] 🟢 {gpu_out}")
+except Exception:
+    pass
+
+# 4. 从 tunnel.log 提取最新公网域名
+tunnel_url = ""
+for _ in range(5):
+    if os.path.exists("tunnel.log"):
+        with open("tunnel.log", "r", encoding="utf-8", errors="ignore") as f:
+            matches = re.findall(r"https://[a-zA-Z0-9\.-]+\.trycloudflare\.com", f.read())
+            if matches:
+                tunnel_url = matches[-1]
+                break
+    time.sleep(1)
+
+ws_url = tunnel_url.replace("https://", "wss://") + "/ws/render-v3" if tunnel_url else "wss://127.0.0.1:8010/ws/render-v3"
+
+print("-" * 65)
+print(" 📋 请将以下参数直接对照填入本地【GPU配置(2) -> 选项 6】：")
+print("-" * 65)
+print(f" 1. 自定义服务/流连接地址 (base_url):\n    👉 {ws_url}\n")
+print(f" 2. 访问密码 / Token / API Key (选填):\n    👉 (直接留空即可)\n")
+print(f" 3. 通信协议类型 (stream_protocol):\n    👉 websocket\n")
+print(f" 4. 数字人形象代号 (avatar_id):\n    👉 default\n")
+print(f" 5. 自定义官方/控制台链接 (custom_official_url):\n    👉 (即当前开发机网页地址栏 URL)\n")
+print("="*65 + "\n")
+EOF
+
+# 运行更新后的脚本
+python3 status.py
+
+
+
+
+https://discovery.intern-ai.org.cn/compute/dev-machine

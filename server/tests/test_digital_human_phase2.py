@@ -111,6 +111,11 @@ async def test_avatar_task_pipeline_end_to_end(tmp_path):
     extracted_imgs = list((output_dir / "full_imgs").glob("*.jpg"))
     assert len(extracted_imgs) == 12
 
+    # 验证 face_imgs (标准数字人裁剪序列，Wav2Lip推理必备)
+    assert (output_dir / "face_imgs").exists()
+    face_imgs = list((output_dir / "face_imgs").glob("*.jpg"))
+    assert len(face_imgs) == 12
+
     # 验证 coords.pkl
     coords_file = output_dir / "coords.pkl"
     assert coords_file.exists()
@@ -132,12 +137,17 @@ async def test_avatar_task_pipeline_end_to_end(tmp_path):
     assert (output_dir / "preview.jpg").exists()
     meta_file = output_dir / "meta.json"
     assert meta_file.exists()
+    import json as _json
+    meta_data = _json.loads(meta_file.read_text(encoding="utf-8"))
+    assert meta_data.get("face_imgs_count") == 12
+    assert meta_data.get("face_img_size") == 256
 
     # 验证数据库中主播信息自动更新
     async with AsyncSessionLocal() as db:
         updated_anchor = await db.get(Anchor, anchor_id)
         assert updated_anchor.avatar_asset_dir == output_dir.as_posix()
         assert updated_anchor.source_video == video_file.as_posix()
+
 
 
 @pytest.mark.anyio
@@ -283,3 +293,98 @@ async def test_avatar_task_validation_errors():
         # 4. 查询不存在的任务
         res4 = await client.get("/api/v1/anchors/avatar/tasks/task_not_exist_999")
         assert res4.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_create_anchor_with_direct_video_upload(tmp_path):
+    """验证主播管理优化：创建主播时直接上传视频切片，自动关联并生成 video_task_id"""
+    video_file = _create_dummy_mp4_video(tmp_path / "anchor_video_sample.mp4", frame_count=6)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with open(video_file, "rb") as vf:
+            res = await client.post(
+                "/api/v1/anchors/create",
+                data={
+                    "name": "直接带视频创建的主播",
+                    "anchor_type": "ecommerce",
+                    "remark": "一键上传视频自动化测试",
+                },
+                files={"video": ("sample.mp4", vf, "video/mp4")},
+            )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["name"] == "直接带视频创建的主播"
+        assert "video_task_id" in data
+        assert data["video_task_id"].startswith("task_")
+
+        # 验证该切片任务已经在调度管理中
+        task_id = data["video_task_id"]
+        poll_res = await client.get(f"/api/v1/anchors/avatar/tasks/{task_id}")
+        assert poll_res.status_code == 200
+        assert poll_res.json()["data"]["anchor_id"] == data["id"]
+
+
+@pytest.mark.anyio
+async def test_gpu_target_api_and_branches():
+    """验证算力双分支设置接口与分支切换"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. 查询当前默认偏好
+        get_res = await client.get("/api/v1/settings/gpu-target")
+        assert get_res.status_code == 200
+        assert "target" in get_res.json()["data"]
+
+        # 2. 切换为 local 偏好
+        post_res1 = await client.post("/api/v1/settings/gpu-target", json={"target": "local"})
+        assert post_res1.status_code == 200
+        assert post_res1.json()["data"]["target"] == "local"
+
+        # 3. 切换为 cloud 偏好
+        post_res2 = await client.post("/api/v1/settings/gpu-target", json={"target": "cloud"})
+        assert post_res2.status_code == 200
+        assert post_res2.json()["data"]["target"] == "cloud"
+
+        # 4. 恢复 auto
+        post_res3 = await client.post("/api/v1/settings/gpu-target", json={"target": "auto"})
+        assert post_res3.status_code == 200
+        assert post_res3.json()["data"]["target"] == "auto"
+
+        # 5. 非法参数校验拦截
+        err_res = await client.post("/api/v1/settings/gpu-target", json={"target": "invalid_mode"})
+        assert err_res.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_update_anchor_with_video_upload(tmp_path):
+    """验证主播编辑时更新上传视频，自动启动新切片流水线"""
+    video_file = _create_dummy_mp4_video(tmp_path / "update_video_sample.mp4", frame_count=5)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. 先创建一个基础主播
+        init_res = await client.post(
+            "/api/v1/anchors/create",
+            data={"name": "待编辑的主播", "anchor_type": "ecommerce"}
+        )
+        assert init_res.status_code == 200
+        anchor_id = init_res.json()["data"]["id"]
+
+        # 2. 编辑该主播并上传视频
+        with open(video_file, "rb") as vf:
+            update_res = await client.post(
+                "/api/v1/anchors/update",
+                data={
+                    "id": anchor_id,
+                    "name": "待编辑的主播(已更新视频)",
+                    "remark": "编辑时上传视频测试",
+                },
+                files={"video": ("new_sample.mp4", vf, "video/mp4")},
+            )
+        assert update_res.status_code == 200
+        update_data = update_res.json()["data"]
+        assert update_data["name"] == "待编辑的主播(已更新视频)"
+        assert "video_task_id" in update_data
+        assert update_data["video_task_id"].startswith("task_")
+
+

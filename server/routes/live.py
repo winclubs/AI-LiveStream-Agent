@@ -481,6 +481,22 @@ class LiveSessionController:
                 return driver
             logger.info("远程 GPU 节点不可达，自动降级本地 TTS")
 
+        # 1.5) MOSS-TTS-Nano 端侧超轻量高保真声音驱动 (优先匹配本地或远端 GPU 算力端点)
+        if tts_cfg and ("moss" in (tts_cfg.provider_name or "").lower() or "nano" in (tts_cfg.provider_name or "").lower()):
+            from server.adapters.media.moss_driver import MossTTSMediaDriver
+            driver = MossTTSMediaDriver(
+                api_base=tts_cfg.base_url or "http://127.0.0.1:9880",
+                prompt_wav_path=active_voice.sample_wav_path if active_voice else None
+            )
+            if await driver.health_check():
+                await driver.start()
+                if active_voice:
+                    await driver.apply_volume_gain(getattr(active_voice, "volume_gain", 1.0) or 1.0)
+                    await driver.apply_speech_speed(getattr(active_voice, "speech_speed", 1.0) or 1.0)
+                logger.info(f"已启用 MOSS-TTS-Nano 端侧高保真声音驱动 (音色/参考: {active_voice.name if active_voice else '默认'})")
+                return driver
+            logger.warning("MOSS-TTS-Nano 端点连通性检查未通过 (端口 9880 未启动)，自动降级 Edge-TTS 兜底开播")
+
         # 2) 本地 CosyVoice 声音克隆 (前置健康检查：不可达自动降级 Edge-TTS，绝不静音开播)
         if tts_cfg and "cosyvoice" in (tts_cfg.provider_name or "").lower():
             driver = CosyVoiceMediaDriver(
@@ -1458,10 +1474,20 @@ class LiveSessionController:
                     raw_pcm = full_audio
                 elif framed_audio and getattr(framed_audio, "frames", None):
                     raw_pcm = b"".join(getattr(f, "pcm_bytes", b"") for f in framed_audio.frames)
-                if raw_pcm:
-                    await avatar_driver.push_audio_chunk(raw_pcm[:640])
                 elif full_audio:
-                    await avatar_driver.push_audio_chunk(full_audio[:640])
+                    # 容错保障：从容器音频 (如 WAV/MP3) 尝试解码为纯净标准 PCM16，杜绝容器头或压缩编码污染
+                    try:
+                        from server.core.media.audio_decode import decode_audio_to_float32
+                        import numpy as np
+                        samples, decoded_sr = decode_audio_to_float32(full_audio, fallback_sample_rate=sample_rate, codec=codec)
+                        if samples is not None and len(samples) > 0:
+                            raw_pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+                            sample_rate = decoded_sr or sample_rate
+                    except Exception:
+                        pass
+
+                if raw_pcm:
+                    await avatar_driver.push_audio_chunk(raw_pcm, {"sample_rate": sample_rate, "text": speak_text})
 
                 pcm_for_stream = raw_pcm if raw_pcm else (full_audio if codec in ("pcm_s16le", "pcm16", "s16le") else b"")
                 if pcm_for_stream:
@@ -1682,6 +1708,36 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
     avatar_path: str = str(anchor_row.photo_portrait) if anchor_row and anchor_row.photo_portrait else ""
     landmarks_path = await asyncio.to_thread(_resolve_landmarks_for_avatar, avatar_path) if avatar_path else ""
 
+    # 挂接数字人资产与双分支算力驱动器 (本地高性能显卡 vs 远端租赁GPU)
+    avatar_asset_dir = str(getattr(anchor_row, "avatar_asset_dir", "") or "") if anchor_row else ""
+    has_video_avatar = bool(avatar_asset_dir and Path(avatar_asset_dir).exists())
+    if has_video_avatar:
+        try:
+            from server.core.hardware.gpu_capability import evaluate_compute
+            from server.core.avatar import set_active_avatar_driver, LocalLiveTalkingDriver, CloudSidecarDriver
+            compute_plan = await evaluate_compute(feature_name="开播数字人实时驱动", required_vram_gb=2.0)
+            if compute_plan.use_cloud and compute_plan.can_execute and compute_plan.cloud_gpu:
+                cloud_cfg = compute_plan.cloud_gpu
+                logger.info(f"开播数字人启用【分支 2: 远端租赁GPU】，Sidecar: {cloud_cfg.get('provider_name', '云节点')}")
+                sidecar_driver = CloudSidecarDriver(config={
+                    "sidecar_url": cloud_cfg.get("base_url", ""),
+                    "api_key": cloud_cfg.get("api_key", ""),
+                    "avatar_asset_dir": avatar_asset_dir,
+                    "anchor_id": req.anchor_id,
+                })
+                await sidecar_driver.start()
+                set_active_avatar_driver(sidecar_driver)
+            elif not compute_plan.use_cloud and compute_plan.can_execute:
+                logger.info(f"开播数字人启用【分支 1: 本地高性能显卡】，资产: {avatar_asset_dir}")
+                local_driver = LocalLiveTalkingDriver(config={
+                    "avatar_asset_dir": avatar_asset_dir,
+                    "anchor_id": req.anchor_id,
+                })
+                await local_driver.start()
+                set_active_avatar_driver(local_driver)
+        except Exception as e:
+            logger.warning(f"挂载切片数字人驱动异常，保持默认驱动: {e}")
+
     session_record = LiveSessionRecord(
         session_id=session_id,
         platform=platform,
@@ -1705,6 +1761,7 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         )
         setattr(session_record, "status", "live")
         await db.commit()
+
 
         # 若配置了 OBS 联动自动开播，且 OBS 已连接，触发 OBS 推流并记录所有权
         obs_linked = False

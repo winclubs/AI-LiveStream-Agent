@@ -60,5 +60,5 @@
 
   <!-- 底部标签 -->
   <rect x="25" y="96" width="70" height="18" rx="9" fill="#18181B" stroke="#EF4444" stroke-width="1.2"/>
-  <text x="60" y="108" fill="#EF4444" font-family="-apple-system, sans-serif" font-size="9" font-weight="700" text-anchor="middle">法理专家·陈老师</text>
+  <text x="60" y="108" fill="#EF4444" font-family="-apple-system, sans-serif" font-size="9" font-weight="700" text-anchor="middle">专业专家</text>
 </svg>

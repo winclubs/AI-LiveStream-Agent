@@ -2076,7 +2076,8 @@ input[type="range"]::-webkit-slider-thumb {
   box-sizing: border-box;
 }
 
-.configured-llm-card {
+.configured-llm-card,
+.configured-tts-card {
   background: rgba(15, 23, 42, 0.75);
   border: 1.5px solid rgba(148, 163, 184, 0.18);
   border-radius: var(--radius-md);
@@ -2093,14 +2094,16 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
 }
 
-.configured-llm-card:hover {
+.configured-llm-card:hover,
+.configured-tts-card:hover {
   border-color: rgba(148, 163, 184, 0.4);
   background: rgba(20, 29, 50, 0.85);
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
 
-.configured-llm-card.is-active {
+.configured-llm-card.is-active,
+.configured-tts-card.is-active {
   border-color: #10B981 !important;
   background: rgba(16, 185, 129, 0.06) !important;
   box-shadow: 0 4px 18px rgba(16, 185, 129, 0.15) !important;
@@ -2204,21 +2207,19 @@ input[type="range"]::-webkit-slider-thumb {
 /* ============================================================================
    语音合成与远程算力 (TTS 声音枢纽) 生态选型与多引擎管理体系
    ========================================================================== */
-/* 6 大主流语音合成引擎横向一排生态网格 (Edge-TTS, CosyVoice, ChatTTS, GPT-SoVITS, ElevenLabs, 本地自建) */
+/* 3 大精选主流语音合成引擎横向等宽铺满生态网格 (MOSS-TTS-Nano, CosyVoice, ElevenLabs) */
 .tts-ecosystem-grid {
   display: grid !important;
-  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
-  gap: 12px !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 14px !important;
   margin-bottom: 22px !important;
   width: 100% !important;
   box-sizing: border-box !important;
 }
 
-@media (max-width: 1150px) {
+@media (max-width: 900px) {
   .tts-ecosystem-grid {
-    grid-template-columns: repeat(6, minmax(130px, 1fr)) !important;
-    overflow-x: auto !important;
-    padding-bottom: 8px !important;
+    grid-template-columns: 1fr !important;
   }
 }
 

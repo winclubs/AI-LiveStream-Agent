@@ -217,7 +217,7 @@ async def test_avatar_actions_api_crud_and_upload(tmp_path):
         video_path = _create_mini_mp4_video(tmp_path / "action_sample.mp4", frame_count=6)
         with open(video_path, "rb") as f:
             files = {"file": ("action_sample.mp4", f, "video/mp4")}
-            res = await client.post(f"/api/v1/anchors/avatar/actions/act_test_custom_promo/upload-clip", files=files)
+            res = await client.post("/api/v1/anchors/avatar/actions/act_test_custom_promo/upload-clip", files=files)
         assert res.status_code == 200
         upload_data = res.json()
         assert upload_data["code"] == 0
