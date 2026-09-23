@@ -447,11 +447,11 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                             "playback_error",
                         }
                     )
-                    if browser_fallback and sent.get("fallback_started_at") is None:
+                    if browser_fallback and clock is not None and sent.get("fallback_started_at") is None:
                         inherited_elapsed = max(0.0, float(clock.get("elapsed_sec", 0.0) or 0.0))
                         sent["fallback_started_at"] = time.monotonic() - inherited_elapsed
                     terminal = bool(
-                        clock
+                        clock is not None
                         and (
                             clock.get("is_interrupted") and not browser_fallback
                             or clock.get("is_rejected") and not browser_fallback
@@ -478,9 +478,10 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                             self._active_sentence = self._active_sentences[0] if self._active_sentences else None
                         continue
                     viseme_target = visemes[frame_index]
-                elif not clock.get("has_started"):
+                elif clock is None or not clock.get("has_started"):
                     viseme_target = (0.0, 0.0)
                 else:
+                    assert clock is not None
                     elapsed = max(0.0, float(clock.get("elapsed_sec", 0.0) or 0.0))
                     frame_index = int(elapsed * self.fps)
                     visemes = sent.get("visemes", [])
