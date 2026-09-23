@@ -157,8 +157,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         # 尝试加载主播神经唇形重绘切片与坐标 (若当前主播素材已由 task_manager 预处理)
         if self.lip_renderer is not None and path:
             try:
-                anchor_dir = Path(path).parent
-                self.lip_renderer.load_anchor_assets(anchor_dir)
+                self.lip_renderer.load_anchor_assets(Path(path))
             except Exception as e:
                 logger.debug(f"加载主播神经唇形切片资产跳过: {e}")
 
@@ -399,6 +398,8 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         self.is_speaking = False
         self.target_mouth_open = 0.0
         self.target_mouth_form = 0.0
+        self._latest_pcm_16k = None
+        self._latest_pcm_time = 0.0
         while True:
             try:
                 self.mouth_open_queue.get_nowait()

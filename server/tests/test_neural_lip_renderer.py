@@ -228,3 +228,56 @@ def test_media_router_dynamic_capability_reflection():
     router.active_driver = mock_driver
     status = router.get_preview_status()
     assert status["capabilities"]["neural_lipsync"] is True
+
+
+def test_load_anchor_assets_resets_and_adapts_file_or_dir():
+    """测试 load_anchor_assets 自适应文件或目录路径，并在加载空路径时彻底复位缓存"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        face_dir = root / "face_imgs"
+        face_dir.mkdir(parents=True)
+        cv2.imwrite(str(face_dir / "0000.jpg"), np.zeros((256, 256, 3), dtype=np.uint8))
+        coords = [(100, 356, 200, 456)]
+        with open(root / "coords.pkl", "wb") as f:
+            pickle.dump(coords, f)
+
+        dummy_img = root / "source.jpg"
+        cv2.imwrite(str(dummy_img), np.zeros((256, 256, 3), dtype=np.uint8))
+
+        renderer = NeuralLipRenderer(custom_onnx_path=Path("non_existent.onnx"))
+
+        # 1. 传入图片文件路径，自动定位到父目录并加载
+        assert renderer.load_anchor_assets(dummy_img) is True
+        assert renderer.has_anchor_assets is True
+        assert len(renderer.face_imgs) == 1
+
+        # 2. 传入不存在的路径，必须返回 False 并清空状态
+        assert renderer.load_anchor_assets(root / "non_existent") is False
+        assert renderer.has_anchor_assets is False
+
+        # 3. 传入存在但无切片的空目录，必须返回 False 并彻底清空历史缓存，杜绝显存泄漏
+        empty_dir = root / "empty_dir"
+        empty_dir.mkdir()
+        assert renderer.load_anchor_assets(empty_dir) is False
+        assert renderer.has_anchor_assets is False
+        assert len(renderer.face_imgs) == 0
+        assert len(renderer.coords) == 0
+
+
+@pytest.mark.anyio
+async def test_interrupt_clears_pcm_cache_and_empty_pcm_defense():
+    """测试打断时彻底清空 pcm 缓存，以及 render_lip_frame 对空音频切片的防御性保护"""
+    driver = ProceduralAvatarDriver()
+    driver._latest_pcm_16k = np.ones(3200, dtype=np.float32)
+    driver._latest_pcm_time = 123.456
+
+    await driver.interrupt("Test Barge-in")
+    assert driver._latest_pcm_16k is None
+    assert driver._latest_pcm_time == 0.0
+
+    renderer = NeuralLipRenderer(custom_onnx_path=Path("non_existent.onnx"))
+    full_frame = np.zeros((960, 720, 3), dtype=np.uint8)
+    # 传入空切片，绝不崩溃并安全返回
+    res = renderer.render_lip_frame(full_frame, 0, np.zeros(0, dtype=np.float32), mouth_open=0.0)
+    assert res is None or np.array_equal(res, full_frame)
+

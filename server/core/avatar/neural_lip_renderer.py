@@ -12,7 +12,7 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -186,16 +186,24 @@ class NeuralLipRenderer:
         except Exception as e:
             logger.debug(f"预热推理略过: {e}")
 
-    def load_anchor_assets(self, anchor_dir: Path) -> bool:
+    def load_anchor_assets(self, anchor_dir: Union[str, Path]) -> bool:
         """加载主播已预生成的脸部切片序列 (face_imgs/) 与 coords.pkl 坐标清单"""
-        if not anchor_dir.exists():
+        self.coords = []
+        self.face_imgs = []
+        self.has_anchor_assets = False
+        self.current_anchor_dir = None
+
+        p = Path(anchor_dir)
+        if not p.exists():
+            return False
+        target_dir = p if p.is_dir() else p.parent
+        if not target_dir.exists():
             return False
 
-        coords_file = anchor_dir / "coords.pkl"
-        face_dir = anchor_dir / "face_imgs"
+        coords_file = target_dir / "coords.pkl"
+        face_dir = target_dir / "face_imgs"
 
         if not coords_file.exists() or not face_dir.exists():
-            self.has_anchor_assets = False
             return False
 
         try:
@@ -212,15 +220,18 @@ class NeuralLipRenderer:
                         img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_AREA)
                     self.face_imgs.append(img)
 
-            self.current_anchor_dir = anchor_dir
+            self.current_anchor_dir = target_dir
             self.has_anchor_assets = len(self.face_imgs) > 0 and len(self.coords) > 0
             logger.info(
-                f"主播切片资产加载就绪: {anchor_dir.name} (人脸切片数: {len(self.face_imgs)}, 坐标数: {len(self.coords)})"
+                f"主播切片资产加载就绪: {target_dir.name} (人脸切片数: {len(self.face_imgs)}, 坐标数: {len(self.coords)})"
             )
             return self.has_anchor_assets
         except Exception as e:
             logger.warning(f"加载主播切片资产异常: {e}")
+            self.coords = []
+            self.face_imgs = []
             self.has_anchor_assets = False
+            self.current_anchor_dir = None
             return False
 
     def _prepare_face_input(self, face_256: np.ndarray) -> np.ndarray:
@@ -304,8 +315,10 @@ class NeuralLipRenderer:
         if not self.is_ready or not self.session or not self.has_anchor_assets:
             return None
 
-        # 静音或能量极低时，无需执行深度推理，直接返回原帧保持纯正自然
-        if mouth_open < 0.01 and np.max(np.abs(pcm_window)) < 0.01:
+        # 静音、能量极低或音频切片为空时，无需执行深度推理，直接返回原帧保持纯正自然
+        if pcm_window is None or len(pcm_window) == 0:
+            return full_frame
+        if mouth_open < 0.01 and float(np.max(np.abs(pcm_window))) < 0.01:
             return full_frame
 
         total_frames = len(self.face_imgs)
