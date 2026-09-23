@@ -1,6 +1,6 @@
 [project]
 name = "ai-livestream-agent"
-version = "1.9.0"
+version = "2.0.0"
 description = "本地 AI 互动直播执行引擎与桌面控制台"
 readme = "README.md"
 requires-python = ">=3.12"

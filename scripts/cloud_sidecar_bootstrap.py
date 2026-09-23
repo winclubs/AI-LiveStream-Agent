@@ -271,7 +271,7 @@ class RealtimeAvatarRenderer:
     def render_frame(self, mouth_open: float, mouth_width: float, frame_idx: int) -> bytes:
         img = self._bg_cache.copy()
         cx, cy = self.width // 2, int(self.height * 0.44)
-        
+
         # 自然呼吸微动 (0.5~1 像素轻微浮动)
         breath_offset = int(math.sin(frame_idx * 0.12) * 1.5)
         # 周期性眨眼
@@ -465,7 +465,7 @@ async def render_ws_endpoint(ws: WebSocket):
                         energy = float(np.mean(np.abs(samples_arr))) / 32768.0 if len(samples_arr) > 0 else 0.0
                         mouth_open = min(1.0, energy * 4.5)
                         jpeg_bytes = avatar_renderer.render_frame(mouth_open, mouth_open * 0.7, video_sequence)
-                        
+
                         last_pts_samples = received_samples
                         v_frame = {{
                             "request_id": current_request_id,

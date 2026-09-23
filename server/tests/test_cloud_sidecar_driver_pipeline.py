@@ -28,11 +28,11 @@ async def test_cloud_sidecar_driver_audio_pipeline_and_video_route():
     port = get_free_port()
     gpu_desc = "NVIDIA Tesla T4 (15360MB 显存)"
     server_code = create_sidecar_server_code(port=port, gpu_info=gpu_desc)
-    
+
     scope = {}
     exec(server_code, scope)
     app = scope["app"]
-    
+
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
     server = uvicorn.Server(config)
     server_task = asyncio.create_task(server.serve())
@@ -51,7 +51,7 @@ async def test_cloud_sidecar_driver_audio_pipeline_and_video_route():
         started = await driver.start()
         assert started is True
         assert driver.tunnel_status in ("connected", "connecting")
-        
+
         # 验证底层驱动已成功挂载到 global_media_router
         assert global_media_router.sidecar_driver is not None
 

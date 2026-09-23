@@ -272,6 +272,28 @@ MIGRATIONS = [
             """,
         ],
     ),
+    (
+        "0011_prohibited_words_platform",
+        "prohibited_words 表新增 platform (平台维度：all/douyin/wechat/kuaishou/bilibili) 与索引",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS prohibited_words (
+                id VARCHAR(64) PRIMARY KEY,
+                word VARCHAR(128) UNIQUE NOT NULL,
+                category VARCHAR(32) DEFAULT 'extreme',
+                role_scope VARCHAR(32) DEFAULT 'all',
+                platform VARCHAR(32) DEFAULT 'all',
+                action_policy VARCHAR(32) DEFAULT 'substitute',
+                replacement_word VARCHAR(128) DEFAULT '',
+                is_enabled INTEGER DEFAULT 1,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "ALTER TABLE prohibited_words ADD COLUMN platform VARCHAR(32) DEFAULT 'all'",
+            "CREATE INDEX IF NOT EXISTS ix_prohibited_words_platform ON prohibited_words(platform)",
+            "UPDATE prohibited_words SET platform = 'all' WHERE platform IS NULL OR platform = ''",
+        ],
+    ),
 ]
 
 

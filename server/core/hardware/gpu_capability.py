@@ -284,40 +284,12 @@ async def verify_cloud_endpoint_reachability(url: str, timeout_sec: float = 3.5,
         _CLOUD_PROBE_CACHE[url] = {"ts": now, "reachable": False, "error": res[1]}
         return res
 
-    # 优先针对 WebSocket 节点建立真实握手，同时提取远端显卡硬件型号与显存
-    if scheme in ("ws", "wss"):
-        try:
-            import websockets
-            async with websockets.connect(url, open_timeout=timeout_sec, close_timeout=1.0) as ws:
-                dev = ""
-                try:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
-                    if isinstance(raw, str):
-                        data = json.loads(raw)
-                        if isinstance(data, dict):
-                            dev = str(data.get("device") or "")
-                except Exception:
-                    pass
-
-                gpu_name, vram_gb = parse_device_string(dev)
-                _CLOUD_PROBE_CACHE[url] = {
-                    "ts": now,
-                    "reachable": True,
-                    "error": "",
-                    "device": dev,
-                    "gpu_name": gpu_name,
-                    "vram_gb": vram_gb,
-                }
-                return True, ""
-        except Exception:
-            # 若 WebSocket 握手超时或失败，继续由下方 TCP/TLS 做连通性兜底判断
-            pass
-
     if not port:
         port = 443 if scheme in ("https", "wss") else 80
 
     use_ssl = scheme in ("https", "wss")
 
+    # 1. 优先执行快速 TCP / TLS 握手探活：毫秒级研判目标主机是否开机、端口是否开放
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port, ssl=use_ssl),
@@ -328,15 +300,6 @@ async def verify_cloud_endpoint_reachability(url: str, timeout_sec: float = 3.5,
             await writer.wait_closed()
         except Exception:
             pass
-        _CLOUD_PROBE_CACHE[url] = {
-            "ts": now,
-            "reachable": True,
-            "error": "",
-            "device": _CLOUD_PROBE_CACHE.get(url, {}).get("device", ""),
-            "gpu_name": _CLOUD_PROBE_CACHE.get(url, {}).get("gpu_name", ""),
-            "vram_gb": _CLOUD_PROBE_CACHE.get(url, {}).get("vram_gb", 0.0),
-        }
-        return True, ""
     except asyncio.TimeoutError:
         err = f"网络连接超时 (> {timeout_sec}s)，云端实例可能未开机或端口受阻"
         _CLOUD_PROBE_CACHE[url] = {"ts": now, "reachable": False, "error": err}
@@ -345,14 +308,45 @@ async def verify_cloud_endpoint_reachability(url: str, timeout_sec: float = 3.5,
         err = "DNS 域名解析失败，云端实例地址可能已失效或关机"
         _CLOUD_PROBE_CACHE[url] = {"ts": now, "reachable": False, "error": err}
         return False, err
-    except (ConnectionRefusedError, ConnectionResetError, OSError) as e:
-        err = f"连接被拒绝或中断 ({e})，云端服务未启动或未开机"
+    except ConnectionRefusedError:
+        err = "云端连接被拒绝，Sidecar 服务未运行或端口未监听"
         _CLOUD_PROBE_CACHE[url] = {"ts": now, "reachable": False, "error": err}
         return False, err
     except Exception as e:
-        err = f"探活失败: {e}"
+        err = f"网络连接异常: {e}"
         _CLOUD_PROBE_CACHE[url] = {"ts": now, "reachable": False, "error": err}
         return False, err
+
+    # 2. TCP 握手成功证实开机后，针对 WebSocket 节点尝试握手并提取远端显卡硬件型号与显存
+    dev = ""
+    gpu_name = ""
+    vram_gb = 0.0
+    if scheme in ("ws", "wss"):
+        try:
+            import websockets
+            async with websockets.connect(url, open_timeout=min(timeout_sec, 2.0), close_timeout=0.5) as ws:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=1.5)
+                    if isinstance(raw, str):
+                        data = json.loads(raw)
+                        if isinstance(data, dict):
+                            dev = str(data.get("device") or "")
+                except Exception:
+                    pass
+            if dev:
+                gpu_name, vram_gb = parse_device_string(dev)
+        except Exception:
+            pass
+
+    _CLOUD_PROBE_CACHE[url] = {
+        "ts": now,
+        "reachable": True,
+        "error": "",
+        "device": dev or _CLOUD_PROBE_CACHE.get(url, {}).get("device", ""),
+        "gpu_name": gpu_name or _CLOUD_PROBE_CACHE.get(url, {}).get("gpu_name", ""),
+        "vram_gb": vram_gb or _CLOUD_PROBE_CACHE.get(url, {}).get("vram_gb", 0.0),
+    }
+    return True, ""
 
 
 def verify_cloud_endpoint_reachability_sync(url: str, timeout_sec: float = 1.0) -> tuple[bool, str]:

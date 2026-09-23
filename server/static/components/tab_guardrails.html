@@ -3,60 +3,162 @@
           <div class="panel-header">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              违禁词批量添加 <span style="font-weight:400;color:var(--text-muted);font-size:12px;">（全直播间 · 所有 AI 角色通用）</span>
+              违禁词批量添加 <span style="font-weight:400;color:var(--text-muted);font-size:12px;">（支持多平台专属与全平台通用规则）</span>
             </span>
           </div>
           <p class="page-intro">
-            目的：让主播在直播期间<strong>禁止说出</strong>列表中的词汇，避免平台违规。
-            多个违禁词请用<strong>英文逗号 ( , )</strong>隔开，可一次无限量添加。
+            目的：让数字人主播在直播期间<strong>禁止说出</strong>敏感词汇。开播时系统将自动加载<strong>【通用规则 + 当前开播平台专属规则】</strong>执行毫秒级流式平替与阻断。
+            多个违禁词请用<strong>英文逗号 ( , )</strong>隔开，支持批量添加。
           </p>
-          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 18px; margin-bottom: 16px;">
+          <div style="display: grid; grid-template-columns: 2.2fr 1.1fr 1.5fr 1.2fr auto; gap: 12px; align-items: flex-end; margin-bottom: 8px;">
             <div>
               <label class="form-label" for="batch-words">违禁词（英文逗号分隔）<span style="color:var(--red)">*</span></label>
-              <textarea id="batch-words" class="form-control" rows="3" placeholder="最好, 第一, 顶级, 国家级, 治愈, 根治" title="违禁词" aria-label="违禁词"></textarea>
+              <input type="text" id="batch-words" class="form-control" placeholder="例如：加我微信, 最顶级, 某宝, 跟老板撕破脸, 根治" title="违禁词" aria-label="违禁词">
             </div>
             <div>
-              <label class="form-label" for="batch-replacement">合规替换词</label>
-              <input type="text" id="batch-replacement" class="form-control" placeholder="如：深受大家喜爱" title="合规替换词" aria-label="合规替换词">
-              <div class="field-tip">留空替换词 = 整句阻断（AI 不说出该句）</div>
-              <label class="form-label" for="batch-category" style="margin-top: 12px;">分类</label>
-              <select id="batch-category" class="form-control" title="违禁词分类" aria-label="违禁词分类">
-                <option value="extreme">广告法极限词</option>
-                <option value="medical">医疗功效</option>
-                <option value="traffic">导流违规</option>
-                <option value="competitor">竞品贬低</option>
-                <option value="sensitive">敏感信息</option>
+              <label class="form-label" for="batch-platform">适用平台<span style="color:var(--red)">*</span></label>
+              <select id="batch-platform" class="form-control" title="适用平台" aria-label="适用平台">
+                <option value="all">全平台通用</option>
+                <option value="douyin">抖音平台专属</option>
+                <option value="wechat">微信视频号专属</option>
+                <option value="kuaishou">快手平台专属</option>
+                <option value="bilibili">B站平台专属</option>
               </select>
             </div>
+            <div>
+              <label class="form-label" for="batch-replacement">合规替换词 <span style="font-weight:400;color:var(--text-muted);font-size:11px;">(留空=整句阻断)</span></label>
+              <input type="text" id="batch-replacement" class="form-control" placeholder="留空则触发整句阻断下架" title="合规替换词" aria-label="合规替换词">
+            </div>
+            <div>
+              <label class="form-label" for="batch-category">分类</label>
+              <select id="batch-category" class="form-control" title="违禁词分类" aria-label="违禁词分类">
+                <option value="extreme">广告法极限词</option>
+                <option value="traffic">站外私域导流</option>
+                <option value="medical">医疗功效药效</option>
+                <option value="sensitive">恶俗炒作剧本</option>
+                <option value="competitor">竞品平台暗号</option>
+              </select>
+            </div>
+            <div>
+              <button class="btn btn-primary" onclick="submitBatchWords()" style="white-space: nowrap; height: 38px;">
+                <svg class="icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                添加违禁词
+              </button>
+            </div>
           </div>
-          <button class="btn btn-primary" onclick="submitBatchWords()">
-            <svg class="icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            添加违禁词
-          </button>
-          <span id="batch-words-status" style="font-size: 12px; color: var(--text-muted); margin-left: 12px;"></span>
+          <div style="margin-top: 4px;">
+            <span id="batch-words-status" style="font-size: 12px; color: var(--text-muted);"></span>
+          </div>
         </div>
 
+        <!-- 当前生效违禁词库 (内嵌平台筛选工具栏) -->
         <div class="panel-card">
           <div class="panel-header">
-            <span class="panel-title">当前违禁词库 <span style="font-weight:400;color:var(--text-muted);font-size:12px;">（<span id="guardrail-count">0</span> 条 · 全角色通用）</span></span>
-            <button class="btn btn-sm" onclick="loadGuardrailWords()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              刷新
-            </button>
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              当前生效违禁词库 
+              <span style="font-weight:400;color:var(--text-muted);font-size:12px;">
+                （当前展示：<span id="guardrail-count">0</span> 条 · 过滤条件：<strong id="guardrail-current-platform-name" style="color: var(--accent-emerald);">全部平台</strong>）
+              </span>
+            </span>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-sm" onclick="loadGuardrailWords()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                刷新
+              </button>
+            </div>
           </div>
+
+          <!-- 平台与分类双重筛选工具条：内嵌在词库内部，点击后实时作为数据库查询条件 -->
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; padding: 12px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: 8px;">
+            <!-- 平台筛选 -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 13px; color: var(--text-muted); font-weight: 500; min-width: 65px;">平台筛选：</span>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;" id="guardrail-platform-tabs">
+                  <button class="btn btn-sm btn-primary" data-platform="all" onclick="switchGuardrailPlatform('all', this)">全部平台</button>
+                  <button class="btn btn-sm btn-outline" data-platform="common" onclick="switchGuardrailPlatform('common', this)">全网通用底线</button>
+                  <button class="btn btn-sm btn-outline" data-platform="douyin" onclick="switchGuardrailPlatform('douyin', this)">抖音专属</button>
+                  <button class="btn btn-sm btn-outline" data-platform="wechat" onclick="switchGuardrailPlatform('wechat', this)">视频号专属</button>
+                  <button class="btn btn-sm btn-outline" data-platform="kuaishou" onclick="switchGuardrailPlatform('kuaishou', this)">快手专属</button>
+                  <button class="btn btn-sm btn-outline" data-platform="bilibili" onclick="switchGuardrailPlatform('bilibili', this)">B站专属</button>
+                </div>
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted);">
+                当前平台：<strong id="guardrail-current-platform-name" style="color: var(--accent-emerald);">全部平台</strong>
+              </div>
+            </div>
+
+            <div style="height: 1px; background: var(--border-subtle); opacity: 0.5;"></div>
+
+            <!-- 分类筛选 -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 13px; color: var(--text-muted); font-weight: 500; min-width: 65px;">分类筛选：</span>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;" id="guardrail-category-tabs">
+                  <button class="btn btn-sm btn-primary" data-category="all" onclick="switchGuardrailCategory('all', this)">全部分类</button>
+                  <button class="btn btn-sm btn-outline" data-category="extreme" onclick="switchGuardrailCategory('extreme', this)">广告法极限词</button>
+                  <button class="btn btn-sm btn-outline" data-category="traffic" onclick="switchGuardrailCategory('traffic', this)">站外私域导流</button>
+                  <button class="btn btn-sm btn-outline" data-category="medical" onclick="switchGuardrailCategory('medical', this)">医疗功效药效</button>
+                  <button class="btn btn-sm btn-outline" data-category="sensitive" onclick="switchGuardrailCategory('sensitive', this)">恶俗炒作剧本</button>
+                  <button class="btn btn-sm btn-outline" data-category="competitor" onclick="switchGuardrailCategory('competitor', this)">竞品平台暗号</button>
+                </div>
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted);">
+                当前分类：<strong id="guardrail-current-category-name" style="color: var(--accent-emerald);">全部分类</strong>
+              </div>
+            </div>
+          </div>
+
           <table class="data-table">
-            <thead><tr><th>违禁词</th><th>分类</th><th>动作</th><th>合规替换词</th><th>操作</th></tr></thead>
+            <thead>
+              <tr>
+                <th>违禁词</th>
+                <th>适用平台</th>
+                <th>违规分类</th>
+                <th>拦截动作</th>
+                <th>合规替换词</th>
+                <th>操作</th>
+              </tr>
+            </thead>
             <tbody id="guardrail-tbody"></tbody>
           </table>
         </div>
 
         <div class="panel-card">
           <div class="panel-header">
-            <span class="panel-title">在线合规测试</span>
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+              多平台在线合规沙箱测试
+            </span>
           </div>
-          <div style="display: flex; gap: 12px; margin-bottom: 14px;">
-            <input type="text" id="sanitize-input" class="form-control" placeholder="输入测试文本，如：我们的大衣是全网第一好看，价格最好！" title="合规测试输入文本" aria-label="合规测试输入文本">
-            <button class="btn btn-primary" onclick="testSanitize()">测试拦截效果</button>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 3fr auto; gap: 10px; margin-bottom: 14px; align-items: center;">
+            <div>
+              <label class="form-label" for="test-platform-select">模拟开播平台</label>
+              <select id="test-platform-select" class="form-control" title="模拟测试平台" aria-label="模拟测试平台">
+                <option value="douyin">抖音平台 (douyin)</option>
+                <option value="wechat">视频号平台 (wechat)</option>
+                <option value="kuaishou">快手平台 (kuaishou)</option>
+                <option value="bilibili">B站平台 (bilibili)</option>
+                <option value="all">全平台 (通用沙箱)</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="test-role-select">模拟主播角色</label>
+              <select id="test-role-select" class="form-control" title="模拟主播角色" aria-label="模拟主播角色">
+                <option value="ecommerce">带货主播 (ecommerce)</option>
+                <option value="entertainment">娱乐主播 (entertainment)</option>
+                <option value="expert">知识博主 (expert)</option>
+                <option value="all">全角色通用 (all)</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="sanitize-input">测试口播文本</label>
+              <input type="text" id="sanitize-input" class="form-control" placeholder="输入测试文本，如：加我微信即可享受全网第一优惠，我们的大衣随时涨价！" title="合规测试输入文本" aria-label="合规测试输入文本">
+            </div>
+            <div style="padding-top: 22px;">
+              <button class="btn btn-primary" onclick="testSanitize()">执行合规检测</button>
+            </div>
           </div>
           <div id="sanitize-result"></div>
         </div>

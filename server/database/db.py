@@ -127,22 +127,62 @@ async def init_db():
             if role.id not in existing_role_ids:
                 session.add(role)
 
-        # 2. 初始化预设广告法与平台违禁词
+        # 2. 初始化预设广告法与多平台官方违禁词库 (通用 + 抖音 + 视频号 + 快手 + B站)
         words_check = await session.execute(select(ProhibitedWord))
-        if not words_check.scalars().first():
-            default_words = [
-                ProhibitedWord(id="pw_1", word="全网第一", category="extreme", role_scope="all", action_policy="substitute", replacement_word="深受大家喜爱"),
-                ProhibitedWord(id="pw_2", word="最顶尖", category="extreme", role_scope="all", action_policy="substitute", replacement_word="非常出色"),
-                ProhibitedWord(id="pw_3", word="秒杀", category="extreme", role_scope="ecommerce", action_policy="substitute", replacement_word="限时抢购"),
-                ProhibitedWord(id="pw_4", word="最好", category="extreme", role_scope="all", action_policy="substitute", replacement_word="深得好评"),
-                ProhibitedWord(id="pw_5", word="纯天然无毒副作用", category="medical", role_scope="all", action_policy="substitute", replacement_word="甄选自然健康配料"),
-                ProhibitedWord(id="pw_6", word="根治", category="medical", role_scope="all", action_policy="drop", replacement_word=""),
-                ProhibitedWord(id="pw_7", word="包治百病", category="medical", role_scope="all", action_policy="drop", replacement_word=""),
-                ProhibitedWord(id="pw_8", word="加微信", category="traffic", role_scope="all", action_policy="substitute", replacement_word="关注直播间或私信"),
-                ProhibitedWord(id="pw_9", word="私下转账", category="traffic", role_scope="all", action_policy="drop", replacement_word=""),
-                ProhibitedWord(id="pw_10", word="包胜诉", category="expert", role_scope="expert", action_policy="drop", replacement_word="")
-            ]
-            session.add_all(default_words)
+        existing_words = {w.word for w in words_check.scalars().all()}
+
+        system_preset_words = [
+            # --- 【通用规则 (all)】广告法极限用语、虚假夸大、医疗功效 ---
+            ProhibitedWord(id="pw_gen_1", word="全网第一", category="extreme", role_scope="all", platform="all", action_policy="substitute", replacement_word="深受大家喜爱"),
+            ProhibitedWord(id="pw_gen_2", word="最顶尖", category="extreme", role_scope="all", platform="all", action_policy="substitute", replacement_word="非常出色"),
+            ProhibitedWord(id="pw_gen_3", word="最好", category="extreme", role_scope="all", platform="all", action_policy="substitute", replacement_word="深得好评"),
+            ProhibitedWord(id="pw_gen_4", word="顶级", category="extreme", role_scope="all", platform="all", action_policy="substitute", replacement_word="高品质"),
+            ProhibitedWord(id="pw_gen_5", word="国家级", category="extreme", role_scope="all", platform="all", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_gen_6", word="销量第一", category="extreme", role_scope="all", platform="all", action_policy="substitute", replacement_word="热销爆款"),
+            ProhibitedWord(id="pw_gen_7", word="天花板", category="extreme", role_scope="all", platform="all", action_policy="substitute", replacement_word="标杆之作"),
+            ProhibitedWord(id="pw_gen_8", word="独一无二", category="extreme", role_scope="all", platform="all", action_policy="substitute", replacement_word="独具特色"),
+            ProhibitedWord(id="pw_gen_9", word="100%有效", category="extreme", role_scope="all", platform="all", action_policy="substitute", replacement_word="多数用户反馈良好"),
+            ProhibitedWord(id="pw_gen_10", word="全网最低价", category="extreme", role_scope="ecommerce", platform="all", action_policy="substitute", replacement_word="诚意超值福利"),
+            ProhibitedWord(id="pw_gen_11", word="纯天然无毒副作用", category="medical", role_scope="all", platform="all", action_policy="substitute", replacement_word="甄选自然健康配料"),
+            ProhibitedWord(id="pw_gen_12", word="根治", category="medical", role_scope="all", platform="all", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_gen_13", word="包治百病", category="medical", role_scope="all", platform="all", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_gen_14", word="降三高", category="medical", role_scope="all", platform="all", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_gen_15", word="抗癌", category="medical", role_scope="all", platform="all", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_gen_16", word="排毒养颜", category="medical", role_scope="all", platform="all", action_policy="substitute", replacement_word="焕发自然光采"),
+            ProhibitedWord(id="pw_gen_17", word="包胜诉", category="expert", role_scope="expert", platform="all", action_policy="drop", replacement_word=""),
+
+            # --- 【抖音规则 (douyin)】严打站外导流、谐音暗号规避、未报备低价与虚假紧迫感 ---
+            ProhibitedWord(id="pw_dy_1", word="加我微信", category="traffic", role_scope="all", platform="douyin", action_policy="substitute", replacement_word="关注直播间或点击小黄车"),
+            ProhibitedWord(id="pw_dy_2", word="私聊发微信", category="traffic", role_scope="all", platform="douyin", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_dy_3", word="看主页简介加V", category="traffic", role_scope="all", platform="douyin", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_dy_4", word="私下转账", category="traffic", role_scope="all", platform="douyin", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_dy_5", word="某宝", category="competitor", role_scope="all", platform="douyin", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_dy_6", word="拼夕夕", category="competitor", role_scope="all", platform="douyin", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_dy_7", word="抢疯了", category="extreme", role_scope="ecommerce", platform="douyin", action_policy="substitute", replacement_word="备受欢迎"),
+            ProhibitedWord(id="pw_dy_8", word="随时涨价", category="extreme", role_scope="ecommerce", platform="douyin", action_policy="substitute", replacement_word="当前价格非常优惠"),
+            ProhibitedWord(id="pw_dy_9", word="秒杀", category="extreme", role_scope="ecommerce", platform="douyin", action_policy="substitute", replacement_word="限时特惠"),
+
+            # --- 【视频号规则 (wechat)】严禁私加个人号私下交易、严打玄学迷信与虚假疗效 ---
+            ProhibitedWord(id="pw_wx_1", word="加我私人微信", category="traffic", role_scope="all", platform="wechat", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_wx_2", word="转账发货", category="traffic", role_scope="all", platform="wechat", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_wx_3", word="招财转运", category="sensitive", role_scope="all", platform="wechat", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_wx_4", word="旺夫", category="sensitive", role_scope="all", platform="wechat", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_wx_5", word="老中医秘方", category="medical", role_scope="all", platform="wechat", action_policy="drop", replacement_word=""),
+
+            # --- 【快手规则 (kuaishou)】严打演戏剧本砍价、自残炒作、诱导打赏 ---
+            ProhibitedWord(id="pw_ks_1", word="跟老板撕破脸", category="sensitive", role_scope="ecommerce", platform="kuaishou", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_ks_2", word="亏本自掏腰包", category="extreme", role_scope="ecommerce", platform="kuaishou", action_policy="substitute", replacement_word="拿出十足诚意让利"),
+            ProhibitedWord(id="pw_ks_3", word="榜一大哥不刷不卖", category="traffic", role_scope="all", platform="kuaishou", action_policy="drop", replacement_word=""),
+
+            # --- 【B站规则 (bilibili)】严打非报备外链商业广告、引战、账号私下倒卖 ---
+            ProhibitedWord(id="pw_bili_1", word="私下交易账号", category="traffic", role_scope="all", platform="bilibili", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_bili_2", word="代练外挂", category="sensitive", role_scope="all", platform="bilibili", action_policy="drop", replacement_word=""),
+            ProhibitedWord(id="pw_bili_3", word="加群私下购买", category="traffic", role_scope="all", platform="bilibili", action_policy="drop", replacement_word="")
+        ]
+
+        words_to_add = [w for w in system_preset_words if w.word not in existing_words]
+        if words_to_add:
+            session.add_all(words_to_add)
 
         # 3. 服务商配置 (LLM / TTS / 远程GPU 均为敏感生产配置，绝不预填任何虚假数据，完全由用户真实配置并保存)
         # 保持 api_provider_configs 真实为空，待用户在控制台显式配置并持久化

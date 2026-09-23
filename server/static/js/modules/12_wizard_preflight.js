@@ -160,17 +160,21 @@ async function renderWizardRoleCards() {
         card.onclick = () => selectWizardRole(r.type);
 
         const avatarEl = r.avatarSvg
-            ? `<img src="${r.avatarSvg}" alt="${r.name}" style="width: 52px; height: 52px; border-radius: 50%; border: 2.5px solid ${r.color}; display: inline-block; box-shadow: 0 4px 12px ${r.color}33; background: #141416;">`
+            ? `<img src="${r.avatarSvg}" alt="${r.name}" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid ${r.color}; display: block; box-shadow: 0 3px 10px ${r.color}33; background: #141416; object-fit: cover;">`
             : svg(r.icon, "icon-xl");
 
         card.innerHTML = `
-            <div style="text-align: center; padding: 6px 0 3px 0;">
+            <div style="flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
                 ${avatarEl}
             </div>
-            <div class="mode-card-name" style="text-align: center; color: ${r.color}; font-weight: 700; margin-top: 6px; margin-bottom: 6px;">
-                ${r.name}
+            <div style="flex: 1; min-width: 0; text-align: left;">
+                <div class="mode-card-name" style="color: ${r.color}; font-weight: 700; margin: 0 0 4px 0; font-size: 15px; line-height: 1.35;">
+                    ${r.name}
+                </div>
+                <div class="mode-card-desc" style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5; margin: 0; word-break: break-word;">
+                    ${r.desc}
+                </div>
             </div>
-            <div class="mode-card-desc" style="text-align: center; line-height: 1.5;">${r.desc}</div>
         `;
         box.appendChild(card);
     });
@@ -277,11 +281,11 @@ async function renderWizardAnchorSelect(roleType) {
             </div>
             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px;">
                 ${matchedAnchors.map(a => {
-                    const isSelected = a.id === selectedWizardAnchorId;
-                    const avatarSrc = a.photo_portrait || a.photo_full_body || (ROLE_CARD_META[roleType] ? ROLE_CARD_META[roleType].avatarSvg : "/static/svg/default_avatar.svg");
-                    return `
+            const isSelected = a.id === selectedWizardAnchorId;
+            const avatarSrc = a.photo_portrait || a.photo_full_body || (ROLE_CARD_META[roleType] ? ROLE_CARD_META[roleType].avatarSvg : "/static/svg/default_avatar.svg");
+            return `
                         <div class="wizard-anchor-card ${isSelected ? 'selected' : ''}" onclick="selectWizardAnchor('${a.id}')" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s; background: ${isSelected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(30, 41, 59, 0.5)'}; border: 1.5px solid ${isSelected ? '#10B981' : 'rgba(148, 163, 184, 0.2)'}; box-shadow: ${isSelected ? '0 2px 10px rgba(16, 185, 129, 0.2)' : 'none'};">
-                            <img src="${avatarSrc}" style="width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1.5px solid ${isSelected ? '#10B981' : 'rgba(148, 163, 184, 0.3)'};">
+                            <img src="${avatarSrc}" style="width: 38px; height: 38px; border-radius: 6px; flex-shrink: 0; object-fit: cover; border: 1px solid rgba(148, 163, 184, 0.25);">
                             <div style="flex: 1; min-width: 0;">
                                 <div style="font-size: 13px; font-weight: 700; color: ${isSelected ? '#10B981' : 'var(--text-primary)'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                     ${escapeHtml(a.name)}
@@ -295,7 +299,7 @@ async function renderWizardAnchorSelect(roleType) {
                             </div>
                         </div>
                     `;
-                }).join("")}
+        }).join("")}
             </div>
         `;
     } catch (e) {
@@ -399,7 +403,7 @@ async function completeWizard() {
                     body: JSON.stringify({ anchor_id: selectedWizardAnchorId })
                 });
                 window._currentLiveAnchorId = selectedWizardAnchorId;
-            } catch (_) {}
+            } catch (_) { }
         }
 
         if (status) status.innerText = "配置已保存：直播模式与主播角色约束已生效！";
@@ -429,7 +433,10 @@ function switchToTab(tabName) {
     const target = document.getElementById(`tab-${tabName}`);
     if (target) target.classList.add("active");
     if (tabName === "settings") loadSettings();
+    if (tabName === "wizard" && typeof loadWizardAvatarProviders === "function") loadWizardAvatarProviders();
+    if (tabName === "gpu" && typeof loadGpuAvatarProviders === "function") loadGpuAvatarProviders();
 }
+window.switchToTab = switchToTab;
 
 // ============================================================================
 // 开播前检查 (Preflight)：真实探测开播条件，未通过不盲目开播 (v1.1.3)
@@ -438,6 +445,22 @@ let lastPreflightData = null;
 
 async function runPreflight(opts = {}) {
     try {
+        // 如果是人工查看且未强制弹窗，立即平滑切换到独立全幅页面并呈现加载占位
+        if (!opts.auto && !opts.useModal) {
+            closePreflightModal();
+            switchToTab("preflight");
+            const checksBox = document.getElementById("tab-preflight-checks");
+            if (checksBox) {
+                checksBox.innerHTML = `
+                    <div style="text-align: center; padding: 46px 20px; color: var(--text-secondary); background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px dashed rgba(148, 163, 184, 0.2);">
+                        <svg class="icon-lg spin" viewBox="0 0 24 24" style="width: 28px; height: 28px; margin-bottom: 12px; color: var(--accent-emerald);"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/></svg>
+                        <div style="font-size: 14.5px; font-weight: 700; color: #F8FAFC;">正在对算力、大模型、声音与渲染通道执行全链路真实连通性体检...</div>
+                        <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">预计耗时 1~2 秒，请稍候</div>
+                    </div>
+                `;
+            }
+        }
+
         const res = await fetch(`${API_BASE}/live/preflight`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
@@ -449,12 +472,18 @@ async function runPreflight(opts = {}) {
         const fails = json.data.checks.filter(c => c.status === "fail").length;
         const warns = json.data.checks.filter(c => c.status === "warn").length;
 
-        // 开播触发的自动检查：全部通过时静默放行，否则弹报告让用户处理
+        // 开播触发的自动检查：全部通过时静默放行
         if (opts.auto && fails === 0 && warns === 0) {
             showToast("开播前检查全部通过 ✓ 正在启动直播...", "success");
             return json.data;
         }
-        renderPreflightModal(json.data, opts);
+
+        if (opts.useModal) {
+            renderPreflightModal(json.data, opts);
+        } else {
+            // 核心：无弹窗，渲染到独立的体检大页面中
+            renderPreflightTabPage(json.data, opts);
+        }
         return json.data;
     } catch (e) {
         showToast("开播前检查请求异常: " + e, "error");
@@ -466,22 +495,33 @@ function pfRowHtml(c) {
     const icons = { pass: "check", warn: "warn", fail: "x" };
     const statusLabels = { pass: "检测通过", warn: "建议修复", fail: "必须修复" };
     const badgeClass = c.status === "pass" ? "pill-pass" : (c.status === "warn" ? "pill-warning" : "pill-missing");
-    const fixHtml = (c.status !== "pass" && (c.fix_hint || c.action_tab))
-        ? `<div class="pf-fix">
-             <div class="pf-fix-left">
-               ${svg("info", "icon-sm")}
-               <span>${c.fix_hint || ""}</span>
-             </div>
-             ${c.action_tab ? `<button type="button" class="pf-btn-fix" onclick="preflightGoFix('${c.action_tab}')">去处理 →</button>` : ""}
-           </div>`
-        : "";
+    let fixHtml = "";
+    if (c.status !== "pass" && (c.fix_hint || c.action_tab)) {
+        const hintPart = c.fix_hint
+            ? `<div class="pf-fix" style="flex: 1; min-width: 0; margin-top: 0;">
+                 <div class="pf-fix-left">
+                   ${svg("info", "icon-sm")}
+                   <span>${c.fix_hint}</span>
+                 </div>
+               </div>`
+            : "";
+        const btnPart = c.action_tab
+            ? `<button type="button" class="pf-btn-fix" style="${hintPart ? '' : 'margin-left: auto;'}" onclick="preflightGoFix('${c.action_tab}')">·前往处理</button>`
+            : "";
+        fixHtml = `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px;">
+                ${hintPart}
+                ${btnPart}
+            </div>
+        `;
+    }
     return `
         <div class="pf-row pf-${c.status}">
             <div class="pf-icon">${svg(icons[c.status] || "info")}</div>
             <div style="flex: 1; min-width: 0;">
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                     <div class="pf-title">${c.title}</div>
-                    <span class="prereq-pill ${badgeClass}" style="font-size: 11px; padding: 2px 8px;">
+                    <span class="prereq-pill ${badgeClass}" style="font-size: 11px; height: 22px; padding: 0 8px; box-sizing: border-box; display: inline-flex; align-items: center;">
                         <span class="prereq-dot"></span>
                         ${statusLabels[c.status] || c.status}
                     </span>
@@ -505,22 +545,30 @@ function renderPreflightModal(data, opts = {}) {
     if (summaryEl) summaryEl.innerText = data.summary;
 
     // 操作按钮区按状态人性化组装
-    let buttons = "";
+    let startLiveBtn = "";
     if (!isLiveStreaming && data.ready) {
         const label = data.checks.some(c => c.status === "warn")
-            ? "仍有建议项，坚持开播"
+            ? "仍有建议项，确认启动直播源"
             : "▶ 启动本地直播源";
-        buttons += `<button class="btn btn-primary" style="font-weight: 700; padding: 7px 20px;" onclick="preflightStartLive()">${label}</button>`;
+        startLiveBtn = `<button class="btn btn-primary" style="font-weight: 700; padding: 7px 20px;" onclick="preflightStartLive()">${label}</button>`;
     }
+    let warningBar = "";
     if (!data.ready) {
-        buttons += `
+        warningBar = `
             <div class="pf-modal-warning-bar" style="margin-right: auto;">
                 ${svg("warn", "icon-sm")}
                 <span>存在未通过项，请先处理上方未通过项再开播</span>
             </div>
         `;
     }
-    buttons += `<button class="btn" style="font-weight: 600; padding: 7px 18px;" onclick="closePreflightModal()">稍后处理</button>`;
+    const buttons = `
+        ${warningBar}
+        <div style="display: flex; gap: 10px; align-items: center; margin-left: auto; flex-wrap: wrap;">
+            <button class="btn" style="font-weight: 600; padding: 7px 18px;" onclick="closePreflightModal()">稍后处理</button>
+            <button class="btn btn-secondary" style="font-weight: 600; padding: 7px 18px;" onclick="runPreflight({ auto: false })">🔄 重新体检</button>
+            ${startLiveBtn}
+        </div>
+    `;
     actionsEl.innerHTML = buttons;
 
     modal.style.display = "flex";
@@ -535,6 +583,87 @@ function renderPreflightReportCard(data) {
     body.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">${data.summary}</div>` + data.checks.map(pfRowHtml).join("");
     card.style.display = "block";
 }
+
+function renderPreflightTabPage(data, opts = {}) {
+    const checksBox = document.getElementById("tab-preflight-checks");
+    const summaryEl = document.getElementById("tab-preflight-summary");
+    const actionsEl = document.getElementById("tab-preflight-actions");
+    const badgeEl = document.getElementById("tab-preflight-badge");
+    const passCountEl = document.getElementById("tab-stat-pass-count");
+    const warnCountEl = document.getElementById("tab-stat-warn-count");
+    const failCountEl = document.getElementById("tab-stat-fail-count");
+
+    if (!checksBox) return;
+
+    const passes = data.checks.filter(c => c.status === "pass").length;
+    const warns = data.checks.filter(c => c.status === "warn").length;
+    const fails = data.checks.filter(c => c.status === "fail").length;
+
+    if (passCountEl) passCountEl.innerText = passes;
+    if (warnCountEl) warnCountEl.innerText = warns;
+    if (failCountEl) failCountEl.innerText = fails;
+
+    if (badgeEl) {
+        if (fails > 0) {
+            badgeEl.className = "brand-badge red";
+            badgeEl.innerText = `🔴 ${fails} 项必须修复`;
+        } else if (warns > 0) {
+            badgeEl.className = "brand-badge amber";
+            badgeEl.innerText = `🟡 ${warns} 项建议关注`;
+        } else {
+            badgeEl.className = "brand-badge green";
+            badgeEl.innerText = "🟢 全部指标就绪";
+        }
+    }
+
+    if (summaryEl) {
+        summaryEl.innerText = data.summary || "全链路开播硬件、网络与服务连通性体检已完成。";
+    }
+
+    checksBox.innerHTML = data.checks.map(pfRowHtml).join("");
+
+    // 底部主操作区组装：全部操作项靠右排列，启动按钮置于重新体检右侧
+    let startLiveBtn = "";
+    if (!isLiveStreaming && data.ready) {
+        const label = warns > 0 ? "仍有建议项，确认启动直播源" : "▶ 启动本地直播源 (进入直播大屏)";
+        startLiveBtn = `<button class="btn btn-primary" style="font-weight: 700; padding: 8px 22px; font-size: 13.5px;" onclick="preflightStartLiveFromTab()">${label}</button>`;
+    }
+
+    let warningBar = "";
+    if (!data.ready) {
+        warningBar = `
+            <div class="pf-modal-warning-bar" style="margin-right: auto; padding: 6px 14px; border-radius: 6px; font-size: 13px;">
+                ${svg("warn", "icon-sm")}
+                <span>存在阻断开播的未通过项，请先点击对应项右侧的「前往处理」完成配置</span>
+            </div>
+        `;
+    }
+
+    const buttons = `
+        ${warningBar}
+        <div style="display: flex; gap: 10px; align-items: center; margin-left: auto; flex-wrap: wrap;">
+            <button class="btn btn-ghost" style="font-weight: 600; padding: 7px 18px; font-size: 13px; border: 1px solid rgba(148, 163, 184, 0.25);" onclick="switchToTab('wizard')">← 返回开播向导</button>
+            <button class="btn btn-secondary" style="font-weight: 600; padding: 7px 18px; font-size: 13px;" onclick="runPreflight({ auto: false, toTab: true })">🔄 重新体检</button>
+            ${startLiveBtn}
+        </div>
+    `;
+    if (actionsEl) actionsEl.innerHTML = buttons;
+
+    // 平滑滚动回顶部
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+window.renderPreflightTabPage = renderPreflightTabPage;
+
+async function preflightStartLiveFromTab() {
+    const pf = await runPreflight({ auto: true });
+    if (!pf || !pf.ready) {
+        showToast("最新开播检查未通过，请先处理未通过项", "warning");
+        return;
+    }
+    closePreflightModal();
+    await startLiveDirect();
+}
+window.preflightStartLiveFromTab = preflightStartLiveFromTab;
 
 function closePreflightModal() {
     const modal = document.getElementById("preflight-modal");

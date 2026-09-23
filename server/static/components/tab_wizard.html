@@ -17,6 +17,7 @@
               </div>
               <div class="hw-cell-value" id="hw-panel-gpu">检测中...</div>
               <div class="hw-cell-sub" id="hw-panel-gpu-sub"></div>
+              <div class="hw-cell-cloud" id="hw-panel-gpu-cloud" style="margin-top: 6px; font-size: 11.5px; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 5px;"></div>
             </div>
             <div class="hw-cell">
               <div class="hw-cell-label">
@@ -78,64 +79,38 @@
           </div>
         </div>
 
-        <!-- 第一步：选择直播运营模式 -->
-        <div class="panel-card">
-          <div class="panel-header">
+        <!-- 第一步：数字人渲染与算力运行模式 -->
+        <div class="panel-card" id="wizard-gpu-panel">
+          <div class="panel-header" style="margin-bottom: 12px;">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
-              第一步 · 选择直播运营模式
+              第一步 · 数字人渲染与算力运行模式
             </span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="wizard-gpu-badge" class="brand-badge green">同步中...</span>
+              <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 2px 8px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="前往「GPU配置(2)」调整算力模式与云端节点">
+                跳转到 GPU配置(2) ↗
+              </button>
+            </div>
           </div>
-          <p class="page-intro">
-            请根据您电脑的硬件条件选择运行模式。<strong>系统已根据您的硬件配置自动推荐最合适的模式（可手动更改）</strong>。
-            选择后「云端模型」页将只呈现该模式所需的配置项。<strong style="color: var(--red);">直播进行中不可更改模式。</strong>
+          <p class="page-intro" style="margin-bottom: 14px;">
+            系统已依据您在【GPU配置(2)】中激活的配置自动锁定当前生效模式。如需更改算力方案或录入云端节点参数，请前往「GPU配置(2)」调整。
           </p>
 
-          <!-- 两类人群开播指引快速对照盒 (本地高配 vs 远端租赁GPU) -->
-          <div style="background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-            <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px;">
-              <span style="color: #cbd5e1;">🎮 <strong>人群 1 (本地独显 RTX 3060+)：</strong>推荐选择 <strong>A / B 档</strong> (全单机离线闭环，0 算力租金)</span>
-              <span style="color: #cbd5e1;">⚡ <strong>人群 2 (轻薄本/核显 + 远端租赁GPU)：</strong>强烈推荐 <strong>C 档</strong> (约1.2元/h，1080P电影级真人，本地0显存)</span>
-            </div>
-            <button type="button" class="btn btn-xs btn-ghost" onclick="switchToTab('gpu')" style="color: #38bdf8; font-size: 11.5px; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 4px; padding: 2px 8px;">
-              查看 GPU 调度中心 ↗
-            </button>
-          </div>
-
-          <div id="hw-recommend-banner" class="reco-banner" style="display:none; margin-bottom: 16px;">
-            <div class="reco-banner-title">
-              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-              已根据您的硬件配置自动选择推荐模式
-            </div>
-            <div class="reco-banner-body" id="hw-recommend-reason"></div>
-          </div>
-          <div id="mode-cards" class="grid-4"></div>
-        </div>
-
-        <!-- 第二步：数字人画面与云渲染 -->
-        <div class="panel-card" id="wizard-gpu-panel">
-          <div class="panel-header" style="margin-bottom: 14px;">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="13" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
-              第二步 · 数字人画面与云渲染状态
-            </span>
-            <span id="wizard-gpu-badge" class="brand-badge green">检查中...</span>
-          </div>
-
-          <!-- 动态渲染容器：直观展示已配置的本地/云端GPU状态或未配置引导，彻底免除二次输入 -->
+          <!-- 动态渲染双卡片容器：选项1 本机完全满足 vs 选项2 本地硬件+租赁云端GPU -->
           <div id="wizard-gpu-display-container">
             <div style="text-align: center; color: var(--text-muted); padding: 24px; font-size: 13px;">
-              正在同步当前 GPU 配置与数字人连通状态...
+              正在同步当前 GPU 配置与数字人算力模式...
             </div>
           </div>
         </div>
 
-        <!-- 第三步：选择直播类型与出镜主播 -->
+        <!-- 第二步：选择直播类型与出镜主播 -->
         <div class="panel-card">
           <div class="panel-header" style="margin-bottom: 12px;">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              第三步 · 选择直播类型与出镜主播
+              第二步 · 选择直播类型与出镜主播
             </span>
           </div>
           <p class="page-intro" style="margin-bottom: 14px;">
@@ -143,24 +118,10 @@
           </p>
           <div id="wizard-role-cards" class="grid-4"></div>
           <div id="wizard-anchor-select-container" style="margin-top: 18px; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;"></div>
-        </div>
 
-        <!-- 第四步：建议与约束提示词 -->
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>
-              第四步 · 模式 × 角色专属建议与 AI 约束提示词
-            </span>
-          </div>
-          <div id="wizard-suggestion-box" style="margin-bottom: 16px;">
-            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.85;">请先完成上面三步选择，这里将给出针对性的运营建议与话术红线。</div>
-          </div>
-          <label class="form-label" for="wizard-theme">今日直播主题 <span style="font-weight:400;color:var(--text-muted);">（选择主播角色后自动推荐专属主题，AI 冷场时围绕主题找话题，可自由修改）</span></label>
-          <input type="text" id="wizard-theme" class="form-control" placeholder="选择主播角色后自动填充专属主题，也可自定义输入" title="今日直播主题" aria-label="今日直播主题">
-          <label class="form-label" for="wizard-constraint" style="margin-top: 16px;">AI 约束提示词 <span style="font-weight:400;color:var(--text-muted);">（可直接编辑，将写入主播人设生效）</span></label>
-          <textarea id="wizard-constraint" class="form-control" rows="4" placeholder="例如：禁止和用户讨论除'法律'之外的话题，要委婉拒绝用户。" title="AI 约束提示词" aria-label="AI 约束提示词"></textarea>
-          <div style="display: flex; gap: 12px; margin-top: 18px; align-items: center; flex-wrap: wrap;">
+          <!-- 操作按钮栏：完成配置保存与开播前检查 -->
+          <div style="display: flex; gap: 12px; margin-top: 20px; align-items: center; justify-content: flex-end; flex-wrap: wrap; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;">
+            <span id="wizard-save-status" style="font-size: 12px; color: var(--text-muted); margin-right: auto;"></span>
             <button class="btn btn-primary" onclick="completeWizard()">
               <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               完成配置并保存
@@ -169,7 +130,6 @@
               <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               先做开播前检查
             </button>
-            <span id="wizard-save-status" style="font-size: 12px; color: var(--text-muted);"></span>
           </div>
         </div>
 

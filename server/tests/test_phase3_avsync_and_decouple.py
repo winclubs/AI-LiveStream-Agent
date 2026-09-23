@@ -13,7 +13,7 @@ async def test_flush_talk_latency():
     """验证 flush_talk 在 200ms 内瞬间重置发音状态并递增代际"""
     driver = AvatarDriverFactory.create("cloud_sidecar")
     await driver.start()
-    
+
     # 模拟正在播报
     dummy_pcm = b"\x00\x00" * 320
     await driver.push_audio_chunk(dummy_pcm)

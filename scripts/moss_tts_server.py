@@ -185,7 +185,7 @@ async def clone_endpoint(req: CloneRequest):
     try:
         import shutil
         shutil.copy2(src_path, target_ref)
-        
+
         # 预先提取声学指纹验证可用性
         profile = moss_cloner.extract_voice_timbre_profile(target_ref)
         logger.info(f"已成功挂载 MOSS-TTS-Nano 参考样本并提取声学画像: {target_ref} -> {profile}")

@@ -223,6 +223,7 @@
               </div>
               <div class="hw-cell-value" id="hw-panel-gpu">检测中...</div>
               <div class="hw-cell-sub" id="hw-panel-gpu-sub"></div>
+              <div class="hw-cell-cloud" id="hw-panel-gpu-cloud" style="margin-top: 6px; font-size: 11.5px; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 5px;"></div>
             </div>
             <div class="hw-cell">
               <div class="hw-cell-label">
@@ -284,64 +285,38 @@
           </div>
         </div>
 
-        <!-- 第一步：选择直播运营模式 -->
-        <div class="panel-card">
-          <div class="panel-header">
+        <!-- 第一步：数字人渲染与算力运行模式 -->
+        <div class="panel-card" id="wizard-gpu-panel">
+          <div class="panel-header" style="margin-bottom: 12px;">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
-              第一步 · 选择直播运营模式
+              第一步 · 数字人渲染与算力运行模式
             </span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="wizard-gpu-badge" class="brand-badge green">同步中...</span>
+              <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 2px 8px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="前往「GPU配置(2)」调整算力模式与云端节点">
+                跳转到 GPU配置(2) ↗
+              </button>
+            </div>
           </div>
-          <p class="page-intro">
-            请根据您电脑的硬件条件选择运行模式。<strong>系统已根据您的硬件配置自动推荐最合适的模式（可手动更改）</strong>。
-            选择后「云端模型」页将只呈现该模式所需的配置项。<strong style="color: var(--red);">直播进行中不可更改模式。</strong>
+          <p class="page-intro" style="margin-bottom: 14px;">
+            系统已依据您在【GPU配置(2)】中激活的配置自动锁定当前生效模式。如需更改算力方案或录入云端节点参数，请前往「GPU配置(2)」调整。
           </p>
 
-          <!-- 两类人群开播指引快速对照盒 (本地高配 vs 远端租赁GPU) -->
-          <div style="background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-            <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px;">
-              <span style="color: #cbd5e1;">🎮 <strong>人群 1 (本地独显 RTX 3060+)：</strong>推荐选择 <strong>A / B 档</strong> (全单机离线闭环，0 算力租金)</span>
-              <span style="color: #cbd5e1;">⚡ <strong>人群 2 (轻薄本/核显 + 远端租赁GPU)：</strong>强烈推荐 <strong>C 档</strong> (约1.2元/h，1080P电影级真人，本地0显存)</span>
-            </div>
-            <button type="button" class="btn btn-xs btn-ghost" onclick="switchToTab('gpu')" style="color: #38bdf8; font-size: 11.5px; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 4px; padding: 2px 8px;">
-              查看 GPU 调度中心 ↗
-            </button>
-          </div>
-
-          <div id="hw-recommend-banner" class="reco-banner" style="display:none; margin-bottom: 16px;">
-            <div class="reco-banner-title">
-              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-              已根据您的硬件配置自动选择推荐模式
-            </div>
-            <div class="reco-banner-body" id="hw-recommend-reason"></div>
-          </div>
-          <div id="mode-cards" class="grid-4"></div>
-        </div>
-
-        <!-- 第二步：数字人画面与云渲染 -->
-        <div class="panel-card" id="wizard-gpu-panel">
-          <div class="panel-header" style="margin-bottom: 14px;">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="13" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
-              第二步 · 数字人画面与云渲染状态
-            </span>
-            <span id="wizard-gpu-badge" class="brand-badge green">检查中...</span>
-          </div>
-
-          <!-- 动态渲染容器：直观展示已配置的本地/云端GPU状态或未配置引导，彻底免除二次输入 -->
+          <!-- 动态渲染双卡片容器：选项1 本机完全满足 vs 选项2 本地硬件+租赁云端GPU -->
           <div id="wizard-gpu-display-container">
             <div style="text-align: center; color: var(--text-muted); padding: 24px; font-size: 13px;">
-              正在同步当前 GPU 配置与数字人连通状态...
+              正在同步当前 GPU 配置与数字人算力模式...
             </div>
           </div>
         </div>
 
-        <!-- 第三步：选择直播类型与出镜主播 -->
+        <!-- 第二步：选择直播类型与出镜主播 -->
         <div class="panel-card">
           <div class="panel-header" style="margin-bottom: 12px;">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              第三步 · 选择直播类型与出镜主播
+              第二步 · 选择直播类型与出镜主播
             </span>
           </div>
           <p class="page-intro" style="margin-bottom: 14px;">
@@ -349,24 +324,10 @@
           </p>
           <div id="wizard-role-cards" class="grid-4"></div>
           <div id="wizard-anchor-select-container" style="margin-top: 18px; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;"></div>
-        </div>
 
-        <!-- 第四步：建议与约束提示词 -->
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>
-              第四步 · 模式 × 角色专属建议与 AI 约束提示词
-            </span>
-          </div>
-          <div id="wizard-suggestion-box" style="margin-bottom: 16px;">
-            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.85;">请先完成上面三步选择，这里将给出针对性的运营建议与话术红线。</div>
-          </div>
-          <label class="form-label" for="wizard-theme">今日直播主题 <span style="font-weight:400;color:var(--text-muted);">（选择主播角色后自动推荐专属主题，AI 冷场时围绕主题找话题，可自由修改）</span></label>
-          <input type="text" id="wizard-theme" class="form-control" placeholder="选择主播角色后自动填充专属主题，也可自定义输入" title="今日直播主题" aria-label="今日直播主题">
-          <label class="form-label" for="wizard-constraint" style="margin-top: 16px;">AI 约束提示词 <span style="font-weight:400;color:var(--text-muted);">（可直接编辑，将写入主播人设生效）</span></label>
-          <textarea id="wizard-constraint" class="form-control" rows="4" placeholder="例如：禁止和用户讨论除'法律'之外的话题，要委婉拒绝用户。" title="AI 约束提示词" aria-label="AI 约束提示词"></textarea>
-          <div style="display: flex; gap: 12px; margin-top: 18px; align-items: center; flex-wrap: wrap;">
+          <!-- 操作按钮栏：完成配置保存与开播前检查 -->
+          <div style="display: flex; gap: 12px; margin-top: 20px; align-items: center; justify-content: flex-end; flex-wrap: wrap; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;">
+            <span id="wizard-save-status" style="font-size: 12px; color: var(--text-muted); margin-right: auto;"></span>
             <button class="btn btn-primary" onclick="completeWizard()">
               <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               完成配置并保存
@@ -375,7 +336,6 @@
               <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               先做开播前检查
             </button>
-            <span id="wizard-save-status" style="font-size: 12px; color: var(--text-muted);"></span>
           </div>
         </div>
 
@@ -2423,60 +2383,162 @@
           <div class="panel-header">
             <span class="panel-title">
               <svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              违禁词批量添加 <span style="font-weight:400;color:var(--text-muted);font-size:12px;">（全直播间 · 所有 AI 角色通用）</span>
+              违禁词批量添加 <span style="font-weight:400;color:var(--text-muted);font-size:12px;">（支持多平台专属与全平台通用规则）</span>
             </span>
           </div>
           <p class="page-intro">
-            目的：让主播在直播期间<strong>禁止说出</strong>列表中的词汇，避免平台违规。
-            多个违禁词请用<strong>英文逗号 ( , )</strong>隔开，可一次无限量添加。
+            目的：让数字人主播在直播期间<strong>禁止说出</strong>敏感词汇。开播时系统将自动加载<strong>【通用规则 + 当前开播平台专属规则】</strong>执行毫秒级流式平替与阻断。
+            多个违禁词请用<strong>英文逗号 ( , )</strong>隔开，支持批量添加。
           </p>
-          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 18px; margin-bottom: 16px;">
+          <div style="display: grid; grid-template-columns: 2.2fr 1.1fr 1.5fr 1.2fr auto; gap: 12px; align-items: flex-end; margin-bottom: 8px;">
             <div>
               <label class="form-label" for="batch-words">违禁词（英文逗号分隔）<span style="color:var(--red)">*</span></label>
-              <textarea id="batch-words" class="form-control" rows="3" placeholder="最好, 第一, 顶级, 国家级, 治愈, 根治" title="违禁词" aria-label="违禁词"></textarea>
+              <input type="text" id="batch-words" class="form-control" placeholder="例如：加我微信, 最顶级, 某宝, 跟老板撕破脸, 根治" title="违禁词" aria-label="违禁词">
             </div>
             <div>
-              <label class="form-label" for="batch-replacement">合规替换词</label>
-              <input type="text" id="batch-replacement" class="form-control" placeholder="如：深受大家喜爱" title="合规替换词" aria-label="合规替换词">
-              <div class="field-tip">留空替换词 = 整句阻断（AI 不说出该句）</div>
-              <label class="form-label" for="batch-category" style="margin-top: 12px;">分类</label>
-              <select id="batch-category" class="form-control" title="违禁词分类" aria-label="违禁词分类">
-                <option value="extreme">广告法极限词</option>
-                <option value="medical">医疗功效</option>
-                <option value="traffic">导流违规</option>
-                <option value="competitor">竞品贬低</option>
-                <option value="sensitive">敏感信息</option>
+              <label class="form-label" for="batch-platform">适用平台<span style="color:var(--red)">*</span></label>
+              <select id="batch-platform" class="form-control" title="适用平台" aria-label="适用平台">
+                <option value="all">全平台通用</option>
+                <option value="douyin">抖音平台专属</option>
+                <option value="wechat">微信视频号专属</option>
+                <option value="kuaishou">快手平台专属</option>
+                <option value="bilibili">B站平台专属</option>
               </select>
             </div>
+            <div>
+              <label class="form-label" for="batch-replacement">合规替换词 <span style="font-weight:400;color:var(--text-muted);font-size:11px;">(留空=整句阻断)</span></label>
+              <input type="text" id="batch-replacement" class="form-control" placeholder="留空则触发整句阻断下架" title="合规替换词" aria-label="合规替换词">
+            </div>
+            <div>
+              <label class="form-label" for="batch-category">分类</label>
+              <select id="batch-category" class="form-control" title="违禁词分类" aria-label="违禁词分类">
+                <option value="extreme">广告法极限词</option>
+                <option value="traffic">站外私域导流</option>
+                <option value="medical">医疗功效药效</option>
+                <option value="sensitive">恶俗炒作剧本</option>
+                <option value="competitor">竞品平台暗号</option>
+              </select>
+            </div>
+            <div>
+              <button class="btn btn-primary" onclick="submitBatchWords()" style="white-space: nowrap; height: 38px;">
+                <svg class="icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                添加违禁词
+              </button>
+            </div>
           </div>
-          <button class="btn btn-primary" onclick="submitBatchWords()">
-            <svg class="icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            添加违禁词
-          </button>
-          <span id="batch-words-status" style="font-size: 12px; color: var(--text-muted); margin-left: 12px;"></span>
+          <div style="margin-top: 4px;">
+            <span id="batch-words-status" style="font-size: 12px; color: var(--text-muted);"></span>
+          </div>
         </div>
 
+        <!-- 当前生效违禁词库 (内嵌平台筛选工具栏) -->
         <div class="panel-card">
           <div class="panel-header">
-            <span class="panel-title">当前违禁词库 <span style="font-weight:400;color:var(--text-muted);font-size:12px;">（<span id="guardrail-count">0</span> 条 · 全角色通用）</span></span>
-            <button class="btn btn-sm" onclick="loadGuardrailWords()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              刷新
-            </button>
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              当前生效违禁词库 
+              <span style="font-weight:400;color:var(--text-muted);font-size:12px;">
+                （当前展示：<span id="guardrail-count">0</span> 条 · 过滤条件：<strong id="guardrail-current-platform-name" style="color: var(--accent-emerald);">全部平台</strong>）
+              </span>
+            </span>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-sm" onclick="loadGuardrailWords()">
+                <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                刷新
+              </button>
+            </div>
           </div>
+
+          <!-- 平台与分类双重筛选工具条：内嵌在词库内部，点击后实时作为数据库查询条件 -->
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; padding: 12px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: 8px;">
+            <!-- 平台筛选 -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 13px; color: var(--text-muted); font-weight: 500; min-width: 65px;">平台筛选：</span>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;" id="guardrail-platform-tabs">
+                  <button class="btn btn-sm btn-primary" data-platform="all" onclick="switchGuardrailPlatform('all', this)">全部平台</button>
+                  <button class="btn btn-sm btn-outline" data-platform="common" onclick="switchGuardrailPlatform('common', this)">全网通用底线</button>
+                  <button class="btn btn-sm btn-outline" data-platform="douyin" onclick="switchGuardrailPlatform('douyin', this)">抖音专属</button>
+                  <button class="btn btn-sm btn-outline" data-platform="wechat" onclick="switchGuardrailPlatform('wechat', this)">视频号专属</button>
+                  <button class="btn btn-sm btn-outline" data-platform="kuaishou" onclick="switchGuardrailPlatform('kuaishou', this)">快手专属</button>
+                  <button class="btn btn-sm btn-outline" data-platform="bilibili" onclick="switchGuardrailPlatform('bilibili', this)">B站专属</button>
+                </div>
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted);">
+                当前平台：<strong id="guardrail-current-platform-name" style="color: var(--accent-emerald);">全部平台</strong>
+              </div>
+            </div>
+
+            <div style="height: 1px; background: var(--border-subtle); opacity: 0.5;"></div>
+
+            <!-- 分类筛选 -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 13px; color: var(--text-muted); font-weight: 500; min-width: 65px;">分类筛选：</span>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;" id="guardrail-category-tabs">
+                  <button class="btn btn-sm btn-primary" data-category="all" onclick="switchGuardrailCategory('all', this)">全部分类</button>
+                  <button class="btn btn-sm btn-outline" data-category="extreme" onclick="switchGuardrailCategory('extreme', this)">广告法极限词</button>
+                  <button class="btn btn-sm btn-outline" data-category="traffic" onclick="switchGuardrailCategory('traffic', this)">站外私域导流</button>
+                  <button class="btn btn-sm btn-outline" data-category="medical" onclick="switchGuardrailCategory('medical', this)">医疗功效药效</button>
+                  <button class="btn btn-sm btn-outline" data-category="sensitive" onclick="switchGuardrailCategory('sensitive', this)">恶俗炒作剧本</button>
+                  <button class="btn btn-sm btn-outline" data-category="competitor" onclick="switchGuardrailCategory('competitor', this)">竞品平台暗号</button>
+                </div>
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted);">
+                当前分类：<strong id="guardrail-current-category-name" style="color: var(--accent-emerald);">全部分类</strong>
+              </div>
+            </div>
+          </div>
+
           <table class="data-table">
-            <thead><tr><th>违禁词</th><th>分类</th><th>动作</th><th>合规替换词</th><th>操作</th></tr></thead>
+            <thead>
+              <tr>
+                <th>违禁词</th>
+                <th>适用平台</th>
+                <th>违规分类</th>
+                <th>拦截动作</th>
+                <th>合规替换词</th>
+                <th>操作</th>
+              </tr>
+            </thead>
             <tbody id="guardrail-tbody"></tbody>
           </table>
         </div>
 
         <div class="panel-card">
           <div class="panel-header">
-            <span class="panel-title">在线合规测试</span>
+            <span class="panel-title">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+              多平台在线合规沙箱测试
+            </span>
           </div>
-          <div style="display: flex; gap: 12px; margin-bottom: 14px;">
-            <input type="text" id="sanitize-input" class="form-control" placeholder="输入测试文本，如：我们的大衣是全网第一好看，价格最好！" title="合规测试输入文本" aria-label="合规测试输入文本">
-            <button class="btn btn-primary" onclick="testSanitize()">测试拦截效果</button>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 3fr auto; gap: 10px; margin-bottom: 14px; align-items: center;">
+            <div>
+              <label class="form-label" for="test-platform-select">模拟开播平台</label>
+              <select id="test-platform-select" class="form-control" title="模拟测试平台" aria-label="模拟测试平台">
+                <option value="douyin">抖音平台 (douyin)</option>
+                <option value="wechat">视频号平台 (wechat)</option>
+                <option value="kuaishou">快手平台 (kuaishou)</option>
+                <option value="bilibili">B站平台 (bilibili)</option>
+                <option value="all">全平台 (通用沙箱)</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="test-role-select">模拟主播角色</label>
+              <select id="test-role-select" class="form-control" title="模拟主播角色" aria-label="模拟主播角色">
+                <option value="ecommerce">带货主播 (ecommerce)</option>
+                <option value="entertainment">娱乐主播 (entertainment)</option>
+                <option value="expert">知识博主 (expert)</option>
+                <option value="all">全角色通用 (all)</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="sanitize-input">测试口播文本</label>
+              <input type="text" id="sanitize-input" class="form-control" placeholder="输入测试文本，如：加我微信即可享受全网第一优惠，我们的大衣随时涨价！" title="合规测试输入文本" aria-label="合规测试输入文本">
+            </div>
+            <div style="padding-top: 22px;">
+              <button class="btn btn-primary" onclick="testSanitize()">执行合规检测</button>
+            </div>
           </div>
           <div id="sanitize-result"></div>
         </div>
@@ -3066,6 +3128,105 @@
 
         </div>
       </div>
+
+
+            <!-- ===== 选项卡: 开播前检查报告 (独立全幅页面) ===== -->
+      <section class="tab-content" id="tab-preflight">
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <!-- 顶部 Header：返回向导、标题、重新体检按钮 -->
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <button type="button" class="btn btn-sm btn-ghost" onclick="switchToTab('wizard')" style="font-size: 13px; color: var(--text-secondary); border: 1px solid rgba(148, 163, 184, 0.25); padding: 4px 14px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                ← 返回开播向导
+              </button>
+              <span class="panel-title" style="font-size: 18px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;">
+                <svg class="icon" viewBox="0 0 24 24" style="color: #10B981; width: 20px; height: 20px;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><polyline points="9 14 11 16 15 12"/></svg>
+                开播前全链路体检报告
+              </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="tab-preflight-badge" class="brand-badge green">就绪状态评估中...</span>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="runPreflight({ auto: false, toTab: true })" style="font-size: 12px; padding: 4px 14px; display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                重新体检
+              </button>
+            </div>
+          </div>
+
+          <!-- 顶部总览指标大卡片 (左图右文 + SVG 图标 + 描述文字) -->
+          <div id="tab-preflight-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 20px;">
+            <!-- 1. 检测通过项 -->
+            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.28); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);">
+              <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(16, 185, 129, 0.16); border: 1px solid rgba(16, 185, 129, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; color: #10B981; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+                  <span style="font-size: 13.5px; font-weight: 700; color: #f1f5f9;">检测通过项</span>
+                  <span style="font-size: 22px; font-weight: 800; color: #34d399; line-height: 1;"><span id="tab-stat-pass-count">-</span><span style="font-size: 12px; font-weight: 600; color: #34d399; margin-left: 2px;">项</span></span>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
+                  核心指标就绪，符合开播基准要求
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. 建议修复项 -->
+            <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.28); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);">
+              <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(245, 158, 11, 0.16); border: 1px solid rgba(245, 158, 11, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; color: #F59E0B; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+                  <span style="font-size: 13.5px; font-weight: 700; color: #f1f5f9;">建议修复项</span>
+                  <span style="font-size: 22px; font-weight: 800; color: #fbbf24; line-height: 1;"><span id="tab-stat-warn-count">-</span><span style="font-size: 12px; font-weight: 600; color: #fbbf24; margin-left: 2px;">项</span></span>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
+                  非阻断优化建议，调优后体验更佳
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. 必须修复项 -->
+            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.28); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);">
+              <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(239, 68, 68, 0.16); border: 1px solid rgba(239, 68, 68, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; color: #EF4444; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/>
+                  <line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+                  <span style="font-size: 13.5px; font-weight: 700; color: #f1f5f9;">必须修复项</span>
+                  <span style="font-size: 22px; font-weight: 800; color: #f87171; line-height: 1;"><span id="tab-stat-fail-count">-</span><span style="font-size: 12px; font-weight: 600; color: #f87171; margin-left: 2px;">项</span></span>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
+                  存在阻断性硬性限制，需立即处理
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 诊断总结说明条 -->
+          <div id="tab-preflight-summary" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6; padding: 12px 16px; background: rgba(30, 41, 59, 0.4); border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.15);">
+            正在发起开播全链路硬件、算力与服务连通性真实体检...
+          </div>
+
+          <!-- 核心检查项平铺列表 -->
+          <div id="tab-preflight-checks" style="display: flex; flex-direction: column; gap: 14px;"></div>
+
+          <!-- 底部操作与主控行动栏 -->
+          <div id="tab-preflight-actions" style="display: flex; gap: 14px; margin-top: 24px; justify-content: space-between; align-items: center; flex-wrap: wrap; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 18px;"></div>
+        </div>
+      </section>
 
 
     </main>

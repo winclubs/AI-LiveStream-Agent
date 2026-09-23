@@ -56,6 +56,46 @@ def test_guardrails_api(client):
     assert "全网第一" not in data["sanitized_text"]
     assert "深受大家喜爱" in data["sanitized_text"]
 
+def test_guardrails_multi_platform_api(client):
+    """测试多平台违禁词查询、指定平台批量添加与多平台沙箱接口"""
+    # 1. 查询指定平台违禁词
+    res_dy = client.get("/api/v1/guardrails/words?platform=douyin")
+    assert res_dy.status_code == 200
+    assert res_dy.json()["code"] == 0
+    dy_words = [w["word"] for w in res_dy.json()["data"]]
+    assert "加我微信" in dy_words
+
+    # 2. 批量添加快手专属违禁词
+    res_batch = client.post("/api/v1/guardrails/words/batch", json={
+        "words": "测试快手专属词A, 测试快手专属词B",
+        "category": "sensitive",
+        "platform": "kuaishou",
+        "action_policy": "drop",
+        "replacement_word": ""
+    })
+    assert res_batch.status_code == 200
+    assert res_batch.json()["code"] == 0
+
+    # 3. 在线沙箱按平台测试拦截
+    # 在快手平台下应触发整句阻断
+    test_ks = client.post("/api/v1/guardrails/test-sanitize", json={
+        "text": "大家抓紧看看测试快手专属词A效果",
+        "platform": "kuaishou",
+        "role_scope": "all"
+    })
+    assert test_ks.status_code == 200
+    assert test_ks.json()["is_dropped"] is True
+
+    # 同一句话在 B 站平台下不受影响
+    test_bili = client.post("/api/v1/guardrails/test-sanitize", json={
+        "text": "大家抓紧看看测试快手专属词A效果",
+        "platform": "bilibili",
+        "role_scope": "all"
+    })
+    assert test_bili.status_code == 200
+    assert test_bili.json()["is_dropped"] is False
+    assert "测试快手专属词A" in test_bili.json()["sanitized_text"]
+
 def test_products_api(client):
     """测试商品增删改查接口"""
     # 添加一个测试商品

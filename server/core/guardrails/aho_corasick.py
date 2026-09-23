@@ -28,11 +28,12 @@ class ProhibitedWordSanitizer:
             action = item.get("action_policy", "substitute")
             replacement = item.get("replacement_word", "") or ""
             category = item.get("category", "extreme")
-            role_scope = item.get("role_scope", "all")
+            role_scope = item.get("role_scope", "all") or "all"
+            platform = item.get("platform", "all") or "all"
 
             # 存入元数据
-            self.word_meta[word] = (action, replacement, category, role_scope)
-            self.automaton.add_word(word, (word, action, replacement, category, role_scope))
+            self.word_meta[word] = (action, replacement, category, role_scope, platform)
+            self.automaton.add_word(word, (word, action, replacement, category, role_scope, platform))
 
         if len(self.word_meta) > 0:
             self.automaton.make_automaton()
@@ -40,11 +41,12 @@ class ProhibitedWordSanitizer:
         else:
             self.is_ready = False
 
-    def sanitize(self, text: str, current_role: str = "all") -> Tuple[str, List[Dict[str, Any]], bool]:
+    def sanitize(self, text: str, current_role: str = "all", current_platform: str = "all") -> Tuple[str, List[Dict[str, Any]], bool]:
         """
         对输入文本进行违禁词扫描和平替/阻断
         :param text: 待检测播报文本
-        :param current_role: 当前主播角色 (ecommerce / entertainment / expert)
+        :param current_role: 当前主播角色 (all / ecommerce / entertainment / expert)
+        :param current_platform: 当前直播平台 (all / douyin / wechat / kuaishou / bilibili)
         :return: (处理后的文本, 触发的违规记录列表, 是否需要整句丢弃阻断)
         """
         if not self.is_ready or not text:
@@ -56,22 +58,27 @@ class ProhibitedWordSanitizer:
         # 第一遍扫描：收集所有命中的违禁词信息
         # AC 自动机返回的是 (end_index, value)
         raw_matches = []
-        for end_idx, (word, action, replacement, category, role_scope) in self.automaton.iter(text):
-            # 作用域过滤：如果是特定角色专有或针对所有角色
-            if role_scope != "all" and role_scope != current_role:
+        for end_idx, (word, action, replacement, category, role_scope, platform) in self.automaton.iter(text):
+            # 角色作用域过滤：如果是特定角色专有或针对所有角色
+            if role_scope != "all" and current_role != "all" and role_scope != current_role:
                 continue
+            # 平台作用域过滤：如果是特定平台专有或针对所有平台 (如通用规则 all)
+            if platform != "all" and current_platform != "all" and platform != current_platform:
+                continue
+
             start_idx = end_idx - len(word) + 1
-            raw_matches.append((start_idx, end_idx, word, action, replacement, category))
+            raw_matches.append((start_idx, end_idx, word, action, replacement, category, platform))
 
         if not raw_matches:
             return text, [], False
 
         # 如果命中需要整句阻断的词 (action == 'drop')
         for match in raw_matches:
-            start_idx, end_idx, word, action, replacement, category = match
+            start_idx, end_idx, word, action, replacement, category, platform = match
             hits.append({
                 "matched_word": word,
                 "category": category,
+                "platform": platform,
                 "action": action,
                 "start_idx": start_idx,
                 "end_idx": end_idx,
@@ -100,7 +107,7 @@ class ProhibitedWordSanitizer:
         non_overlapping_matches.sort(key=lambda x: x[0], reverse=True)
         sanitized = list(text)
 
-        for start_idx, end_idx, word, action, replacement, category in non_overlapping_matches:
+        for start_idx, end_idx, word, action, replacement, category, platform in non_overlapping_matches:
             if action == "substitute":
                 sanitized[start_idx:end_idx + 1] = list(replacement)
 

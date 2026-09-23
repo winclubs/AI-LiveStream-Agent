@@ -39,7 +39,7 @@ def test_anti_recording_hash_dispersion():
 def test_compose_scene_overlays_with_anti_recording():
     """验证全局场景合成器默认包含反录播指纹"""
     base_frame = np.full((120, 160, 3), 100, dtype=np.uint8)
-    
+
     out1 = compose_scene_overlays(base_frame, enable_anti_recording=True, timestamp=1.0)
     out2 = compose_scene_overlays(base_frame, enable_anti_recording=True, timestamp=1.04)
 

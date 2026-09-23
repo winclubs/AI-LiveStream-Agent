@@ -1,0 +1,97 @@
+      <!-- ===== 选项卡: 开播前检查报告 (独立全幅页面) ===== -->
+      <section class="tab-content" id="tab-preflight">
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <!-- 顶部 Header：返回向导、标题、重新体检按钮 -->
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <button type="button" class="btn btn-sm btn-ghost" onclick="switchToTab('wizard')" style="font-size: 13px; color: var(--text-secondary); border: 1px solid rgba(148, 163, 184, 0.25); padding: 4px 14px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                ← 返回开播向导
+              </button>
+              <span class="panel-title" style="font-size: 18px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;">
+                <svg class="icon" viewBox="0 0 24 24" style="color: #10B981; width: 20px; height: 20px;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><polyline points="9 14 11 16 15 12"/></svg>
+                开播前全链路体检报告
+              </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="tab-preflight-badge" class="brand-badge green">就绪状态评估中...</span>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="runPreflight({ auto: false, toTab: true })" style="font-size: 12px; padding: 4px 14px; display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                重新体检
+              </button>
+            </div>
+          </div>
+
+          <!-- 顶部总览指标大卡片 (左图右文 + SVG 图标 + 描述文字) -->
+          <div id="tab-preflight-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 20px;">
+            <!-- 1. 检测通过项 -->
+            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.28); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);">
+              <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(16, 185, 129, 0.16); border: 1px solid rgba(16, 185, 129, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; color: #10B981; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+                  <span style="font-size: 13.5px; font-weight: 700; color: #f1f5f9;">检测通过项</span>
+                  <span style="font-size: 22px; font-weight: 800; color: #34d399; line-height: 1;"><span id="tab-stat-pass-count">-</span><span style="font-size: 12px; font-weight: 600; color: #34d399; margin-left: 2px;">项</span></span>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
+                  核心指标就绪，符合开播基准要求
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. 建议修复项 -->
+            <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.28); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);">
+              <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(245, 158, 11, 0.16); border: 1px solid rgba(245, 158, 11, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; color: #F59E0B; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+                  <span style="font-size: 13.5px; font-weight: 700; color: #f1f5f9;">建议修复项</span>
+                  <span style="font-size: 22px; font-weight: 800; color: #fbbf24; line-height: 1;"><span id="tab-stat-warn-count">-</span><span style="font-size: 12px; font-weight: 600; color: #fbbf24; margin-left: 2px;">项</span></span>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
+                  非阻断优化建议，调优后体验更佳
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. 必须修复项 -->
+            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.28); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);">
+              <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(239, 68, 68, 0.16); border: 1px solid rgba(239, 68, 68, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; color: #EF4444; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/>
+                  <line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+                  <span style="font-size: 13.5px; font-weight: 700; color: #f1f5f9;">必须修复项</span>
+                  <span style="font-size: 22px; font-weight: 800; color: #f87171; line-height: 1;"><span id="tab-stat-fail-count">-</span><span style="font-size: 12px; font-weight: 600; color: #f87171; margin-left: 2px;">项</span></span>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
+                  存在阻断性硬性限制，需立即处理
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 诊断总结说明条 -->
+          <div id="tab-preflight-summary" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6; padding: 12px 16px; background: rgba(30, 41, 59, 0.4); border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.15);">
+            正在发起开播全链路硬件、算力与服务连通性真实体检...
+          </div>
+
+          <!-- 核心检查项平铺列表 -->
+          <div id="tab-preflight-checks" style="display: flex; flex-direction: column; gap: 14px;"></div>
+
+          <!-- 底部操作与主控行动栏 -->
+          <div id="tab-preflight-actions" style="display: flex; gap: 14px; margin-top: 24px; justify-content: space-between; align-items: center; flex-wrap: wrap; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 18px;"></div>
+        </div>
+      </section>

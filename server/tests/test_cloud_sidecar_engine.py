@@ -44,12 +44,12 @@ async def test_cloud_sidecar_engine_e2e():
     port = get_free_port()
     gpu_desc = "NVIDIA Tesla T4 (15360MB 显存)"
     server_code = create_sidecar_server_code(port=port, gpu_info=gpu_desc)
-    
+
     # 动态编译与执行服务端
     scope = {}
     exec(server_code, scope)
     app = scope["app"]
-    
+
     # 在后台启动 uvicorn 实例
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
     server = uvicorn.Server(config)
@@ -126,7 +126,7 @@ async def test_cloud_sidecar_engine_e2e():
                 is_final=False
             )
             audio_pkg = encode_audio_frame(req_id, audio_frame)
-            
+
             # 推送音频数据
             t_start = time.perf_counter()
             await ws.send(audio_pkg)
@@ -154,7 +154,7 @@ async def test_cloud_sidecar_engine_e2e():
 
             # 6. 发送 render_finish 并接收 render_complete
             await ws.send(json.dumps({"event": "render_finish", "request_id": req_id, "audio_id": audio_id}))
-            
+
             while True:
                 resp = await asyncio.wait_for(ws.recv(), timeout=5.0)
                 if isinstance(resp, bytes):

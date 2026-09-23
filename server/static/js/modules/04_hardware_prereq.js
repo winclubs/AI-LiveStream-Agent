@@ -10,6 +10,7 @@ async function loadHardwareInfo() {
 
         // 显卡
         const cap = d.gpu_capability || {};
+        window.cachedHardwareData = d; // 供向导双卡片与算力诊断共享
         if (gpu.gpu_name) {
             let statusSuffix = "";
             if (cap.use_cloud) {
@@ -24,6 +25,30 @@ async function loadHardwareInfo() {
             const cloudBadge = cap.use_cloud ? ' · <span style="color: var(--accent-emerald); font-weight: 600;">⚡ 已优先调度云端显卡</span>' : ' · <span style="color: var(--accent-amber);">⚠️ 未配置云端显卡</span>';
             setText("hw-panel-gpu", '<span style="color: var(--text-muted);">核显 / 未检测到独显</span>');
             setText("hw-panel-gpu-sub", `将使用轻量方案${cloudBadge}`);
+        }
+
+        // 云端 GPU 状态呈现（有则展示具体设备/显存/延迟，无则显示暂无云端GPU）
+        const cloudGpu = cap.cloud_gpu || {};
+        const lastPing = window.lastCloudPingResult;
+        if (cloudGpu.configured || (cloudGpu.base_url && cloudGpu.base_url.trim()) || (lastPing && lastPing.targetUrl)) {
+            let cloudName = cloudGpu.gpu_name || (lastPing && lastPing.device) || "云端 GPU 算力节点";
+            let vramText = cloudGpu.vram_total_gb ? ` (${cloudGpu.vram_total_gb}GB)` : "";
+            let pingStatus = "";
+            if (lastPing) {
+                if (lastPing.success) {
+                    pingStatus = ` · <span style="color: #34d399;">已连通 (${lastPing.latency_ms}ms)</span>`;
+                } else {
+                    pingStatus = ` · <span style="color: #ef4444;">未连通/离线</span>`;
+                }
+            }
+            setText("hw-panel-gpu-cloud", `<span style="color: #38bdf8; font-weight: 600;">⚡ 云端:</span> <span style="color: #f1f5f9; font-weight: 500;">${escapeHtml(cloudName)}${vramText}</span>${pingStatus}`);
+        } else {
+            setText("hw-panel-gpu-cloud", `<span style="color: var(--text-muted);">云端: 暂无云端GPU</span>`);
+        }
+
+        // 同步通知向导第一步双卡片按最新硬件数据重绘
+        if (typeof renderWizardGpuStatusCard === "function") {
+            renderWizardGpuStatusCard(false);
         }
 
         // 处理器

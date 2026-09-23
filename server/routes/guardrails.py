@@ -27,26 +27,35 @@ class ProhibitedWordCreate(BaseModel):
     word: str = Field(min_length=1, max_length=128)
     category: str = Field(default="extreme", max_length=32)
     role_scope: str = Field(default="all", max_length=32)
+    platform: str = Field(default="all", max_length=32)
     action_policy: str = Field(default="substitute", max_length=32)
     replacement_word: Optional[str] = Field(default="", max_length=128)
 
 class TestSanitizeRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20_000)
     role_scope: str = Field(default="all", max_length=32)
+    platform: str = Field(default="all", max_length=32)
 
 
 class BatchWordsRequest(BaseModel):
     words: str = Field(min_length=1, max_length=MAX_GUARDRAIL_EXPANDED_CHARS)
     replacement_word: str = Field(default="", max_length=128)
     category: str = Field(default="extreme", max_length=32)
+    platform: str = Field(default="all", max_length=32)
     action_policy: str = Field(default="substitute", max_length=32)
 
 @router.get("/words")
-async def list_words(category: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """获取违禁词与平替规则列表"""
+async def list_words(
+    category: Optional[str] = None,
+    platform: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取违禁词与平替规则列表，支持按分类与平台筛选"""
     query = select(ProhibitedWord)
-    if category:
+    if category and category != "all":
         query = query.where(ProhibitedWord.category == category)
+    if platform and platform != "all":
+        query = query.where(ProhibitedWord.platform == platform)
     result = await db.execute(query)
     words = result.scalars().all()
     return {
@@ -58,6 +67,7 @@ async def list_words(category: Optional[str] = None, db: AsyncSession = Depends(
                 "word": w.word,
                 "category": w.category,
                 "role_scope": w.role_scope,
+                "platform": getattr(w, "platform", "all") or "all",
                 "action_policy": w.action_policy,
                 "replacement_word": w.replacement_word,
                 "is_enabled": bool(w.is_enabled)
@@ -83,6 +93,7 @@ async def add_word(req: ProhibitedWordCreate, db: AsyncSession = Depends(get_db)
         word=word_clean,
         category=req.category,
         role_scope=req.role_scope,
+        platform=req.platform or "all",
         action_policy=req.action_policy,
         replacement_word=req.replacement_word or "",
         is_enabled=1
@@ -99,7 +110,7 @@ async def add_word(req: ProhibitedWordCreate, db: AsyncSession = Depends(get_db)
 async def batch_add_words(req: BatchWordsRequest, db: AsyncSession = Depends(get_db)):
     """
     批量添加违禁词 (需求 7)：英文逗号分隔，一次添加任意数量
-    所有直播间、所有 AI 角色通用 (role_scope 固定为 all)
+    支持按平台 (platform) 和分类批量录入
     """
     raw_words = [w.strip() for w in (req.words or "").replace("，", ",").split(",")]
     words = list(dict.fromkeys(w for w in raw_words if w))
@@ -114,6 +125,7 @@ async def batch_add_words(req: BatchWordsRequest, db: AsyncSession = Depends(get
     if req.action_policy not in ("substitute", "drop", "alert"):
         raise HTTPException(status_code=400, detail="拦截动作不合法")
 
+    target_platform = (req.platform or "all").strip().lower()
     imported, skipped = 0, 0
     existing_result = await db.execute(select(ProhibitedWord.word).where(ProhibitedWord.word.in_(words)))
     existing_words = set(existing_result.scalars().all())
@@ -126,6 +138,7 @@ async def batch_add_words(req: BatchWordsRequest, db: AsyncSession = Depends(get
             word=word,
             category=req.category,
             role_scope="all",  # 全直播间全角色通用
+            platform=target_platform,
             action_policy=req.action_policy,
             replacement_word=req.replacement_word.strip(),
             is_enabled=1
@@ -233,6 +246,8 @@ async def import_words(file: UploadFile = File(...), db: AsyncSession = Depends(
         action = row[2] if len(row) > 2 and row[2] in VALID_ACTIONS else "substitute"
         replacement = row[3] if len(row) > 3 else ""
 
+        platform_val = row[4].strip().lower() if len(row) > 4 and row[4].strip() else "all"
+
         if word in existing_words or word in seen_words:
             skipped += 1
             continue
@@ -243,6 +258,7 @@ async def import_words(file: UploadFile = File(...), db: AsyncSession = Depends(
             word=word,
             category=category,
             role_scope="all",
+            platform=platform_val,
             action_policy=action,
             replacement_word=replacement or "",
             is_enabled=1
@@ -256,8 +272,12 @@ async def import_words(file: UploadFile = File(...), db: AsyncSession = Depends(
 
 @router.post("/test-sanitize")
 async def test_sanitize(req: TestSanitizeRequest):
-    """测试文本流式合规审计与平替"""
-    sanitized_text, hits, is_dropped = global_guardrail.sanitize(req.text, req.role_scope)
+    """测试文本流式合规审计与平替，支持模拟主播角色与开播平台"""
+    sanitized_text, hits, is_dropped = global_guardrail.sanitize(
+        req.text,
+        current_role=req.role_scope,
+        current_platform=req.platform or "all"
+    )
     return {
         "code": 0,
         "original_text": req.text,
@@ -299,6 +319,7 @@ async def reload_guardrails(db: AsyncSession):
             "word": w.word,
             "category": w.category,
             "role_scope": w.role_scope,
+            "platform": getattr(w, "platform", "all") or "all",
             "action_policy": w.action_policy,
             "replacement_word": w.replacement_word,
             "is_enabled": w.is_enabled

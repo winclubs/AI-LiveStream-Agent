@@ -69,7 +69,7 @@ async def test_mirror_index_algorithm():
 async def test_action_state_machine_crossfade_blending():
     """验证动作状态机在切换瞬态时执行 5 帧 Alpha 权重混合"""
     sm = ActionStateMachine()
-    
+
     # 构造两个带有不同纯色的动作切片
     clip0 = ActionClip(0, "待机纯蓝", duration_sec=0.0, priority=0)
     clip3 = ActionClip(3, "购物车纯红", duration_sec=3.0, priority=5)

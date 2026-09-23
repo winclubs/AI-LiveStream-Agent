@@ -137,6 +137,7 @@ class ProhibitedWord(Base):
     word = Column(String(128), unique=True, nullable=False)
     category = Column(String(32), default="extreme")  # extreme / medical / traffic / competitor / sensitive
     role_scope = Column(String(32), default="all")    # all / ecommerce / entertainment / expert
+    platform = Column(String(32), default="all", index=True)      # all / douyin / wechat / kuaishou / bilibili
     action_policy = Column(String(32), default="substitute")  # substitute / drop / alert
     replacement_word = Column(String(128), default="")
     is_enabled = Column(Integer, default=1)

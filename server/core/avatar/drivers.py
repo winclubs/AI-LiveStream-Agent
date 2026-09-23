@@ -56,7 +56,7 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
             self.is_connected = (resp.status_code == 200)
         except Exception:
             self.is_connected = False
-        
+
         conn_text = "🟢 握手成功 (服务已在线)" if self.is_connected else "⚪ 等待连接 (开播时将自动推流)"
         logger.info(f"LocalLiveTalking 驱动器已就绪 (路径状态: {status_note}, 接口: {self.api_endpoint}, 通信: {conn_text})")
         return True
@@ -78,7 +78,8 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
         """确保音频数据具备标准 RIFF/WAV 头部容器，杜绝外部第三方解析器报错"""
         if audio_bytes.startswith(b"RIFF"):
             return audio_bytes
-        import io, wave
+        import io
+        import wave
         out = io.BytesIO()
         with wave.open(out, "wb") as wf:
             wf.setnchannels(channels)
@@ -111,7 +112,7 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
             # 兼容带有文本打点的事件
             if eventpoint and "text" in eventpoint:
                 data["text"] = str(eventpoint["text"])
-            
+
             resp = await client.post(f"{self.api_endpoint}/humanaudio", data=data, files=files)
             if resp.status_code == 200:
                 self.is_connected = True

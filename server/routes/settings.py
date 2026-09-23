@@ -1077,9 +1077,16 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                     }
 
                 elapsed_ms = int((time.time() - start_time) * 1000)
-                msg_text = f"通信对接成功！WebSocket 握手正常，延迟: {elapsed_ms}ms"
+                msg_text = "通信对接成功: 云端服务已就绪并响应握手"
+                dev_name = ""
+                vram_gb = 0.0
                 if device_info:
                     msg_text += f" (远端识别硬件: {device_info})"
+                    try:
+                        from server.core.hardware.gpu_capability import parse_device_string
+                        dev_name, vram_gb = parse_device_string(device_info)
+                    except Exception:
+                        pass
 
                 # 实时同步至系统全局显卡探活缓存，令软硬件看板立即感知在线就绪
                 try:
@@ -1093,6 +1100,8 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                     "success": True,
                     "latency_ms": elapsed_ms,
                     "device": device_info,
+                    "gpu_name": dev_name,
+                    "vram_gb": vram_gb,
                     "message": msg_text
                 }
         except Exception as e:
@@ -1150,12 +1159,12 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                                 "latency_ms": elapsed_ms,
                                 "device": "",
                                 "message": (
-                                    f"⚠️ 检测到该端口运行的是【Ollama 大语言模型服务】(端口 11434)，并非数字人渲染服务！\n"
-                                    f"• 现象分析：Ollama 仅支持 LLM 文本交互，不支持数字人 WebSocket 画面渲染，且会拦截外部 WebSocket 升级请求返回 HTTP 403；\n"
-                                    f"• 若打算用云端 GPU 跑大模型思考：请移步左侧「第一步：LLM 配置」，填入自定义 Ollama 地址；\n"
-                                    f"• 若打算用云端 GPU 跑数字人画面渲染：请在云端 Colab 运行官方启动脚本：\n"
-                                    f"  python scripts/cloud_sidecar_bootstrap.py\n"
-                                    f"  该脚本会自动识别显卡 (T4 15G) 并启动 8010 端口的数字人渲染 WebSocket 节点。"
+                                    "⚠️ 检测到该端口运行的是【Ollama 大语言模型服务】(端口 11434)，并非数字人渲染服务！\n"
+                                    "• 现象分析：Ollama 仅支持 LLM 文本交互，不支持数字人 WebSocket 画面渲染，且会拦截外部 WebSocket 升级请求返回 HTTP 403；\n"
+                                    "• 若打算用云端 GPU 跑大模型思考：请移步左侧「第一步：LLM 配置」，填入自定义 Ollama 地址；\n"
+                                    "• 若打算用云端 GPU 跑数字人画面渲染：请在云端 Colab 运行官方启动脚本：\n"
+                                    "  python scripts/cloud_sidecar_bootstrap.py\n"
+                                    "  该脚本会自动识别显卡 (T4 15G) 并启动 8010 端口的数字人渲染 WebSocket 节点。"
                                 )
                             }
 
@@ -1168,10 +1177,10 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                                 "latency_ms": elapsed_ms,
                                 "device": "",
                                 "message": (
-                                    f"⚠️ 远程服务器拒绝了数字人 WebSocket 连接 (HTTP 403 Forbidden)！\n"
-                                    f"• 核心原因：穿透的目标服务大概率是 Ollama (端口 11434) 或非 WebSocket 服务。Ollama 内置跨域与 Host 安全校验，会直接拒绝对其端口发起的 WebSocket 握手请求；\n"
-                                    f"• 解决方案 1 (做数字人渲染)：请在 Colab 执行 python scripts/cloud_sidecar_bootstrap.py 启动 8010 专用的数字人渲染服务；\n"
-                                    f"• 解决方案 2 (做 LLM 大模型)：请将此穿透地址配置到左侧「第一步：LLM 配置」，同时在 Colab 穿透命令加上 --http-host-header=\"localhost:11434\" 以解除 403 拦截。"
+                                    "⚠️ 远程服务器拒绝了数字人 WebSocket 连接 (HTTP 403 Forbidden)！\n"
+                                    "• 核心原因：穿透的目标服务大概率是 Ollama (端口 11434) 或非 WebSocket 服务。Ollama 内置跨域与 Host 安全校验，会直接拒绝对其端口发起的 WebSocket 握手请求；\n"
+                                    "• 解决方案 1 (做数字人渲染)：请在 Colab 执行 python scripts/cloud_sidecar_bootstrap.py 启动 8010 专用的数字人渲染服务；\n"
+                                    "• 解决方案 2 (做 LLM 大模型)：请将此穿透地址配置到左侧「第一步：LLM 配置」，同时在 Colab 穿透命令加上 --http-host-header=\"localhost:11434\" 以解除 403 拦截。"
                                 )
                             }
                 except Exception:
@@ -1181,13 +1190,14 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
             err_name = type(e).__name__
             err_detail = str(e).strip()
             if err_name == "ConnectionResetError" or "ConnectionResetError" in err_detail:
-                friendly_reason = "远程连接被重置 (ConnectionResetError)，请检查远端开发机服务进程是否存活、端口及公网隧道是否开启"
+                friendly_reason = "远程连接被重置，请检查远端开发机服务进程是否存活、端口及公网隧道是否开启"
             elif "TimeoutError" in err_name or "timed out" in err_detail.lower():
                 friendly_reason = "网络连接握手超时 (Timeout)，请检查网络防火墙与公网隧道地址是否有效"
             elif "InvalidStatusCode" in err_name or "404" in err_detail or "403" in err_detail:
                 friendly_reason = f"远程节点返回 HTTP 状态错误 ({err_detail})，请确认 WebSocket 路由路径是否正确 (/ws/render-v3)"
             else:
                 friendly_reason = f"{err_detail or err_name}"
+            friendly_reason = friendly_reason.replace(" (ConnectionResetError)", "").replace("(ConnectionResetError)", "")
             return {
                 "code": 1,
                 "success": False,

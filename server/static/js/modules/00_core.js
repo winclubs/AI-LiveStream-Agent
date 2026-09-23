@@ -4,7 +4,7 @@
  */
 
 const API_BASE = "/api/v1";
-const FRONTEND_VERSION = "1.9.0";
+const FRONTEND_VERSION = "2.0.0";
 
 // 跨异步初始化流程共享的核心状态必须先显式初始化，避免首屏读取未声明变量。
 let ws = null;

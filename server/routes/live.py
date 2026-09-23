@@ -1158,8 +1158,9 @@ class LiveSessionController:
 
     async def _sanitize_and_humanize(self, sentence: str, active_role):
         """违禁词扫描平替 -> 电商价格防幻觉双重审计 -> 语音防机械感人类化 (规划 §14.2 / §14.3)"""
+        current_platform = getattr(self, "platform", "all") or "all"
         sanitized_sentence, hits, is_dropped = global_guardrail.sanitize(
-            sentence, active_role.role_type
+            sentence, current_role=active_role.role_type, current_platform=current_platform
         )
         if is_dropped or not sanitized_sentence.strip():
             return "", is_dropped, hits
@@ -2753,37 +2754,37 @@ async def _pf_llm_check(cfg: Optional[dict]) -> dict:
     if not cfg:
         return _pf("warn", "llm", "大模型 (AI 大脑)",
                    "尚未配置大模型，AI 将使用内置离线话术应答，互动效果有限",
-                   "前往【云端模型】启用大模型 (如 DeepSeek) 或本地 Ollama", "settings")
-    provider = (cfg["provider_name"] or "").lower()
-    base = (cfg["base_url"] or "").rstrip("/")
+                   "前往【LLM 配置(1)】启用大模型 (如 DeepSeek) 或本地 Ollama", "settings_llm")
+    provider = (cfg.get("provider_name") or "").lower()
+    base = (cfg.get("base_url") or "").rstrip("/")
 
     if "ollama" in provider:
         code = await _pf_ping(base + "/api/tags" if base else "http://127.0.0.1:11434/api/tags")
         if code == 200:
-            return _pf("pass", "llm", "大模型 (AI 大脑)", f"本地 Ollama 服务连通正常 ({cfg['model_name']})")
+            return _pf("pass", "llm", "大模型 (AI 大脑)", f"本地 Ollama 服务连通正常 ({cfg.get('model_name')})")
         status = "不可达" if code is None else f"HTTP {code}"
         return _pf("fail", "llm", "大模型 (AI 大脑)",
                    f"已选择本地 Ollama，但服务检查失败 ({status})，AI 将降级为离线话术",
-                   "请先启动 Ollama (ollama serve) 并拉取模型，或改用云端 API", "settings")
+                   "请先启动 Ollama (ollama serve) 并拉取模型，或改用云端 API", "settings_llm")
 
     # 云端 OpenAI 兼容接口
-    if not cfg["api_key"]:
+    if not cfg.get("api_key"):
         return _pf("fail", "llm", "大模型 (AI 大脑)",
                    "已启用云端大模型但未填写 API Key，AI 将降级为离线话术",
-                   "在【云端模型】的大模型卡片填入 sk- 开头的密钥", "settings")
+                   "在【LLM 配置(1)】的大模型卡片填入 sk- 开头的密钥", "settings_llm")
     code = await _pf_ping(base + "/models", {"Authorization": f"Bearer {cfg['api_key']}"})
     if code == 200:
-        return _pf("pass", "llm", "大模型 (AI 大脑)", f"大模型 API 连通正常 ({cfg['model_name']})")
+        return _pf("pass", "llm", "大模型 (AI 大脑)", f"大模型 API 连通正常 ({cfg.get('model_name')})")
     if code == 401:
         message = "API Key 无效或已过期 (HTTP 401)，AI 将降级为离线话术"
-        hint = "请到服务商开放平台重新生成密钥并更新"
+        hint = "请到服务商开放平台重新生成密钥并在【LLM 配置(1)】更新"
     elif code is None:
         message = "无法连通大模型服务 (超时或地址错误)，AI 将降级为离线话术"
         hint = "检查 Base URL 是否正确、本机网络/代理是否可用"
     else:
         message = f"大模型服务检查失败 (HTTP {code})，AI 将降级为离线话术"
         hint = "检查 Base URL、API 权限、账户额度和服务商状态"
-    return _pf("fail", "llm", "大模型 (AI 大脑)", message, hint, "settings")
+    return _pf("fail", "llm", "大模型 (AI 大脑)", message, hint, "settings_llm")
 
 
 async def _pf_tts_check(cfg: Optional[dict]) -> dict:
@@ -2791,25 +2792,35 @@ async def _pf_tts_check(cfg: Optional[dict]) -> dict:
     if not cfg:
         return _pf("warn", "tts", "语音合成 (TTS)",
                    "未选择语音服务，开播将自动使用微软免费语音 (Edge-TTS)",
-                   "如需专属克隆音色，可在【云端模型】启用", "settings")
-    provider = (cfg["provider_name"] or "").lower()
-    base = (cfg["base_url"] or "").rstrip("/")
+                   "如需专属克隆音色，可在【TTS 语音(3)】启用", "settings_tts")
+    provider = (cfg.get("provider_name") or "").lower()
+    base = (cfg.get("base_url") or "").rstrip("/")
+    api_key = cfg.get("api_key") or ""
+    model_name = cfg.get("model_name") or "cosyvoice-v3.5-flash"
 
     if "edge" in provider:
         return _pf("pass", "tts", "语音合成 (TTS)", "微软免费语音 (Edge-TTS) 就绪，零配置零费用")
-    if "cosyvoice" in provider:
+
+    # 阿里云百炼 CosyVoice 云端音色克隆通道 (包含 aliyuncs / dashscope / maas 或云端域名)
+    is_bailian_cloud = any(k in base.lower() for k in ["aliyuncs.com", "dashscope", "maas"]) or "bailian" in provider
+    if "cosyvoice" in provider or is_bailian_cloud:
+        if is_bailian_cloud:
+            return _pf("pass", "tts", "语音合成 (TTS)", f"阿里云百炼 CosyVoice 云端音色克隆已就绪 ({model_name})")
+
+        # 否则属于本地私有化部署的 CosyVoice 服务 (如 127.0.0.1:50000 / 9233 等)
         if not base:
             return _pf("warn", "tts", "语音合成 (TTS)",
-                       "已启用 CosyVoice 但未填写服务地址，将回退微软免费语音",
-                       "在【云端模型】填入本地 CosyVoice 服务地址", "settings")
+                       "已启用本地 CosyVoice 但未填写服务地址，开播将自动回退微软免费语音",
+                       "请前往【TTS 语音(3)】填入本地 CosyVoice 服务地址", "settings_tts")
         code = await _pf_ping(base + "/")
         if code is not None and 200 <= code < 300:
             return _pf("pass", "tts", "语音合成 (TTS)", "本地 CosyVoice 声音克隆服务已就绪")
         status = "不可达" if code is None else f"HTTP {code}"
         return _pf("warn", "tts", "语音合成 (TTS)",
                    f"本地 CosyVoice 服务检查失败 ({status})，开播将自动回退微软免费语音 (克隆音色不可用)",
-                   "启动本地 CosyVoice 推理服务，检查服务地址，或改选免费语音", "settings")
-    return _pf("pass", "tts", "语音合成 (TTS)", "语音服务已配置")
+                   "请启动本地 CosyVoice 推理服务，或在【TTS 语音(3)】改选微软免费语音", "settings_tts")
+
+    return _pf("pass", "tts", "语音合成 (TTS)", f"语音服务已配置 ({cfg.get('provider_name')})")
 
 
 def _pf_obs_check() -> dict:
@@ -2993,6 +3004,7 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             "provider_name": row.provider_name,
             "base_url": row.base_url or "",
             "model_name": row.model_name or "",
+            "api_key": decrypt_secret(str(row.encrypted_api_key)) if row.encrypted_api_key else "",
         }
 
     res = await db.execute(
@@ -3032,10 +3044,7 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
     checks.append(llm_check)
     checks.append(tts_check)
 
-    # 5. Avatar：本地能力、远端配置与已存在运行态分层检查，不主动建连。
-    checks.append(_pf_avatar_check(avatar_configs))
-
-    # 6. OBS 仅探测本机组件，不代表平台已收流
+    # 5. OBS 仅探测本机组件，不代表平台已收流
     checks.append(_pf_obs_check())
     checks.append(_pf(
         "warn", "external_publish", "外部平台发布验收",
@@ -3089,14 +3098,14 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
     if cap_plan.use_cloud:
         cloud_pname = cap_plan.cloud_gpu.get("provider_name", "Sidecar") if cap_plan.cloud_gpu else "Sidecar"
         checks.append(_pf(
-            "pass", "gpu_cloud_dispatch", "云端显卡智能调度",
+            "pass", "gpu_cloud_dispatch", "高性能显卡调度",
             f"已优先调度已配置的云端显卡算力节点 [{cloud_pname}]，本地轻量低负载运行",
         ))
     elif cap_plan.is_low_spec_local:
         checks.append(_pf(
             "warn", "gpu_cloud_dispatch", "高性能显卡调度",
             f"本地显卡仅 {cap_plan.local_gpu.get('vram_total_gb', 0)}GB 显存且未对接云端显卡。高清深度神经渲染不可用，已自动选用轻量免显卡 CPU 模式",
-            "如需高清写实数字人，请前往【系统设置 -> 显卡与渲染设置】添加云端显卡 (Sidecar) 节点", "settings",
+            "如需高清写实数字人，请前往【GPU配置(2)】添加云端显卡 (Sidecar) 节点", "settings_gpu",
         ))
     else:
         checks.append(_pf(

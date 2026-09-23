@@ -25,7 +25,7 @@ def test_letterbox_frame():
 def test_virtual_cam_priority_arbitration():
     """测试高优先级云端神经渲染帧抢占本地 shadow 帧"""
     service = VirtualCameraService(width=640, height=360, fps=25)
-    
+
     # 模拟 cam_device
     class MockCamDevice:
         def __init__(self):

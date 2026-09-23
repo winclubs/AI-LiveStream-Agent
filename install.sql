@@ -154,11 +154,13 @@ CREATE TABLE IF NOT EXISTS prohibited_words (
     word VARCHAR(128) UNIQUE NOT NULL,
     category VARCHAR(32) DEFAULT 'extreme',
     role_scope VARCHAR(32) DEFAULT 'all',
+    platform VARCHAR(32) DEFAULT 'all',
     action_policy VARCHAR(32) DEFAULT 'substitute',
     replacement_word VARCHAR(128) DEFAULT '',
     is_enabled INTEGER DEFAULT 1,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS ix_prohibited_words_platform ON prohibited_words(platform);
 
 -- 12. 违禁词触发审计日志表
 CREATE TABLE IF NOT EXISTS prohibited_word_logs (
@@ -333,4 +335,6 @@ VALUES
 -- );
 -- CREATE INDEX IF NOT EXISTS ix_avatar_actions_anchor_id ON avatar_actions(anchor_id);
 -- CREATE INDEX IF NOT EXISTS ix_avatar_actions_action_code ON avatar_actions(action_code);
+-- ALTER TABLE prohibited_words ADD COLUMN platform VARCHAR(32) DEFAULT 'all';
+-- CREATE INDEX IF NOT EXISTS ix_prohibited_words_platform ON prohibited_words(platform);
 

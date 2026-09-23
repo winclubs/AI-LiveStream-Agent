@@ -556,7 +556,7 @@ def canonicalize_sidecar_url(url: str | None) -> str:
     endpoint = str(url).strip()
     parsed = urlparse(endpoint)
     scheme = (parsed.scheme or "").lower()
-    
+
     # 若无协议头，根据域名特征推断
     if not scheme:
         scheme = "wss" if ("trycloudflare.com" in endpoint or ".com" in endpoint or ".org" in endpoint) else "ws"

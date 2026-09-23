@@ -1,6 +1,6 @@
 {
-  "version": "1.9.0",
+  "version": "2.0.0",
   "service": "AI-LiveStream-Agent",
   "protocol_version": "v1",
-  "build_date": "2026-09-20"
+  "build_date": "2026-09-23"
 }

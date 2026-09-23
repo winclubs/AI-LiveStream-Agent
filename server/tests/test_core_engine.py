@@ -48,6 +48,47 @@ def test_aho_corasick_guardrail():
     assert is_dropped
     assert sanitized_drop == ""
 
+def test_multi_platform_guardrail():
+    """测试多平台违禁词规则隔离与动态匹配 (通用规则 + 抖音 + 视频号 + 快手 + B站)"""
+    sanitizer = ProhibitedWordSanitizer()
+    test_words = [
+        # 通用规则
+        {"word": "全网第一", "category": "extreme", "role_scope": "all", "platform": "all", "action_policy": "substitute", "replacement_word": "深受大家喜爱", "is_enabled": 1},
+        # 抖音专属
+        {"word": "加我微信", "category": "traffic", "role_scope": "all", "platform": "douyin", "action_policy": "substitute", "replacement_word": "关注小黄车", "is_enabled": 1},
+        {"word": "某宝", "category": "competitor", "role_scope": "all", "platform": "douyin", "action_policy": "drop", "replacement_word": "", "is_enabled": 1},
+        # 视频号专属
+        {"word": "加我私人微信", "category": "traffic", "role_scope": "all", "platform": "wechat", "action_policy": "drop", "replacement_word": "", "is_enabled": 1},
+        # 快手专属
+        {"word": "跟老板撕破脸", "category": "sensitive", "role_scope": "all", "platform": "kuaishou", "action_policy": "drop", "replacement_word": "", "is_enabled": 1},
+        # B站专属
+        {"word": "私下交易账号", "category": "traffic", "role_scope": "all", "platform": "bilibili", "action_policy": "drop", "replacement_word": "", "is_enabled": 1},
+    ]
+    sanitizer.load_words(test_words)
+
+    # 1. 通用规则在所有平台均触发
+    txt_gen = "我们家品质全网第一！"
+    res_dy, hits_dy, drop_dy = sanitizer.sanitize(txt_gen, current_role="ecommerce", current_platform="douyin")
+    res_bili, hits_bili, drop_bili = sanitizer.sanitize(txt_gen, current_role="entertainment", current_platform="bilibili")
+    assert "深受大家喜爱" in res_dy and not drop_dy
+    assert "深受大家喜爱" in res_bili and not drop_bili
+
+    # 2. 抖音专属词在抖音触发平替，在视频号/B站不触发 (平台隔离)
+    txt_traffic = "想要优惠的朋友可以加我微信咨询"
+    res_in_dy, hits_in_dy, drop_in_dy = sanitizer.sanitize(txt_traffic, current_platform="douyin")
+    assert "关注小黄车" in res_in_dy and len(hits_in_dy) == 1
+
+    res_in_wx, hits_in_wx, drop_in_wx = sanitizer.sanitize(txt_traffic, current_platform="wechat")
+    assert "加我微信" in res_in_wx and len(hits_in_wx) == 0  # 视频号未配置该词，安全放行
+
+    # 3. 快手剧本营销整句阻断
+    txt_ks = "今天我跟老板撕破脸了，直接骨折价给大家送！"
+    res_ks, hits_ks, drop_ks = sanitizer.sanitize(txt_ks, current_platform="kuaishou")
+    assert drop_ks and res_ks == ""
+    # 同一句话在抖音（未配置该快手专属词）不触发整句阻断
+    res_dy_ks, hits_dy_ks, drop_dy_ks = sanitizer.sanitize(txt_ks, current_platform="douyin")
+    assert not drop_dy_ks
+
 # 3. 测试：四级优先级队列与抢占式打断 (Barge-in)
 def test_priority_queue_and_barge_in():
     async def _async_test():

@@ -16,7 +16,7 @@ from server.core.guardrails.humanizer import (
 def test_inject_human_pauses():
     """验证长句智能寻找语义标点注入换气微停顿"""
     raw_text = "这款精华液含有高浓度透明质酸，能够深层补水锁水，改善肌肤干燥暗沉问题，现在下单享受买一送一福利。"
-    
+
     # 固定种子测试标点延时模式
     rng = random.Random(42)
     paused_punct = inject_human_pauses(raw_text, role_type="ecommerce", pause_format="punctuation", rng=rng)
