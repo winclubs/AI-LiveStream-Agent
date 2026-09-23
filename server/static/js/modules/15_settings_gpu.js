@@ -1206,6 +1206,15 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
         ? `<div style="font-size: 12px; color: #34d399; margin-top: 10px; display: flex; align-items: center; gap: 6px;">✓ 0 租赁成本 · 本地闭环，断网亦可流畅直播</div>`
         : `<div style="margin-top: 10px;"><button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #34d399; border: 1px solid rgba(16,185,129,0.3);">前往「GPU配置(2)」启用此模式 ↗</button></div>`;
 
+    let card1SubText = "";
+    if (localVram >= 6) {
+        card1SubText = `本地 CPU ${cpuCores}核 · 本地独显 ${localVram}G · 0 租赁支出`;
+    } else if (localVram > 0) {
+        card1SubText = `本地 CPU ${cpuCores}核 · 本地显存 ${localVram}G (自适应加速/轻量渲染) · 0 租赁支出`;
+    } else {
+        card1SubText = `本地 CPU ${cpuCores}核 · 纯 CPU 程序化渲染 · 0 显存门槛 · 0 租赁支出`;
+    }
+
     // 选项 2：本地硬件 + 租赁云端GPU
     const card2Selected = isCloudActive;
     const card2Border = card2Selected
@@ -1282,9 +1291,9 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
                             <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #10B981; fill: none; stroke-width: 2;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                         </div>
                         <div>
-                            <div style="font-size: 14.5px; font-weight: 700; color: #f8fafc;">选项 1 · 本机完全满足 (本地运行)</div>
+                            <div style="font-size: 14.5px; font-weight: 700; color: #f8fafc;">选项 1 · 本机运行 (本地闭环)</div>
                             <div style="font-size: 12px; color: #34d399; margin-top: 2px; font-weight: 500;">
-                                完全满足 · 本地 CPU >= 6核，GPU >= 12G
+                                ${card1SubText}
                             </div>
                         </div>
                     </div>
