@@ -143,7 +143,8 @@ class NeuralLipRenderer:
 
             opts = ort.SessionOptions()
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            opts.intra_op_num_threads = max(1, os.cpu_count() // 2 if os.cpu_count() else 2)
+            cpu_cores = os.cpu_count() or 4
+            opts.intra_op_num_threads = max(1, cpu_cores // 2)
 
             self.session = ort.InferenceSession(str(model_path), sess_options=opts, providers=providers)
             inputs = self.session.get_inputs()
