@@ -12,7 +12,7 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -22,12 +22,16 @@ from server.core.avatar.neural_model_manager import global_neural_model_manager
 logger = logging.getLogger("LiveAgent.NeuralLipRenderer")
 
 # 尝试导入 onnxruntime
-try:
+if TYPE_CHECKING:
     import onnxruntime as ort
-    ORT_AVAILABLE = True
-except ImportError:
-    ort = None
-    ORT_AVAILABLE = False
+    ORT_AVAILABLE: bool = True
+else:
+    try:
+        import onnxruntime as ort
+        ORT_AVAILABLE = True
+    except ImportError:
+        ort = None
+        ORT_AVAILABLE = False
 
 
 class MelFeatureExtractor:

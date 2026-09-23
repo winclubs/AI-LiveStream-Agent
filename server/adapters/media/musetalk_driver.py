@@ -13,14 +13,17 @@
 由 media_router 回退到仿真媒体驱动，保证核心服务永不因缺失可选依赖而启动失败。
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import math
+import os as _os
 import queue
 import threading
 import time
-from typing import Optional, Tuple
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from server.adapters.media.base_driver import BaseMediaDriver
 from server.core.media.audio_frame import validate_audio_frame_batch
@@ -28,18 +31,22 @@ from server.core.media.virtual_cam import global_virtual_cam
 from server.core.media.av_sync import global_av_sync
 from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state
 
-# 可选重依赖：numpy / opencv-python。缺失时优雅降级而非崩溃
-try:
-    import numpy as np
+if TYPE_CHECKING:
     import cv2
-    CV_AVAILABLE = True
-except Exception:  # pragma: no cover - 环境相关
-    np = None
-    cv2 = None
-    CV_AVAILABLE = False
+    import numpy as np
+    CV_AVAILABLE: bool = True
+else:
+    # 可选重依赖：numpy / opencv-python。缺失时优雅降级而非崩溃
+    try:
+        import cv2
+        import numpy as np
+        CV_AVAILABLE = True
+    except Exception:  # pragma: no cover - 环境相关
+        np = None
+        cv2 = None
+        CV_AVAILABLE = False
 
 # 渲染后端：默认程序化渲染；设置为 musetalk 时预留接入真实神经唇形权重
-import os as _os
 RENDER_BACKEND = _os.getenv("LIVE_AGENT_RENDER_BACKEND", "procedural").lower()
 
 logger = logging.getLogger("LiveAgent.ProceduralAvatar")
