@@ -188,73 +188,72 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         logger.info("原生自包含数字人已执行瞬间打断 (flush_talk)")
 
     def _render_frame(self, frame_idx: int) -> np.ndarray:
-        """单帧画面原生合成管线 (动作状态机底板 + 唇部重绘)"""
-        # 1. 提取当前动作切片帧 (或待机呼吸底图)
-        base_frame = self.action_state_machine.get_frame(frame_idx)
-        if base_frame is None:
-            # 深色高质感默认占位图
-            base_frame = np.full((self.height, self.width, 3), 24, dtype=np.uint8)
-
-        if base_frame.shape[0] != self.height or base_frame.shape[1] != self.width:
-            base_frame = cv2.resize(base_frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
-
-        # 2. 口型形变或神经重绘
+        """单帧画面原生合成管线 (真人高保真微动态底模 + 唇部自适应羽化形变)"""
         mouth_open = self._current_energy if self._speaking else 0.0
-        # 如果未在讲话，随时间衰减回闭合
+        # 语音停顿超时平滑归零
         if time.time() - self._last_speech_time > 0.25:
             self._speaking = False
             mouth_open = 0.0
 
-        if mouth_open > 0.02:
-            # 优先调用 RealAvatarLite 精细下唇仿射与高斯羽化融合
-            from server.core.media.real_avatar_lite import global_real_avatar_lite
-            t = frame_idx / float(self.fps)
-            rendered = global_real_avatar_lite.render_frame(
-                t=t,
-                mouth_open=mouth_open,
-                mouth_form=0.0,
-                is_blinking=(frame_idx % 80 in (78, 79)),
-            )
-            if rendered is not None:
-                base_frame = rendered
+        # 1. 尝试从动作状态机获取当前动作切片帧
+        base_frame = self.action_state_machine.get_frame(frame_idx)
+
+        # 2. 调用 RealAvatarLite 渲染真人微表情、待机呼吸与口型形变
+        from server.core.media.real_avatar_lite import global_real_avatar_lite
+        t = frame_idx / float(max(1, self.fps))
+        is_blinking = (frame_idx % 80 in (78, 79))
+        rendered = global_real_avatar_lite.render_frame(
+            t=t,
+            mouth_open=mouth_open,
+            mouth_form=0.0,
+            is_blinking=is_blinking,
+        )
+
+        if rendered is not None:
+            base_frame = rendered
+        elif base_frame is None:
+            # 优雅兜底：若均未加载则构建暖色调拟真人待机底板 (严禁全黑或极暗无光画面)
+            base_frame = np.full((self.height, self.width, 3), (180, 160, 140), dtype=np.uint8)
+
+        if base_frame.shape[0] != self.height or base_frame.shape[1] != self.width:
+            base_frame = cv2.resize(base_frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
 
         self.total_frames_synthesized += 1
         return base_frame
 
     async def _main_render_loop(self):
-        """恒定帧率推流驱动循环"""
+        """恒定帧率推流驱动循环 (严禁盲目重复向 RTMP 灌入伴音)"""
         frame_idx = 0
         interval = 1.0 / max(1, self.fps)
 
         while self.is_active:
             t0 = time.time()
             try:
-                pcm_to_publish = None
-                # 尝试消费一小包音频更新能量
+                # 尝试消费一小包音频更新能量开合度
                 if not self._audio_queue.empty():
-                    pcm_chunk, mel = self._audio_queue.get_nowait()
+                    _pcm_chunk, _mel = self._audio_queue.get_nowait()
                     self._audio_queue.task_done()
-                    pcm_to_publish = pcm_chunk
                 else:
                     self._current_energy = max(0.0, self._current_energy * 0.75)
 
                 frame = self._render_frame(frame_idx)
-                # 四路分发 (音画同步投递到虚拟摄像头/RTMP/WebRTC)
-                self.publish_frame(frame, pcm_bytes=pcm_to_publish)
+                # 仅分发视频帧；音频严格由 virtual_audio 统一播放时钟分发至 RTMP，彻底避免音轨双倍速与杂音
+                self.publish_frame(frame)
                 frame_idx += 1
             except Exception as e:
-                logger.debug(f"原生神经驱动渲染帧循环异常: {e}")
+                logger.debug(f"原生驱动渲染帧循环异常: {e}")
 
             elapsed = time.time() - t0
             sleep_time = max(0.002, interval - elapsed)
             await asyncio.sleep(sleep_time)
 
     def get_capabilities(self) -> Dict[str, Any]:
-        """如实上报当前自包含驱动器的硬件与神经能力"""
+        """如实上报当前自包含驱动器的硬件与渲染能力 (恪守 ADR-16 架构诚实)"""
         return {
             "driver": "native_neural_driver",
             "self_contained": True,
-            "neural_lipsync": bool(self.is_neural_ready),
+            "neural_lipsync": False,  # 恪守 ADR-16：如实声明当前未加载深度神经推理运行时
+            "engine_type": "real_avatar_lite",
             "model_key": self.active_model_key,
             "model_installed": bool(self.is_neural_ready),
             "model_path": str(self.active_model_path) if self.active_model_path else "",
@@ -267,7 +266,8 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         base = super().get_status()
         base.update({
             "self_contained": True,
-            "is_neural_ready": self.is_neural_ready,
+            "is_neural_ready": False,
+            "engine_type": "real_avatar_lite",
             "active_model_key": self.active_model_key,
             "total_frames_synthesized": self.total_frames_synthesized,
             "current_energy": round(self._current_energy, 3),

@@ -3129,18 +3129,18 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             f"本地显卡（{cap_plan.local_gpu.get('gpu_name')}，显存 {cap_plan.local_gpu.get('vram_total_gb')}GB）显存充足，支持高性能运行",
         ))
 
-    # 11. 自包含数字人渲染引擎与模型就绪检测
+    # 11. 自包含数字人渲染引擎检测 (恪守 ADR-16 架构诚实)
     from server.core.avatar.neural_model_manager import global_neural_model_manager
     model_status = global_neural_model_manager.get_model_status_matrix()
     if model_status.get("has_neural_model"):
         checks.append(_pf(
             "pass", "avatar_engine", "自包含数字人渲染引擎",
-            "原生深度学习模型权重已就绪 (data/models/)，启用电影级高保真神经口型重绘",
+            "内置高保真微动态引擎 (RealAvatarLite) 就绪开播；检测到模型权重资产，处于挂载就绪状态",
         ))
     else:
         checks.append(_pf(
             "pass", "avatar_engine", "自包含数字人渲染引擎",
-            "内置高保真微动态引擎 (RealAvatarLite) 已就绪，零显存稳定开播；向 data/models/ 放入权重即可无缝升级神经渲染",
+            "内置高保真微动态引擎 (RealAvatarLite) 就绪，零显存稳定开播；可在 data/models/ 挂载扩展模型资产",
         ))
 
     fails = sum(1 for c in checks if c["status"] == "fail")

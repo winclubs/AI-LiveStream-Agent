@@ -106,10 +106,15 @@ class BaseAvatarDriver(ABC):
                 except Exception:
                     pass
 
-            # 3. 投递至 WebRTC WHEP 视窗分发轨道
+            # 3. 投递至 WebRTC WHEP 视窗分发轨道 (WebRTC 接收通道标准为 BGR 格式)
             if self.webrtc_streamer:
                 try:
-                    self.webrtc_streamer.push_frame(composed_frame)
+                    import cv2
+                    if hasattr(composed_frame, "shape") and len(composed_frame.shape) == 3 and composed_frame.shape[2] == 3:
+                        webrtc_frame = cv2.cvtColor(composed_frame, cv2.COLOR_RGB2BGR)
+                    else:
+                        webrtc_frame = composed_frame
+                    self.webrtc_streamer.push_frame(webrtc_frame)
                     dispatched = True
                 except Exception:
                     pass
@@ -122,12 +127,12 @@ class BaseAvatarDriver(ABC):
                 except Exception:
                     pass
 
-        # 5. 投递音频流 (RTMP 与切片录制)
+        # 5. 可选投递音频流 (显式传入伴音时累加并分发至输出通道)
         if pcm_bytes:
+            self.total_audio_bytes += len(pcm_bytes)
             if self.rtmp_streamer and getattr(self.rtmp_streamer, "is_streaming", False):
                 try:
                     self.rtmp_streamer.send_audio_pcm(pcm_bytes)
-                    self.total_audio_bytes += len(pcm_bytes)
                     dispatched = True
                 except Exception:
                     pass
