@@ -7,10 +7,7 @@
 3. 彻底解耦外部独立系统路径，提供自包含的权重存在性检测、状态上报与下载引导；
 4. 严格保障模型缺失时的平滑降级，绝不阻断系统启动与主直播流程。
 """
-import hashlib
-import json
 import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -142,6 +139,7 @@ class NeuralModelManager:
         import shutil
         target_path = self.models_dir / meta["file_name"]
         try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, target_path)
             logger.info(f"已成功将模型权重导入至自包含目录: {target_path}")
             return True

@@ -1801,7 +1801,7 @@ async def get_neural_models_status():
 async def import_neural_model(req: ImportNeuralModelRequest):
     """支持用户将已下载的模型文件一键拷贝至本项目自包含的 data/models/ 目录"""
     from server.core.avatar.neural_model_manager import global_neural_model_manager
-    ok = global_neural_model_manager.import_local_model_file(req.src_path, req.model_key)
+    ok = await asyncio.to_thread(global_neural_model_manager.import_local_model_file, req.src_path, req.model_key)
     if not ok:
         raise HTTPException(status_code=400, detail="模型文件导入失败，请检查源文件是否存在或格式是否正确")
     return {

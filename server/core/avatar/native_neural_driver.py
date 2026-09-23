@@ -145,6 +145,12 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         if not self.is_active or not pcm_bytes:
             return False
 
+        # 偶数长度切片防御 (s16le 每采样 2 字节)
+        if len(pcm_bytes) % 2 != 0:
+            pcm_bytes = pcm_bytes[: len(pcm_bytes) - (len(pcm_bytes) % 2)]
+            if not pcm_bytes:
+                return False
+
         self._speaking = True
         self._last_speech_time = time.time()
 
@@ -171,6 +177,7 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         """极速打断回路：清空发声队列，嘴部立即闭合并复位动作状态机"""
         self._speaking = False
         self._current_energy = 0.0
+        self._last_speech_time = 0.0
         self.action_state_machine.reset_to_idle()
         while not self._audio_queue.empty():
             try:
@@ -222,16 +229,18 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         while self.is_active:
             t0 = time.time()
             try:
+                pcm_to_publish = None
                 # 尝试消费一小包音频更新能量
                 if not self._audio_queue.empty():
                     pcm_chunk, mel = self._audio_queue.get_nowait()
                     self._audio_queue.task_done()
+                    pcm_to_publish = pcm_chunk
                 else:
                     self._current_energy = max(0.0, self._current_energy * 0.75)
 
                 frame = self._render_frame(frame_idx)
-                # 四路分发
-                self.publish_frame(frame)
+                # 四路分发 (音画同步投递到虚拟摄像头/RTMP/WebRTC)
+                self.publish_frame(frame, pcm_bytes=pcm_to_publish)
                 frame_idx += 1
             except Exception as e:
                 logger.debug(f"原生神经驱动渲染帧循环异常: {e}")

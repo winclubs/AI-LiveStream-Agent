@@ -1109,9 +1109,10 @@ class LiveSessionController:
                             for punc in ("，", "！", "？", " ", "、", "。"):
                                 if punc in text_buffer:
                                     idx = text_buffer.find(punc)
-                                    ready_sentence = text_buffer[: idx + 1]
-                                    text_buffer = text_buffer[idx + 1 :]
-                                    break
+                                    if idx >= 3:  # 确保微块至少 4 字，避免单个字断句过碎
+                                        ready_sentence = text_buffer[: idx + 1]
+                                        text_buffer = text_buffer[idx + 1 :]
+                                        break
                             if not ready_sentence and len(text_buffer) >= 12:
                                 ready_sentence = text_buffer[:10]
                                 text_buffer = text_buffer[10:]
