@@ -3,14 +3,22 @@
 验证 NativeNeuralAvatarDriver、MelSpectrogramExtractor 以及 NeuralModelManager 的功能完整性
 """
 
+from fastapi.testclient import TestClient
 import numpy as np
 import pytest
 
+from server.app import app
 from server.core.avatar.native_neural_driver import (
     MelSpectrogramExtractor,
     NativeNeuralAvatarDriver,
 )
 from server.core.avatar.neural_model_manager import NeuralModelManager
+
+
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as c:
+        yield c
 
 
 def test_neural_model_manager():
@@ -94,3 +102,28 @@ async def test_native_neural_avatar_driver_lifecycle():
     # 停止驱动
     await driver.stop()
     assert driver.is_active is False
+
+
+def test_neural_models_settings_api(client):
+    """测试系统配置中自包含神经模型状态查询 API"""
+    res = client.get("/api/v1/settings/neural-models")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["code"] == 0
+    assert "data" in data
+    assert "models_dir" in data["data"]
+    assert "models" in data["data"]
+    assert "wav2lip_256" in data["data"]["models"]
+
+
+def test_preflight_includes_avatar_engine_check(client):
+    """测试开播体检预检接口中包含自包含数字人渲染引擎检测"""
+    res = client.get("/api/v1/live/preflight")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["code"] == 0
+    checks = data["data"]["checks"]
+    avatar_engine_check = next((c for c in checks if c["key"] == "avatar_engine"), None)
+    assert avatar_engine_check is not None
+    assert avatar_engine_check["status"] == "pass"
+    assert "自包含数字人" in avatar_engine_check["title"]

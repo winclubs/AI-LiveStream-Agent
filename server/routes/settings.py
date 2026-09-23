@@ -1778,3 +1778,37 @@ async def preview_tts_audio(req: TTSPreviewRequest):
     raise HTTPException(status_code=400, detail="未能生成有效的试听音频数据")
 
 
+# ---------------------------------------------------------------------------
+# 原生自包含数字人神经模型资产管理接口
+# ---------------------------------------------------------------------------
+class ImportNeuralModelRequest(BaseModel):
+    src_path: str = Field(..., description="本机已有权重文件绝对路径")
+    model_key: str = Field(..., description="模型标识符 (wav2lip_256 / wav2lip_384 / musetalk / onnx_lipsync)")
+
+
+@router.get("/neural-models", summary="获取自包含数字人神经模型就绪状态矩阵")
+async def get_neural_models_status():
+    """返回本项目内部 data/models/ 目录下的所有神经模型存在性与状态"""
+    from server.core.avatar.neural_model_manager import global_neural_model_manager
+    return {
+        "code": 0,
+        "message": "success",
+        "data": global_neural_model_manager.get_model_status_matrix(),
+    }
+
+
+@router.post("/neural-models/import", summary="从本地路径导入神经模型权重到本项目数据目录")
+async def import_neural_model(req: ImportNeuralModelRequest):
+    """支持用户将已下载的模型文件一键拷贝至本项目自包含的 data/models/ 目录"""
+    from server.core.avatar.neural_model_manager import global_neural_model_manager
+    ok = global_neural_model_manager.import_local_model_file(req.src_path, req.model_key)
+    if not ok:
+        raise HTTPException(status_code=400, detail="模型文件导入失败，请检查源文件是否存在或格式是否正确")
+    return {
+        "code": 0,
+        "message": "模型导入成功，已就绪",
+        "data": global_neural_model_manager.get_model_status_matrix(),
+    }
+
+
+
