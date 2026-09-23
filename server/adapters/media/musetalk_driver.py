@@ -598,11 +598,19 @@ class ProceduralAvatarDriver(BaseMediaDriver):
     def get_capabilities(self) -> dict:
         """机器可读能力清单上报 (ADR-16 / 规划 §4.2 如实声明契约，绝不虚报)"""
         from server.core.media.virtual_audio import global_virtual_audio
+        from server.core.avatar.neural_model_manager import global_neural_model_manager
         audio_status = global_virtual_audio.get_status()
+        has_internal_neural = bool(
+            global_neural_model_manager.is_model_available("wav2lip_256")
+            or global_neural_model_manager.is_model_available("wav2lip_384")
+            or global_neural_model_manager.is_model_available("musetalk")
+            or global_neural_model_manager.is_model_available("onnx_lipsync")
+        )
         return {
             "driver": "procedural_avatar",
             "capabilities": {
-                "neural_lipsync": False,
+                "self_contained": True,
+                "neural_lipsync": has_internal_neural,
                 "viseme_lipsync": True,
                 "g2p_aligned": False,  # 启发式均分非严格音素强制对齐
                 "alignment_mode": "heuristic_uniform",

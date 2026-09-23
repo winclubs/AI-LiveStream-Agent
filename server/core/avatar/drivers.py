@@ -22,19 +22,26 @@ logger = logging.getLogger("LiveAgent.AvatarDrivers")
 @register_avatar_driver("livetalking")
 class LocalLiveTalkingDriver(BaseAvatarDriver):
     """
-    本地 LiveTalking 深度学习唇形驱动器
-    对接本地路径 D:\\LiveTalking，支持通过 WebRTC / HTTP / WebSocket 注入语音并驱动口型。
+    本地深度学习唇形驱动器 (自包含原生融合版)
+    已将神经口型对齐与 Mel 特征渲染原生融合进本项目，自包含运行；
+    若配置了自定义外部端点则保留可选兼容，默认直接启用原生自闭环驱动。
     """
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
         import os
-        raw_dir = self.config.get("livetalking_dir") or os.environ.get("LIVETALKING_HOME") or "D:\\LiveTalking"
-        self.livetalking_dir = Path(raw_dir)
-        self.api_endpoint = (self.config.get("api_endpoint") or "http://127.0.0.1:8010").rstrip("/")
+        from server.core.avatar.native_neural_driver import NativeNeuralAvatarDriver
+
+        # 原生内置驱动实例 (自包含，无外部依赖)
+        self._native_driver = NativeNeuralAvatarDriver(config)
+        self.use_native = True
+
+        raw_dir = self.config.get("livetalking_dir") or os.environ.get("LIVETALKING_HOME") or ""
+        self.livetalking_dir = Path(raw_dir) if raw_dir else None
+        self.api_endpoint = (self.config.get("api_endpoint") or "").rstrip("/")
         self.session_id = self.config.get("session_id", "live_stream_session_0")
         self.avatar_id = self.config.get("avatar_id", "wav2lip256_avatar1")
         self.model_type = self.config.get("model_type", "wav2lip")
-        self.is_connected = False
+        self.is_connected = True
         self.total_audio_chunks = 0
         self.total_audio_bytes = 0
         self._http_client = None
@@ -48,17 +55,24 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
     async def start(self) -> bool:
         self.is_active = True
         self.bind_default_outputs()
-        status_note = "目录存在" if self.livetalking_dir.exists() else "可选外部参考目录 (未挂载)"
-        # 尝试探活本地 LiveTalking 服务
-        try:
-            client = await self._get_client()
-            resp = await client.get(f"{self.api_endpoint}/status")
-            self.is_connected = (resp.status_code == 200)
-        except Exception:
-            self.is_connected = False
 
-        conn_text = "🟢 握手成功 (服务已在线)" if self.is_connected else "⚪ 等待连接 (开播时将自动推流)"
-        logger.info(f"LocalLiveTalking 驱动器已就绪 (路径状态: {status_note}, 接口: {self.api_endpoint}, 通信: {conn_text})")
+        # 默认直接启动内置原生神经渲染管线
+        await self._native_driver.start()
+        self.is_connected = True
+
+        # 如果用户显式配置了第三方外部接口，仅做可选探活探测
+        if self.api_endpoint:
+            try:
+                client = await self._get_client()
+                resp = await client.get(f"{self.api_endpoint}/status")
+                if resp.status_code == 200:
+                    self.use_native = False
+                    logger.info(f"检测到用户指定了外部端点 ({self.api_endpoint})，已挂接外部通道")
+            except Exception:
+                self.use_native = True
+
+        mode_text = "🟢 项目原生自包含神经引擎" if self.use_native else f"🌐 外部端口对接 ({self.api_endpoint})"
+        logger.info(f"本地深度学习驱动器已就绪 (运行模式: {mode_text})")
         return True
 
     async def stop(self) -> None:
@@ -90,7 +104,7 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
 
     async def push_audio_chunk(self, pcm_bytes: bytes, eventpoint: Optional[Dict[str, Any]] = None) -> bool:
         """
-        真实将音频流块推送至本地 LiveTalking 的 /humanaudio 接口，驱动神经唇形渲染
+        将音频流块推送驱动神经唇形渲染 (自包含优先)
         """
         if not self.is_active or not pcm_bytes:
             return False
@@ -99,7 +113,11 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
         self.total_audio_chunks += 1
         self.total_audio_bytes += len(pcm_bytes)
 
-        # 真实推流至本地 LiveTalking HTTP /humanaudio 通道
+        # 优先由项目原生内置神经驱动消化执行
+        if self.use_native and self._native_driver:
+            return await self._native_driver.push_audio_chunk(pcm_bytes, eventpoint=eventpoint)
+
+        # 兼容用户显式指定的外部端点
         try:
             client = await self._get_client()
             wav_payload = self._ensure_wav_bytes(pcm_bytes)
@@ -109,7 +127,6 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
                 "avatar_id": self.avatar_id,
                 "model_type": self.model_type
             }
-            # 兼容带有文本打点的事件
             if eventpoint and "text" in eventpoint:
                 data["text"] = str(eventpoint["text"])
 
@@ -118,23 +135,29 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
                 self.is_connected = True
                 return True
         except Exception as e:
-            # 容错降级：不阻塞本地主控，仅记录异常并保持活跃
             self.is_connected = False
-            logger.debug(f"本地 LiveTalking 推流握手心跳: {e}")
+            logger.debug(f"外部端点通信重试: {e}")
 
         return True
 
     async def flush_talk(self) -> None:
-        """调用 LiveTalking 的 /interrupt_talk 接口触发瞬间打断清空队列"""
+        """瞬间打断清空队列"""
         self._speaking = False
-        try:
-            client = await self._get_client()
-            await client.post(
-                f"{self.api_endpoint}/interrupt_talk",
-                json={"sessionid": self.session_id, "avatar_id": self.avatar_id}
-            )
-        except Exception:
-            pass
+        if self._native_driver:
+            try:
+                await self._native_driver.flush_talk()
+            except Exception:
+                pass
+
+        if not self.use_native and self.api_endpoint:
+            try:
+                client = await self._get_client()
+                await client.post(
+                    f"{self.api_endpoint}/interrupt_talk",
+                    json={"sessionid": self.session_id, "avatar_id": self.avatar_id}
+                )
+            except Exception:
+                pass
         logger.info("LocalLiveTalking 驱动器已执行瞬间打断 (flush_talk)")
 
     async def set_custom_state(
@@ -164,14 +187,26 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
     def get_status(self) -> Dict[str, Any]:
         base = super().get_status()
         base.update({
+            "self_contained": True,
+            "use_native": self.use_native,
             "api_endpoint": self.api_endpoint,
             "is_connected": self.is_connected,
-            "livetalking_dir": str(self.livetalking_dir),
-            "livetalking_dir_exists": self.livetalking_dir.exists(),
+            "livetalking_dir": str(self.livetalking_dir) if self.livetalking_dir else "",
+            "livetalking_dir_exists": bool(self.livetalking_dir and self.livetalking_dir.exists()),
             "total_audio_chunks": self.total_audio_chunks,
             "total_audio_bytes": self.total_audio_bytes,
         })
         return base
+
+    def get_capabilities(self) -> Dict[str, Any]:
+        if self.use_native and self._native_driver:
+            return self._native_driver.get_capabilities()
+        return {
+            "driver": "livetalking",
+            "self_contained": False,
+            "neural_lipsync": True,
+            "endpoint": self.api_endpoint,
+        }
 
 
 @register_avatar_driver("cloud_sidecar")

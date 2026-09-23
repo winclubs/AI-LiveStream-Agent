@@ -1076,6 +1076,7 @@ class LiveSessionController:
                 await ws_manager.broadcast("speaking_state", {"is_speaking": True, "user": event.user_name})
                 text_buffer = ""
                 full_reply = ""
+                is_first_sentence = True
                 try:
                     stream_or_coro = active_role.process_event(
                         event.event_type,
@@ -1098,12 +1099,26 @@ class LiveSessionController:
                         text_buffer += raw_chunk
                         parts = sentence_delimiters.split(text_buffer)
 
-                        # 如果凑齐了完整短句
+                        # 优先研判是否满足断句输出条件 (标准标点断句 或 首句微块极速开嗓)
+                        ready_sentence = None
                         if len(parts) >= 3:
-                            # 组合出第一句
-                            complete_sentence = parts[0] + parts[1]
+                            ready_sentence = parts[0] + parts[1]
                             text_buffer = "".join(parts[2:])
+                        elif is_first_sentence and len(text_buffer) >= 6:
+                            # 首句微块切片机制：前 6~12 字快速寻找断句点，将首字延迟压缩至 300ms 内
+                            for punc in ("，", "！", "？", " ", "、", "。"):
+                                if punc in text_buffer:
+                                    idx = text_buffer.find(punc)
+                                    ready_sentence = text_buffer[: idx + 1]
+                                    text_buffer = text_buffer[idx + 1 :]
+                                    break
+                            if not ready_sentence and len(text_buffer) >= 12:
+                                ready_sentence = text_buffer[:10]
+                                text_buffer = text_buffer[10:]
 
+                        if ready_sentence:
+                            is_first_sentence = False
+                            complete_sentence = ready_sentence
                             speak_text, is_dropped, hits = await self._sanitize_and_humanize(
                                 complete_sentence, active_role
                             )
