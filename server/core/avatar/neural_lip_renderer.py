@@ -120,10 +120,12 @@ class NeuralLipRenderer:
         self._init_session(custom_onnx_path)
 
     def _init_session(self, custom_onnx_path: Optional[Path] = None) -> None:
-        if not ORT_AVAILABLE:
+        if not ORT_AVAILABLE or ort is None:
             logger.info("onnxruntime 未安装，神经唇形引擎自动降级 (运行模式: RealAvatarLite)")
             self.is_ready = False
             return
+
+        assert ort is not None
 
         model_path = custom_onnx_path or global_neural_model_manager.find_model_path(self.model_key)
         if not model_path or not model_path.exists():
