@@ -98,7 +98,6 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         self.height = self.config.get("height", 960)
         self.active_model_key = self.config.get("model_key", "wav2lip_256")
 
-        self.mel_extractor = MelSpectrogramExtractor()
         self._audio_queue = asyncio.Queue(maxsize=1000)
         self._loop_task: Optional[asyncio.Task] = None
         self._current_energy = 0.0
@@ -165,10 +164,9 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         if eventpoint and eventpoint.get("text"):
             self.action_state_machine.evaluate_text(str(eventpoint["text"]))
 
-        # 3. 提取 Mel 频谱并推入流水线
+        # 3. 推入音频队列用于维持讲话时钟与驱动开合
         try:
-            mel = self.mel_extractor.extract_mel(pcm_bytes)
-            self._audio_queue.put_nowait((pcm_bytes, mel))
+            self._audio_queue.put_nowait(pcm_bytes)
             return True
         except asyncio.QueueFull:
             return False
@@ -188,7 +186,7 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         logger.info("原生自包含数字人已执行瞬间打断 (flush_talk)")
 
     def _render_frame(self, frame_idx: int) -> np.ndarray:
-        """单帧画面原生合成管线 (真人高保真微动态底模 + 唇部自适应羽化形变)"""
+        """单帧画面原生合成管线 (动作状态机切片优先 + 待机真人微动态底模)"""
         mouth_open = self._current_energy if self._speaking else 0.0
         # 语音停顿超时平滑归零
         if time.time() - self._last_speech_time > 0.25:
@@ -198,22 +196,22 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         # 1. 尝试从动作状态机获取当前动作切片帧
         base_frame = self.action_state_machine.get_frame(frame_idx)
 
-        # 2. 调用 RealAvatarLite 渲染真人微表情、待机呼吸与口型形变
-        from server.core.media.real_avatar_lite import global_real_avatar_lite
-        t = frame_idx / float(max(1, self.fps))
-        is_blinking = (frame_idx % 80 in (78, 79))
-        rendered = global_real_avatar_lite.render_frame(
-            t=t,
-            mouth_open=mouth_open,
-            mouth_form=0.0,
-            is_blinking=is_blinking,
-        )
-
-        if rendered is not None:
-            base_frame = rendered
-        elif base_frame is None:
-            # 优雅兜底：若均未加载则构建暖色调拟真人待机底板 (严禁全黑或极暗无光画面)
-            base_frame = np.full((self.height, self.width, 3), (180, 160, 140), dtype=np.uint8)
+        # 2. 若当前无动作切片（处于待机呼吸位），则调用 RealAvatarLite 渲染真人微动态底模
+        if base_frame is None:
+            from server.core.media.real_avatar_lite import global_real_avatar_lite
+            t = frame_idx / float(max(1, self.fps))
+            is_blinking = (frame_idx % 80 in (78, 79))
+            rendered = global_real_avatar_lite.render_frame(
+                t=t,
+                mouth_open=mouth_open,
+                mouth_form=0.0,
+                is_blinking=is_blinking,
+            )
+            if rendered is not None:
+                base_frame = rendered
+            else:
+                # 优雅兜底：若均未加载则构建暖色调拟真人待机底板 (严禁全黑或极暗无光画面)
+                base_frame = np.full((self.height, self.width, 3), (180, 160, 140), dtype=np.uint8)
 
         if base_frame.shape[0] != self.height or base_frame.shape[1] != self.width:
             base_frame = cv2.resize(base_frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
@@ -231,7 +229,7 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             try:
                 # 尝试消费一小包音频更新能量开合度
                 if not self._audio_queue.empty():
-                    _pcm_chunk, _mel = self._audio_queue.get_nowait()
+                    _pcm_chunk = self._audio_queue.get_nowait()
                     self._audio_queue.task_done()
                 else:
                     self._current_energy = max(0.0, self._current_energy * 0.75)

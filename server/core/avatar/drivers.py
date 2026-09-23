@@ -102,10 +102,6 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
         self.total_audio_chunks += 1
         self.total_audio_bytes += len(pcm_bytes)
 
-        # 话术关键词双轨驱动动作状态机
-        if eventpoint and eventpoint.get("text"):
-            self.action_state_machine.evaluate_text(str(eventpoint["text"]))
-
         # 兼容老用户配置的外部端点真实推流
         if self.is_connected:
             try:

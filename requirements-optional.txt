@@ -1,19 +1,2 @@
-# =============================================================================
-# AI-LiveStream-Agent 可选高阶功能依赖项 (Optional High-Performance Dependencies)
-# 根据业务需要按需安装，核心轻量版默认开箱即用，无需预装以下重依赖
-# =============================================================================
-
-# 1. 本地离线高精度 ASR 语音识别 (SenseVoiceSmall / FunASR 极速中文听音)
-funasr>=1.1.0
-modelscope>=1.14.0
-faster-whisper>=1.0.0
-
-# 2. OBS 虚拟摄像头原生输出 (无缝推流至第三方直播伴侣)
-pyvirtualcam>=0.10.0
-
-# 3. 图像与视频处理底层加速 (若需要原生视频读取与局部仿射)
-opencv-python>=4.8.0
-pillow>=10.0.0
-
-# 4. ONNX 轻量神经网络推理运行时 (DirectML / CPU 极速推理)
-onnxruntime>=1.18.0
+# 根目录可选依赖快速入口，统一指向服务端可选依赖，避免版本漂移
+-r server/requirements-optional.txt

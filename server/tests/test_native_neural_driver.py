@@ -113,6 +113,22 @@ async def test_native_neural_avatar_driver_lifecycle_and_non_black_frames():
     assert driver.is_active is False
 
 
+def test_action_clip_priority_over_standby():
+    """测试动作切片帧优先级：当处于动作状态机激活动作时，画面优先呈现动作帧而不被待机底模粗暴覆盖"""
+    driver = NativeNeuralAvatarDriver(config={"fps": 25, "width": 100, "height": 100})
+
+    # 模拟动作状态机输出特定的纯绿色测试动作帧 (R=0, G=255, B=0)
+    mock_action_frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    mock_action_frame[:, :, 1] = 255
+
+    driver.action_state_machine.get_frame = lambda idx: mock_action_frame
+
+    rendered = driver._render_frame(0)
+    assert rendered is not None
+    # 验证输出的是动作切片帧（Green 通道为 255）
+    assert rendered[50, 50, 1] == 255
+
+
 def test_webrtc_color_conversion(monkeypatch):
     """测试 BaseAvatarDriver 在分发至 WebRTC 时严格执行 RGB->BGR 色序转换，避免蓝脸"""
     config = {"auto_bind_streams": False}
