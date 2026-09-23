@@ -293,7 +293,7 @@ class MediaDriverRouter(BaseMediaDriver):
         media_contract = self.get_media_capabilities()
         caps = {
             "procedural_avatar": status.get("render_backend") == "procedural",
-            "neural_lipsync": False,
+            "neural_lipsync": bool(status.get("neural_lipsync", False)),
             "viseme_lipsync": status.get("viseme_lipsync", True if status.get("render_backend") == "procedural" else False),
             "g2p_aligned": status.get("g2p_aligned", False),
             "alignment_mode": status.get("alignment_mode", "heuristic_uniform" if status.get("render_backend") == "procedural" else "none"),

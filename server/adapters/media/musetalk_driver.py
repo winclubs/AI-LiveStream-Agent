@@ -81,6 +81,8 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         self._sentence_lock = threading.Lock()
         self._active_sentences: list[dict] = []
         self._active_sentence: Optional[dict] = None  # 旧诊断/测试兼容视图（队首）
+        self._latest_pcm_16k: Optional[np.ndarray] = None
+        self._latest_pcm_time: float = 0.0
 
         # 泊松过程眨眼调度器 (规划 §4.4)
         from server.core.media.procedural_renderer import MicroExpressionState
@@ -95,6 +97,14 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         self.latest_jpeg_frame: bytes = b""
         self.total_frames_rendered = 0
         self.start_ts = 0.0
+
+        # 真实神经唇形重绘驱动引擎 (Wav2Lip ONNX + coords 动态羽化回贴)
+        self.lip_renderer = None
+        try:
+            from server.core.avatar.neural_lip_renderer import NeuralLipRenderer
+            self.lip_renderer = NeuralLipRenderer()
+        except Exception as e:
+            logger.warning(f"神经唇形渲染引擎加载失败，回退程序化: {e}")
 
         # 初始化肖像底图
         self._load_or_generate_avatar(avatar_source_path)
@@ -143,6 +153,14 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             global_real_avatar_lite.reload_source(path, landmarks_path=self.landmarks_cache)
         except Exception as e:
             logger.warning(f"同步真人微动态底模失败: {e}")
+
+        # 尝试加载主播神经唇形重绘切片与坐标 (若当前主播素材已由 task_manager 预处理)
+        if self.lip_renderer is not None and path:
+            try:
+                anchor_dir = Path(path).parent
+                self.lip_renderer.load_anchor_assets(anchor_dir)
+            except Exception as e:
+                logger.debug(f"加载主播神经唇形切片资产跳过: {e}")
 
         self.latest_jpeg_frame = encode_jpeg(self.base_portrait, quality=85)
 
@@ -317,16 +335,34 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                     ))
                 frame_idx += 1
 
+            # 重采样至 16kHz float32 用于神经 Mel 特征提取
+            samples_16k = None
+            try:
+                if decoded_sample_rate == 16000:
+                    samples_16k = samples.astype(np.float32)
+                elif decoded_sample_rate > 0 and len(samples) > 0:
+                    target_len = int(len(samples) * 16000 / decoded_sample_rate)
+                    if target_len > 0:
+                        x_orig = np.linspace(0, 1, len(samples), endpoint=False)
+                        x_target = np.linspace(0, 1, target_len, endpoint=False)
+                        samples_16k = np.interp(x_target, x_orig, samples).astype(np.float32)
+            except Exception:
+                samples_16k = None
+
             if self._generation_is_current(audio_generation, session_generation) and audio_id:
                 sentence = {
                     "audio_id": audio_id,
                     "audio_generation": audio_generation,
                     "session_generation": session_generation,
                     "visemes": viseme_list,
+                    "pcm_16k": samples_16k,
                 }
                 with self._sentence_lock:
                     self._active_sentences.append(sentence)
                     self._active_sentence = self._active_sentences[0]
+            elif self._generation_is_current(audio_generation, session_generation) and not audio_id:
+                self._latest_pcm_16k = samples_16k
+                self._latest_pcm_time = time.monotonic()
         except Exception as exc:
             if self._generation_is_current(audio_generation, session_generation):
                 logger.warning("口型音频解码失败，使用单帧保守口型: %s", exc)
@@ -338,6 +374,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                             "audio_generation": audio_generation,
                             "session_generation": session_generation,
                             "visemes": [(0.3, 0.0)],
+                            "pcm_16k": None,
                         }
                         self._active_sentences.append(sentence)
                         self._active_sentence = self._active_sentences[0]
@@ -484,9 +521,39 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 self.current_mouth_open += (0.0 - self.current_mouth_open) * 0.5
                 self.current_mouth_form += (0.0 - self.current_mouth_form) * 0.5
 
-            # 2. 生成当前合成视频帧 (呼吸扰动 + 泊松眨眼 + Viseme 口型 + 防封杀运镜光影)
+            # 截取前后 200ms 的 16kHz float32 音频切片 (3200 采样点) 供神经唇形重绘
+            current_pcm_window = None
+            active_pcm = sent.get("pcm_16k") if sent else self._latest_pcm_16k
+            active_elapsed = (
+                elapsed
+                if (sent and "elapsed" in locals())
+                else max(0.0, time.monotonic() - self._latest_pcm_time)
+            )
+            if active_pcm is not None and len(active_pcm) > 0 and self.is_speaking:
+                center_sample = int(active_elapsed * 16000)
+                win_start = center_sample - 1600
+                win_end = center_sample + 1600
+                pad_left = max(0, -win_start)
+                act_start = max(0, win_start)
+                act_end = min(len(active_pcm), win_end)
+                pad_right = max(0, win_end - len(active_pcm))
+
+                if act_start < act_end:
+                    slice_data = active_pcm[act_start:act_end]
+                    if pad_left > 0 or pad_right > 0:
+                        slice_data = np.pad(slice_data, (pad_left, pad_right), mode="constant")
+                    current_pcm_window = slice_data
+                else:
+                    current_pcm_window = np.zeros(3200, dtype=np.float32)
+
+            # 2. 生成当前合成视频帧 (神经唇形重绘 / 真人微动态 / 程序化兜底 + 泊松眨眼)
             render_started = time.time()
-            frame_rgb = self._synthesize_frame(t, self.current_mouth_open, self.current_mouth_form)
+            frame_rgb = self._synthesize_frame(
+                t,
+                self.current_mouth_open,
+                self.current_mouth_form,
+                pcm_window=current_pcm_window,
+            )
             # 记录单帧基础渲染耗时用于音画同步补偿 (规划 §15.1)
             global_av_sync.record_render_latency((time.time() - render_started) * 1000.0)
 
@@ -549,8 +616,14 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             if ok:
                 self.latest_jpeg_frame = buf.tobytes()
 
-    def _synthesize_frame(self, t: float, mouth_open: float, mouth_form: float = 0.0) -> "np.ndarray":
-        """合成单帧 (动作切片智能穿插 / 真人微动态底池羽化融合 / 共享程序化兜底渲染)"""
+    def _synthesize_frame(
+        self,
+        t: float,
+        mouth_open: float,
+        mouth_form: float = 0.0,
+        pcm_window: Optional["np.ndarray"] = None,
+    ) -> "np.ndarray":
+        """合成单帧 (动作切片智能穿插 / 真实神经唇形重绘 / 真人微动态羽化 / 程序化兜底渲染)"""
         if self.base_portrait is None:
             return np.zeros((self.height, self.width, 3), dtype=np.uint8)
 
@@ -568,7 +641,27 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         except Exception:
             pass
 
-        # 若未触发动作切片，优先接入低配真人微动态与下唇自适应羽化融合引擎
+        # 优先接入真实神经唇形重绘引擎 (Wav2Lip ONNX + coords 动态羽化回贴)
+        if (
+            not has_custom_action
+            and self.lip_renderer is not None
+            and getattr(self.lip_renderer, "is_ready", False)
+            and getattr(self.lip_renderer, "has_anchor_assets", False)
+            and pcm_window is not None
+        ):
+            try:
+                neural_frame = self.lip_renderer.render_lip_frame(
+                    active_portrait,
+                    self.current_frame_id,
+                    pcm_window,
+                    mouth_open=mouth_open,
+                )
+                if neural_frame is not None:
+                    return neural_frame
+            except Exception as e:
+                logger.debug("神经唇形重绘异常，平滑降级: %s", e)
+
+        # 若未触发动作切片且神经模型未就绪，接入低配真人微动态与下唇自适应羽化融合引擎
         if not has_custom_action and self.avatar_source_path and _os.path.exists(self.avatar_source_path):
             try:
                 from server.core.media.real_avatar_lite import global_real_avatar_lite
@@ -599,11 +692,16 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         """机器可读能力清单上报 (ADR-16 / 规划 §4.2 如实声明契约，绝不虚报)"""
         from server.core.media.virtual_audio import global_virtual_audio
         audio_status = global_virtual_audio.get_status()
+        neural_lip_active = bool(
+            self.lip_renderer is not None
+            and getattr(self.lip_renderer, "is_ready", False)
+            and getattr(self.lip_renderer, "has_anchor_assets", False)
+        )
         return {
             "driver": "procedural_avatar",
             "capabilities": {
                 "self_contained": True,
-                "neural_lipsync": False,  # 恪守 ADR-16：当前程序化驱动未载入神经推理模型，如实声明 False
+                "neural_lipsync": neural_lip_active,  # 恪守 ADR-16：动态如实声明神经推理模型是否真正就绪
                 "viseme_lipsync": True,
                 "g2p_aligned": False,  # 启发式均分非严格音素强制对齐
                 "alignment_mode": "heuristic_uniform",
