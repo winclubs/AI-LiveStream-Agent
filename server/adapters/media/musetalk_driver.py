@@ -337,14 +337,15 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             # 重采样至 16kHz float32 用于神经 Mel 特征提取
             samples_16k = None
             try:
-                if decoded_sample_rate == 16000:
-                    samples_16k = samples.astype(np.float32)
-                elif decoded_sample_rate > 0 and len(samples) > 0:
-                    target_len = int(len(samples) * 16000 / decoded_sample_rate)
-                    if target_len > 0:
-                        x_orig = np.linspace(0, 1, len(samples), endpoint=False)
-                        x_target = np.linspace(0, 1, target_len, endpoint=False)
-                        samples_16k = np.interp(x_target, x_orig, samples).astype(np.float32)
+                if np is not None:
+                    if decoded_sample_rate == 16000:
+                        samples_16k = samples.astype(np.float32)
+                    elif decoded_sample_rate > 0 and len(samples) > 0:
+                        target_len = int(len(samples) * 16000 / decoded_sample_rate)
+                        if target_len > 0:
+                            x_orig = np.linspace(0, 1, len(samples), endpoint=False)
+                            x_target = np.linspace(0, 1, target_len, endpoint=False)
+                            samples_16k = np.interp(x_target, x_orig, samples).astype(np.float32)
             except Exception:
                 samples_16k = None
 
@@ -530,7 +531,12 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 if (sent and "elapsed" in locals())
                 else max(0.0, time.monotonic() - self._latest_pcm_time)
             )
-            if active_pcm is not None and len(active_pcm) > 0 and self.is_speaking:
+            if (
+                np is not None
+                and active_pcm is not None
+                and len(active_pcm) > 0
+                and self.is_speaking
+            ):
                 center_sample = int(active_elapsed * 16000)
                 win_start = center_sample - 1600
                 win_end = center_sample + 1600
