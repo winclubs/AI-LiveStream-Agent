@@ -301,12 +301,53 @@ class NeuralLipRenderer:
 
         return full_frame
 
+    def _crop_face_256(
+        self,
+        full_frame: np.ndarray,
+        coord_box: Tuple[int, int, int, int],
+    ) -> Optional[np.ndarray]:
+        """
+        动作帧路径专用：从当前帧按坐标裁剪人脸并缩放为 256x256 送推理。
+        与待机底片预切图 (face_imgs) 等价，但保证与当前帧人脸位置对齐。
+        """
+        try:
+            if full_frame is None or full_frame.size == 0:
+                return None
+            ymin, ymax, xmin, xmax = coord_box
+            fh, fw = full_frame.shape[:2]
+            ymin = max(0, min(fh - 1, int(ymin)))
+            ymax = max(0, min(fh, int(ymax)))
+            xmin = max(0, min(fw - 1, int(xmin)))
+            xmax = max(0, min(fw, int(xmax)))
+            box_h = ymax - ymin
+            box_w = xmax - xmin
+            if box_h < 10 or box_w < 10:
+                return None
+            # 以唇部为中心按正方形扩展采样区域，与 Wav2Lip 预处理保持一致
+            cy = ymin + int(box_h * 0.72)
+            cx = xmin + box_w // 2
+            half = max(box_w, box_h) // 2 + 8
+            sy0, sy1 = max(0, cy - half), min(fh, cy + half)
+            sx0, sx1 = max(0, cx - half), min(fw, cx + half)
+            if sy1 - sy0 < 8 or sx1 - sx0 < 8:
+                return None
+            crop = full_frame[sy0:sy1, sx0:sx1]
+            if crop.shape[2] == 4:
+                crop = cv2.cvtColor(crop, cv2.COLOR_RGBA2RGB)
+            elif crop.shape[2] == 4:
+                crop = cv2.cvtColor(crop, cv2.COLOR_BGRA2RGB)
+            return cv2.resize(crop, (256, 256), interpolation=cv2.INTER_AREA)
+        except Exception as e:
+            logger.debug(f"动作帧人脸裁剪失败 ({e})，该帧回退程序化渲染")
+            return None
+
     def render_lip_frame(
         self,
         full_frame: np.ndarray,
         frame_idx: int,
         pcm_window: np.ndarray,
         mouth_open: float = 0.0,
+        override_coord: Optional[Tuple[int, int, int, int]] = None,
     ) -> Optional[np.ndarray]:
         """
         执行单帧真实神经唇形重绘管线
@@ -315,8 +356,16 @@ class NeuralLipRenderer:
           - frame_idx: 当前播放帧序号
           - pcm_window: 前后 200ms 的单声道 float32 音频切片 (约 3200 采样点)
           - mouth_open: 当前音频能量，低于静音门限时直接跳过推理
+          - override_coord: 外部传入的人脸包围盒 (ymin, ymax, xmin, xmax)。
+            用于动作切片等非底图帧：动作帧与待机底片素材不对齐，需显式指定
+            当前帧的人脸位置，并从当前帧实时裁剪 256x256 人脸送推理，
+            避免把底片素材贴到动作帧的错误位置。
         """
-        if not self.is_ready or not self.session or not self.has_anchor_assets:
+        if not self.is_ready or not self.session:
+            return None
+
+        # 外部坐标模式不依赖预切片素材 (动作帧无专属 face_imgs)；底图模式必须有
+        if override_coord is None and not self.has_anchor_assets:
             return None
 
         # 静音、能量极低或音频切片为空时，无需执行深度推理，直接返回原帧保持纯正自然
@@ -325,14 +374,20 @@ class NeuralLipRenderer:
         if mouth_open < 0.01 and float(np.max(np.abs(pcm_window))) < 0.01:
             return full_frame
 
-        total_frames = len(self.face_imgs)
-        if total_frames == 0 or len(self.coords) == 0:
-            return None
-
-        # 循环索引对应切片人脸与坐标
-        idx = frame_idx % total_frames
-        face_256 = self.face_imgs[idx]
-        coord_box = self.coords[idx % len(self.coords)]
+        if override_coord is not None:
+            # 动作帧路径：从当前帧实时裁剪对齐人脸，坐标用外部传入值
+            face_256 = self._crop_face_256(full_frame, override_coord)
+            if face_256 is None:
+                return None
+            coord_box = override_coord
+        else:
+            total_frames = len(self.face_imgs)
+            if total_frames == 0 or len(self.coords) == 0:
+                return None
+            # 循环索引对应切片人脸与坐标
+            idx = frame_idx % total_frames
+            face_256 = self.face_imgs[idx]
+            coord_box = self.coords[idx % len(self.coords)]
 
         try:
             # 1. 提取 80 维 Mel 窗口 [1, 1, 80, 16]

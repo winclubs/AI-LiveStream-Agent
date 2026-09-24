@@ -420,6 +420,12 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 self.mouth_open_queue.get_nowait()
             except queue.Empty:
                 break
+        try:
+            global_shared_playback_clock.reset()
+            from server.core.media.av_sync import global_av_sync
+            global_av_sync.apply_drift(None, anchored=False)
+        except Exception:
+            pass
         logger.info(f"数字人驱动收到打断信号 [{reason}]，口型立即平滑归位")
 
     def _render_thread_loop(self):
@@ -597,9 +603,20 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             self.current_frame_id += 1
             self.total_frames_rendered += 1
 
-            # 精确控制 25 FPS 时间步长
+            # 精确控制 25 FPS 时间步长并消费 frame_pacing_hint 动态追赶/等待
             elapsed = time.time() - loop_start
-            time.sleep(max(0.001, frame_interval - elapsed))
+            target_sleep = frame_interval - elapsed
+            try:
+                hint = global_shared_playback_clock.get_frame_pacing_hint()
+                if hint == "skip_frame":
+                    # 画面落后于音频，减少 sleep 步长追赶 (微调约 8ms)
+                    target_sleep = max(0.001, target_sleep - 0.008)
+                elif hint == "duplicate_frame":
+                    # 画面超前于音频，微幅延长 sleep 等待 (微调约 8ms)
+                    target_sleep = target_sleep + 0.008
+            except Exception:
+                pass
+            time.sleep(max(0.001, target_sleep))
 
     def _publish_frame(self, frame_rgb: "np.ndarray") -> None:
         """Compose once, then fan the same publish frame out to camera, RTMP, WebRTC and recorder."""
@@ -669,6 +686,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         # 优先检测动作状态机是否处于非待机状态 (P0-3 动作切片联动)
         active_portrait = self.base_portrait
         has_custom_action = False
+        action_coord: Optional[Tuple[int, int, int, int]] = None
         try:
             from server.core.avatar.action_state_machine import get_action_state_machine
             action_sm = get_action_state_machine()
@@ -677,16 +695,19 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 if act_frame is not None:
                     active_portrait = act_frame
                     has_custom_action = True
+                    # 动作切片自带 coords (与该帧逐帧配对)，供神经唇形按当前帧人脸位置重绘
+                    action_coord = action_sm.get_current_coords(self.current_frame_id)
         except Exception:
             pass
 
         # 优先接入真实神经唇形重绘引擎 (Wav2Lip ONNX + coords 动态羽化回贴)
+        # 动作帧不再与神经唇形互斥：传入动作专属坐标并从当前帧实时裁剪对齐人脸
         if (
-            not has_custom_action
-            and self.lip_renderer is not None
+            self.lip_renderer is not None
             and getattr(self.lip_renderer, "is_ready", False)
             and getattr(self.lip_renderer, "has_anchor_assets", False)
             and pcm_window is not None
+            and (not has_custom_action or action_coord is not None)
         ):
             try:
                 neural_frame = self.lip_renderer.render_lip_frame(
@@ -694,6 +715,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                     self.current_frame_id,
                     pcm_window,
                     mouth_open=mouth_open,
+                    override_coord=action_coord,
                 )
                 if neural_frame is not None:
                     return neural_frame

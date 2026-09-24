@@ -16,7 +16,9 @@ from urllib.parse import urlparse
 
 from server.adapters.media.avatar_provider import ProviderError, ProviderErrorCode
 from server.adapters.media.base_driver import BaseMediaDriver
+from server.core.media.av_sync import global_av_sync
 from server.core.media.audio_frame import validate_audio_frame_batch
+from server.core.media.shared_playback_clock import global_shared_playback_clock
 from server.core.media.sidecar_protocol import (
     PROTOCOL_VERSION,
     SidecarVideoFrame,
@@ -124,6 +126,8 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         self.latest_jpeg = b""
         self.frames_received = 0
         self.frames_dropped = 0
+        # 发布帧携带的采样时钟换算 PTS (由时间线循环在 report_audio_head 后写入)
+        self._pending_video_pts_ms: Optional[float] = None
         self.transactions_completed = 0
         self.transactions_failed = 0
         self.last_error = ""
@@ -1029,6 +1033,22 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
                         buffered = item
                         break
 
+                    try:
+                        if clock and not using_fallback and clock.get("has_started"):
+                            _audio_head_ms = (float(clock.get("elapsed_sec", 0.0) or 0.0)) * 1000.0
+                            if _audio_head_ms <= 0.0 and sample_rate > 0:
+                                _audio_head_ms = (int(clock.get("samples_played", 0)) / float(sample_rate)) * 1000.0
+                            global_shared_playback_clock.report_audio_head(audio_id, _audio_head_ms)
+                            _drift = global_shared_playback_clock.compute_drift()
+                            global_av_sync.apply_drift(_drift, anchored=True)
+                            # 发布前把采样时钟锚点传给视频侧，使两侧同源 (消除跨时钟域误差)
+                            self._pending_video_pts_ms = _audio_head_ms
+                        else:
+                            global_av_sync.apply_drift(None, anchored=False)
+                            self._pending_video_pts_ms = None
+                    except Exception:
+                        pass
+
                     await self._publish_video_frame(current.jpeg, current_task)
                     self._release_timeline_frame(current)
                     queue.task_done()
@@ -1103,6 +1123,12 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         self.latest_jpeg = jpeg
         self._latest_frame_owner = owner
         self.frames_received += 1
+        try:
+            # 视频帧发布打 PTS 锚点；携带采样时钟换算值时与音频侧同源
+            global_shared_playback_clock.stamp_video(self.frames_received, self._pending_video_pts_ms)
+        except Exception:
+            pass
+        self._pending_video_pts_ms = None
         if image_rgb is not None:
             try:
                 from server.core.media.virtual_cam import global_virtual_cam
@@ -1142,6 +1168,11 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         if clear_frame:
             self.latest_jpeg = b""
             self._latest_frame_owner = None
+        try:
+            global_shared_playback_clock.reset()
+            global_av_sync.apply_drift(None, anchored=False)
+        except Exception:
+            pass
 
     @property
     def has_active_request(self) -> bool:

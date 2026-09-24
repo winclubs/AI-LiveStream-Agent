@@ -32,6 +32,25 @@ MAX_AUDIO_TRANSACTION_BYTES = 32 * 1024 * 1024
 MAX_PENDING_AUDIO_BYTES = 64 * 1024 * 1024
 
 
+def _resolve_clock_precision(shared_clock: bool) -> str:
+    """
+    统一时钟精度口径：查询 SharedPlaybackClock 是否已建立采样锚点。
+    - 已锚定: "sample_aligned" (与 SharedPlaybackClock.get_alignment_status 同语义)
+    - 未锚定但本地声卡可用: "estimated" (portaudio 延迟估计)
+    - 完全不可用: "none"
+    """
+    if not shared_clock:
+        return "none"
+    try:
+        from server.core.media.shared_playback_clock import global_shared_playback_clock
+
+        status = global_shared_playback_clock.get_alignment_status()
+        anchored = bool(status.get("audio_anchored"))
+        return "sample_aligned" if anchored else "estimated"
+    except Exception:
+        return "estimated"
+
+
 class VirtualAudioService:
     # 工作线程写流的细粒度 (约 50ms@24kHz)，打断中止延迟的上限
     WRITE_SLICE_SAMPLES = 1200
@@ -148,7 +167,8 @@ class VirtualAudioService:
             # blocking OutputStream 没有 callback outputBufferDacTime，不能宣称硬件 DAC 时钟。
             "hardware_dac_clock": False,
             "clock_source": "portaudio_latency_estimate" if shared_clock else None,
-            "clock_precision": "estimated" if shared_clock else "none",
+            # 精度口径与 SharedPlaybackClock 对齐：已建立采样锚点时为采样级对齐，否则为估计值
+            "clock_precision": _resolve_clock_precision(shared_clock),
         }
 
     def _reject_cursor(self, audio_id: Optional[str], reason: str) -> None:

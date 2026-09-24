@@ -7,6 +7,7 @@ from server.adapters.danmaku.abogus import (
     generate_a_bogus,
     _canonicalize_params,
     _rc4,
+    _CACHE_TTL_SEC,
 )
 
 
@@ -63,7 +64,10 @@ def test_canonicalize_params_sorted_and_quoted():
 def test_cache_reuses_within_window():
     clear_cache()
     params = {"room_id": "12345"}
-    ts = int(time.time() * 1000)
+    # 对齐到当前 5s 分箱起点 +600ms，保证 ts 与 ts+1000 必定同窗、ts+10000 必定跨窗，
+    # 彻底消除测试启动时刻贴近窗口边界导致的偶发失败 (flaky)。
+    _now_ms = int(time.time() * 1000)
+    ts = _now_ms - (_now_ms % (_CACHE_TTL_SEC * 1000)) + 600
     a = generate_a_bogus(params, "Mozilla/5.0", timestamp_ms=ts, use_cache=True)
     # 同 5s 分箱内 (相差 1s) 应命中缓存
     b = generate_a_bogus(params, "Mozilla/5.0", timestamp_ms=ts + 1000, use_cache=True)

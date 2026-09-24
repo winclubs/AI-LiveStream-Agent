@@ -1350,7 +1350,8 @@ class LiveSessionController:
         mime_type = getattr(driver, "audio_mime_type", "audio/mpeg")
         sample_rate = int(getattr(driver, "audio_sample_rate", 24000))
         channels = int(getattr(driver, "audio_channels", 1))
-        pts_ms = int(time.monotonic() * 1000)
+        from server.core.media.shared_playback_clock import global_shared_playback_clock
+        pts_ms = int(global_shared_playback_clock.now_ms())
         metadata = {
             "codec": codec,
             "sample_rate": sample_rate,
@@ -1547,6 +1548,8 @@ class LiveSessionController:
             # 使唇形画面与声波对齐（闭环 av_sync.AVSyncController 的规划 §15.1 补偿回路）
             "delay_ms": int(max(0, min(300, global_av_sync.recommended_delay_ms))),
             "pts_ms": pts_ms,
+            # 采样时钟换算的时间戳：与云端 sidecar 的 pts_samples 同语义，供跨端对齐
+            "pts_samples": int((pts_ms / 1000.0) * sample_rate),
             "wallclock_ms": int(time.time() * 1000),
         })
 

@@ -46,6 +46,9 @@ class SharedPlaybackClock:
         # 是否已观测到有效音频锚点 (未观测前不做补偿，避免误判)
         self._audio_anchored: bool = False
         self._enabled: bool = True
+        # 采样时钟锚点：首个音频事务的 monotonic 读数，用于把后续采样点换算到单调域。
+        # 建立锚点后 audio/video 两侧同源于 virtual_audio 采样时钟，消除跨时钟域换算误差。
+        self._sample_clock_epoch: Optional[float] = None
 
     # ------------------------------------------------------------------
     # 基准与重置
@@ -62,6 +65,7 @@ class SharedPlaybackClock:
             self._drift_samples.clear()
             self._recommended_delay_ms = 0
             self._audio_anchored = False
+            self._sample_clock_epoch = None
 
     def set_enabled(self, enabled: bool) -> None:
         """运行时开关 (关闭时退回纯软件近似语义)"""
@@ -75,21 +79,37 @@ class SharedPlaybackClock:
     # ------------------------------------------------------------------
     # PTS 打点
     # ------------------------------------------------------------------
-    def stamp_video(self, frame_idx: Optional[int] = None) -> float:
+    def stamp_video(self, frame_idx: Optional[int] = None, pts_ms: Optional[float] = None) -> float:
         """
         视频帧发布时打 PTS。返回该帧的 PTS (毫秒)。
         PTS 严格单调递增不回退：取 max(上一帧, 时钟读数)。
+        pts_ms 由调用方提供时 (如云端 sidecar 的采样时钟换算值) 优先采用，
+        使视频侧与音频侧同源于采样时钟，消除跨时钟域换算误差。
         """
         with self._lock:
             if not self._enabled:
                 return self._video_pts_ms
-            clock_ms = self.now_ms()
+            # 调用方提供采样时钟换算值时优先采用，与音频侧同源；
+            # 否则回退单调时钟 (仅 video 侧自洽，跨域误差由 EMA 平滑吸收)。
+            if pts_ms is not None:
+                clock_ms = float(pts_ms)
+                if self._sample_clock_epoch is None:
+                    # 以首个采样域视频锚点对齐单调基准，供后续回退路径换算
+                    self._sample_clock_epoch = time.monotonic() - (clock_ms / 1000.0)
+            else:
+                clock_ms = self._sample_now_ms()
             # 单调不回退保护
             if clock_ms <= self._video_pts_ms:
                 clock_ms = self._video_pts_ms + 1.0
             self._video_pts_ms = clock_ms
             self._video_frame_count += 1
             return self._video_pts_ms
+
+    def _sample_now_ms(self) -> float:
+        """采样时钟域的当前毫秒数；未建立采样锚点时回退单调时钟。"""
+        if self._sample_clock_epoch is None:
+            return self.now_ms()
+        return (time.monotonic() - self._sample_clock_epoch) * 1000.0
 
     def report_audio_head(self, audio_id: Optional[str], pts_ms: float) -> None:
         """
@@ -101,6 +121,10 @@ class SharedPlaybackClock:
         with self._lock:
             if not self._enabled:
                 return
+            # 首次上报时建立采样时钟锚点，使音频头与单调基准对齐；
+            # 后续 report 的 pts_ms 均为采样域读数，drift 计算不再混用时钟源。
+            if self._sample_clock_epoch is None:
+                self._sample_clock_epoch = time.monotonic() - (float(pts_ms) / 1000.0)
             self._audio_pts_ms = float(pts_ms)
             self._last_audio_audio_id = audio_id
             self._audio_anchored = True

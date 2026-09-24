@@ -16,6 +16,8 @@ import uuid
 from typing import AsyncGenerator, Optional
 
 from server.adapters.media.base_driver import BaseMediaDriver
+from server.core.media.av_sync import global_av_sync
+from server.core.media.shared_playback_clock import global_shared_playback_clock
 
 logger = logging.getLogger("LiveAgent.RemoteGPUDriver")
 
@@ -59,6 +61,8 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
         self._video_timeline_lock = asyncio.Lock()
         self.latest_jpeg: bytes = b""
         self.frames_received = 0
+        # 发布帧携带的采样时钟换算 PTS (由时间线循环在 report_audio_head 后写入)
+        self._pending_video_pts_ms: Optional[float] = None
 
     async def start(self):
         self.is_running = True
@@ -437,6 +441,19 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
                 if latest_due > published_index:
                     # 落后时直接跳到当前最新帧，不逐帧补播过期画面。
                     published_index = latest_due
+                    try:
+                        if clock and not using_fallback and clock.get("has_started"):
+                            _audio_head_ms = (float(clock.get("elapsed_sec", 0.0) or 0.0)) * 1000.0
+                            global_shared_playback_clock.report_audio_head(audio_id, _audio_head_ms)
+                            _drift = global_shared_playback_clock.compute_drift()
+                            global_av_sync.apply_drift(_drift, anchored=True)
+                            # 发布前把采样时钟锚点传给视频侧，使两侧同源 (消除跨时钟域误差)
+                            self._pending_video_pts_ms = _audio_head_ms
+                        else:
+                            global_av_sync.apply_drift(None, anchored=False)
+                            self._pending_video_pts_ms = None
+                    except Exception:
+                        pass
                     await self._publish_video_frame(timeline[published_index][1])
                     continue
                 if clock and clock.get("is_finished"):
@@ -478,12 +495,23 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
             self._pending_video_frames = []
         if clear_frame:
             self.latest_jpeg = b""
+        try:
+            global_shared_playback_clock.reset()
+            global_av_sync.apply_drift(None, anchored=False)
+        except Exception:
+            pass
 
     async def _publish_video_frame(self, jpeg: bytes):
         if not jpeg:
             return
         self.latest_jpeg = jpeg
         self.frames_received += 1
+        try:
+            # 视频帧发布打 PTS 锚点；携带采样时钟换算值时与音频侧同源
+            global_shared_playback_clock.stamp_video(self.frames_received, self._pending_video_pts_ms)
+        except Exception:
+            pass
+        self._pending_video_pts_ms = None
         try:
             import cv2 as cv2
             import numpy as np
