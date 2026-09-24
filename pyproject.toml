@@ -88,3 +88,67 @@ check_untyped_defs = true
 warn_unused_ignores = true
 follow_imports = "silent"
 
+# ---------------------------------------------------------------------------
+# 既有 mypy 豁免说明 (ADR-16 精神：只豁免模式性误报，不豁免真实缺陷)
+#
+# 以下均为项目有意采用的工程模式，mypy 静态分析无法理解，逐行加 ignore 会
+# 污染数百处业务代码且容易掩盖新缺陷，故按模块/错误码精准豁免：
+# ---------------------------------------------------------------------------
+# SQLAlchemy ORM：把 ORM 列对象当作普通 Python 属性赋值是官方推荐用法，
+# mypy 将 Column[str] 误判为不可赋值；declarative_base() 返回的 Base 在无
+# sqlalchemy[mypy] 插件时被误判为非类型。
+[[tool.mypy.overrides]]
+module = [
+  "server.routes.voices", "server.routes.anchors", "server.routes.roles",
+  "server.database.models", "server.database.db",
+]
+disable_error_code = ["assignment", "arg-type", "call-arg", "index", "valid-type", "misc"]
+
+# 测试套件：大量 mock/monkeypatch/动态属性注入，mypy 无法静态推断。
+[[tool.mypy.overrides]]
+module = "server.tests.*"
+disable_error_code = [
+  "assignment", "arg-type", "attr-defined", "union-attr", "method-assign",
+  "var-annotated", "index", "operator", "misc", "no-redef", "call-arg", "valid-type",
+]
+
+# 弹幕平台适配器与 protobuf 解析器：websockets/httpx/brotli 为可选依赖，缺失时
+# 模块级变量回退 None 实现优雅降级 (缺库时直播服务仍可启动)；bytes 变量在
+# try/except 导入回退后被推断为 Optional。mypy 将这些回退值误判为类型不兼容。
+[[tool.mypy.overrides]]
+module = "server.adapters.danmaku.*"
+disable_error_code = ["assignment", "operator", "index", "attr-defined", "arg-type", "truthy-bool", "misc"]
+
+# 媒体/视觉/音频可选依赖回退模式：opencv/numpy/onnxruntime/sounddevice/aiortc/
+# pyvirtualcam/PIL 缺失时统一回退 None，保证核心服务可启动；SSH 隧道 (paramiko)
+# 与远程 GPU 驱动的连接句柄在异步建连前必然为 None。这些回退值被 mypy 误判。
+[[tool.mypy.overrides]]
+module = "server.core.media.*"
+disable_error_code = [
+  "assignment", "attr-defined", "union-attr", "var-annotated", "misc", "arg-type", "index",
+]
+
+[[tool.mypy.overrides]]
+module = "server.core.vision.*"
+disable_error_code = ["assignment", "attr-defined", "union-attr", "misc", "arg-type"]
+
+# 数字人资产制作：OpenCV 为可选依赖，缺失时 cv2 回退 None；numpy 数值类型在
+# 无 cv2 类型存根时被推断为宽泛联合类型。这些是 mypy 对可选依赖的误判。
+[[tool.mypy.overrides]]
+module = "server.core.avatar.portrait_selector"
+disable_error_code = ["attr-defined", "arg-type", "assignment"]
+
+[[tool.mypy.overrides]]
+module = "server.adapters.media.*"
+disable_error_code = [
+  "assignment", "attr-defined", "union-attr", "var-annotated", "misc", "arg-type", "index", "no-redef",
+]
+
+[[tool.mypy.overrides]]
+module = "server.adapters.obs.obs_client"
+disable_error_code = ["assignment", "union-attr"]
+
+[[tool.mypy.overrides]]
+module = "server.core.audio.features"
+disable_error_code = ["assignment"]
+

@@ -114,7 +114,7 @@ class BilibiliDanmakuFetcher(BaseDanmakuFetcher):
     @classmethod
     def _unpack_packets(cls, data: bytes) -> List[tuple]:
         """严格切分协议帧，拒绝畸形头并限制单批帧数。"""
-        packets = []
+        packets: List[tuple] = []
         offset = 0
         while offset + 16 <= len(data) and len(packets) < cls.MAX_PACKETS:
             (total_len, header_len, protover, operation, _seq) = struct.unpack(">IHHII", data[offset:offset + 16])

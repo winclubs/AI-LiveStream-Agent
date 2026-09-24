@@ -28,13 +28,18 @@ if hasattr(sys.stdout, "reconfigure"):
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WEIGHTS_DIR = PROJECT_ROOT / "weights"
 
-# 神经唇形权重的落盘目录必须与 NeuralModelManager 的检索路径一致
-# (server/core/avatar/neural_model_manager.py: find_model_path 优先检索 DATA_DIR/models/<file_name>)
+# 神经唇形权重的落盘目录必须与 NeuralModelManager 的检索路径一致。
+# 优先以 NeuralModelManager.INTERNAL_MODELS_DIR 为单一真相源 (SSOT)，
+# 杜绝本脚本与 server.core.avatar.neural_model_manager 各自派生导致路径漂移。
+try:
+    from server.core.avatar.neural_model_manager import INTERNAL_MODELS_DIR as _SSOT_MODELS_DIR
+except Exception:  # 允许脱离主包独立运行
+    _SSOT_MODELS_DIR = None
 try:
     from server.config import DATA_DIR
 except Exception:  # 允许脱离主包独立运行
     DATA_DIR = PROJECT_ROOT / "data"
-NEURAL_MODELS_DIR = Path(DATA_DIR) / "models"
+NEURAL_MODELS_DIR = Path(_SSOT_MODELS_DIR) if _SSOT_MODELS_DIR is not None else (Path(DATA_DIR) / "models")
 
 # 单文件下载的 User-Agent，避免被 CDN 拦截
 _HTTP_HEADERS = {"User-Agent": "AI-LiveStream-Agent-WeightDownloader/1.0"}
@@ -127,6 +132,8 @@ MODELS_CONFIG = {
         "single_file": True,
         "filename": "onnx_lipsync.onnx",
         "urls": _ONNX_LIPSYNC_URLS,
+        # 供按需下载器的进度监控做粗粒度体积估算 (与 MODEL_REGISTRY.size_mb 同源)
+        "expected_mb": 45,
     },
     "musetalk": {
         "name": "MuseTalk 2.0 实时数字人唇形驱动模型",
@@ -198,7 +205,7 @@ def download_model(model_key: str, source: str = "modelscope"):
             return False
         ok = _download_single_file(urls, target_path)
         if ok:
-            print(f"    [OK] 神经唇形权重已就绪，NeuralLipRenderer 将在下次启动时自动加载并启用真实推理")
+            print("    [OK] 神经唇形权重已就绪，NeuralLipRenderer 将在下次启动时自动加载并启用真实推理")
         return ok
 
     repo_id = cfg["sources"].get(source, cfg["sources"]["modelscope"])

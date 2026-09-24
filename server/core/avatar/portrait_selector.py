@@ -165,9 +165,9 @@ def smart_extract_best_face_portrait(
         return False, "未能从视频中读取到任何有效画面", {}
 
     # 2. 按综合评分从高到低排序
-    candidates.sort(key=lambda x: x["score"], reverse=True)
+    candidates.sort(key=lambda x: float(x["score"]), reverse=True)
     best = candidates[0]
-    best_frame = best["frame"]
+    best_frame: np.ndarray = best["frame"]
 
     # 3. 写入输出文件 (JPEG 95 高画质)
     out_file = Path(output_image_path)

@@ -71,15 +71,16 @@ async def trigger_onscreen_coupon(
 ) -> Dict[str, Any]:
     """触发控制台优惠券倒计时画层。"""
     from server.routes.ws_live import ws_manager
+    duration_sec: int = max(1, min(int(seconds), 3600))
     payload = {
         "sku": sku,
         "title": title,
         "desc": desc,
-        "seconds": max(1, min(int(seconds), 3600)),
+        "seconds": duration_sec,
     }
-    global_scene_overlay_state.set_coupon(payload, payload["seconds"])
+    global_scene_overlay_state.set_coupon(payload, duration_sec)
     await ws_manager.broadcast("ONSCREEN_COUPON", payload)
-    logger.info(f"优惠券倒计时画层已显示: {desc} ({payload['seconds']}s)")
+    logger.info(f"优惠券倒计时画层已显示: {desc} ({duration_sec}s)")
     return {"ok": True, **payload}
 
 
@@ -88,15 +89,16 @@ async def product_closeup(
 ) -> Dict[str, Any]:
     """在控制台监视器显示商品特写画层。"""
     from server.routes.ws_live import ws_manager
+    duration_sec: int = max(1, min(int(seconds), 60))
     payload = {
         "sku": sku,
         "title": title,
         "image": image,
-        "seconds": max(1, min(int(seconds), 60)),
+        "seconds": duration_sec,
     }
-    global_scene_overlay_state.set_scene("closeup", payload, payload["seconds"])
+    global_scene_overlay_state.set_scene("closeup", payload, duration_sec)
     await ws_manager.broadcast("CAMERA_CLOSEUP", payload)
-    logger.info(f"商品特写画层已显示: {title or sku} ({payload['seconds']}s)")
+    logger.info(f"商品特写画层已显示: {title or sku} ({duration_sec}s)")
     return {"ok": True, **payload}
 
 
@@ -106,13 +108,14 @@ async def show_size_chart(
 ) -> Dict[str, Any]:
     """在控制台监视器显示真实尺码数据画层。"""
     from server.routes.ws_live import ws_manager
+    duration_sec: int = max(1, min(int(seconds), 120))
     payload = {
         "sku": sku,
         "title": title,
         "size_chart": size_chart or {},
-        "seconds": max(1, min(int(seconds), 120)),
+        "seconds": duration_sec,
     }
-    global_scene_overlay_state.set_scene("size_chart", payload, payload["seconds"])
+    global_scene_overlay_state.set_scene("size_chart", payload, duration_sec)
     await ws_manager.broadcast("SIZE_CHART", payload)
     logger.info(f"尺码对照画层已显示: {title or sku}")
     return {"ok": True, **payload}

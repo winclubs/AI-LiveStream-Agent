@@ -11,9 +11,10 @@
   - WebcastMemberMessage 观众进房
 
 能力边界 (诚实声明)：
-  - 未实现 a_bogus/signature 请求签名：若平台风控拒绝握手，请在 app_settings 配置
-    douyin_ttwid / douyin_ms_token (浏览器 DevTools 获取) 后重试，或使用中继模式
-    (WS /ws/danmaku-ingest 或 POST /live/danmaku-webhook)。
+  - a_bogus 签名：内置社区公开算法的纯 Python 生成器，平台风控演进可能失效；
+    签名握手连续失败达阈值 (SIGNATURE_FAIL_THRESHOLD) 后自动抑制签名并回退
+    ttwid/msToken 中继模式 (WS /ws/danmaku-ingest 或 POST /live/danmaku-webhook)，
+    绝不伪造"签名已通过平台验证"的状态。
   - 子消息字段号以社区公开 proto 约定优先，缺失时回退结构内可打印字符串启发式提取，
     提取不到的字段保持为 0/空，绝不伪造数据。
 断线自愈：1s -> 2s -> 4s -> 8s -> 16s 指数退避重连 (规划 §15.2)
@@ -27,6 +28,7 @@ import random
 from typing import Callable, Dict, Any, Optional
 from server.adapters.danmaku.base_fetcher import BaseDanmakuFetcher
 from server.adapters.danmaku import proto_reader as pr
+from server.adapters.danmaku.abogus import generate_a_bogus
 
 logger = logging.getLogger("LiveAgent.DouyinFetcher")
 
@@ -54,6 +56,9 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
     # 打断阈值与 webhook 对齐 (50000 瓣 = P0 强打断)
     P0_COIN_THRESHOLD = 50000
 
+    # a_bogus 签名连续握手失败阈值：达到后自动抑制签名并回退中继模式
+    SIGNATURE_FAIL_THRESHOLD = 3
+
     def __init__(self, room_id: str, on_event_callback: Callable[[str, str, Dict[str, Any], int], Any],
                  ttwid: str = "", ms_token: str = ""):
         super().__init__(room_id, on_event_callback)
@@ -63,6 +68,9 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
         self.clean_room_id = self._extract_room_id(room_id)
         self.ttwid = ttwid or ""
         self.ms_token = ms_token or ""
+        # a_bogus 签名握手失败计数 (连续失败达阈值自动回退中继模式)
+        self._signature_fail_count = 0
+        self._signature_suppressed = False
 
     @staticmethod
     def _extract_room_id(raw_input: str) -> str:
@@ -157,18 +165,42 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
                 if self.ms_token:
                     ws_url += f"&msToken={self.ms_token}"
 
+                # a_bogus 请求签名 (社区公开算法移植；失败达阈值自动回退中继模式)
+                signature_params = {
+                    "app_name": "douyin_web",
+                    "version_code": "180800",
+                    "webcast_sdk_version": "1.0.14",
+                    "update_version_code": "1.0.14",
+                    "compress": "gzip",
+                    "internal_ext": "internal_src:dim",
+                    "live_id": "1",
+                    "did_rule": "3",
+                    "room_id": internal_id,
+                }
+                if self.ms_token:
+                    signature_params["msToken"] = self.ms_token
+                if not self._signature_suppressed:
+                    try:
+                        a_bogus = generate_a_bogus(signature_params, self.USER_AGENT)
+                        ws_url += f"&a_bogus={a_bogus}"
+                    except Exception as e:
+                        logger.debug(f"a_bogus 签名生成异常，本次握手不携带签名: {e}")
+
                 cookie = self._cookie_header() or (f"ttwid={ttwid}" if ttwid else "")
                 headers = {"User-Agent": self.USER_AGENT}
                 if cookie:
                     headers["Cookie"] = cookie
 
+                sig_note = "携带 a_bogus 签名" if (not self._signature_suppressed) else "签名已被抑制 (回退 ttwid/msToken 中继模式)"
                 logger.info(
-                    f"正在建立抖音 WSS 弹幕长连接: room_id={internal_id} "
-                    f"(未携带 a_bogus 签名，风控拒绝时请配置 ttwid/msToken 或使用中继模式)"
+                    f"正在建立抖音 WSS 弹幕长连接: room_id={internal_id} ({sig_note})"
                 )
                 self.on_connection_attempted()
                 async with websockets.connect(ws_url, additional_headers=headers, ping_interval=None) as ws:
                     self.on_connection_opened()
+                    # 握手成功：重置签名失败计数
+                    self._signature_fail_count = 0
+                    self._signature_suppressed = False
                     logger.info("抖音直播间弹幕长连接握手成功！")
 
                     # 启动心跳
@@ -193,6 +225,18 @@ class DouyinDanmakuFetcher(BaseDanmakuFetcher):
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                # 签名握手失败计数：连续失败达阈值后抑制签名，回退 ttwid/msToken 中继模式
+                err_text = str(e)
+                signature_related = any(k in err_text for k in ("403", "402", "Handshake", "signature", "a_bogus"))
+                if signature_related and not self._signature_suppressed:
+                    self._signature_fail_count += 1
+                    if self._signature_fail_count >= self.SIGNATURE_FAIL_THRESHOLD:
+                        self._signature_suppressed = True
+                        logger.warning(
+                            "a_bogus 签名握手连续失败 %d 次，已自动回退 ttwid/msToken 中继模式 "
+                            "(平台风控算法可能已演进，请配置 ttwid/msToken 或使用中继模式)",
+                            self._signature_fail_count,
+                        )
                 logger.warning(f"抖音弹幕长连接中断 ({e})，{backoff:.1f} 秒后执行指数退避自愈重连...")
                 self.notify_error(e, "抖音弹幕长连接中断")
                 await asyncio.sleep(backoff)

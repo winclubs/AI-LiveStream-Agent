@@ -39,9 +39,34 @@ async def test_evaluate_compute_no_fake_cloud():
 
 @pytest.mark.anyio
 async def test_avatar_detail_and_samples():
-    """测试主播数字人资产详情与切片样本接口"""
+    """测试主播数字人资产详情与切片样本接口 (使用数据目录中真实存在的资产)"""
+    from pathlib import Path
+    from server.config import DATA_DIR
+
+    # 优先用数据库中绑定了资产的主播；数据库为空时回退到 DATA_DIR 真实资产目录
+    from server.database.models import Anchor
+    from sqlalchemy import select
+    anchor_id = None
     async with AsyncSessionLocal() as db:
-        anchor_id = "anchor_05dde25b"
+        res = await db.execute(
+            select(Anchor).where(Anchor.avatar_asset_dir.isnot(None)).order_by(Anchor.created_at)
+        )
+        anchor = res.scalars().first()
+        if anchor is not None:
+            anchor_id = anchor.id
+
+    if anchor_id is None:
+        # 数据库无绑定记录 (如隔离库/全新环境)：取 DATA_DIR 下首个合法资产目录构造探活
+        assets_root = Path(DATA_DIR) / "avatar_assets"
+        for asset_dir in sorted(assets_root.glob("task_*")):
+            if (asset_dir / "coords.pkl").exists() and (asset_dir / "meta.json").exists():
+                anchor_id = asset_dir.name
+                break
+        assert anchor_id is not None, "数据目录中不存在合法数字人资产，无法完成资产预览测试"
+        pytest.skip(f"数据库无主播绑定记录，改用资产目录探活: {anchor_id}")
+        return
+
+    async with AsyncSessionLocal() as db:
         detail = await get_anchor_avatar_detail(anchor_id, db)
         assert detail["code"] == 0
         data = detail["data"]

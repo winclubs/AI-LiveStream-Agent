@@ -1,4 +1,4 @@
-"""
+﻿"""
 主播管理路由 (需求 4)：主播增删改查
 支持上传 形象照(正面)/全身照/半身照/侧面照，绑定音色与备注
 """
@@ -11,6 +11,7 @@ import json
 import pickle
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel, Field
 
 from fastapi.responses import FileResponse
 from sqlalchemy import select, update
@@ -1423,3 +1424,32 @@ async def delete_anchor(anchor_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"code": 0, "message": f"主播【{record.name}】已删除"}
 
+
+
+# ------------------------------------------------------------------
+# 神经唇形权重按需下载 (体检项 lipsync_weight 的执行通道)
+# ------------------------------------------------------------------
+class LipsyncDownloadRequest(BaseModel):
+    source: Optional[str] = Field("modelscope", description="下载源 (modelscope 优先 / huggingface 兜底)")
+
+
+@router.post("/avatar/download-lipsync-weight", summary="按需下载神经唇形权重 (onnx_lipsync.onnx)")
+async def download_lipsync_weight(req: Optional[LipsyncDownloadRequest] = None):
+    """
+    体检检测到神经唇形权重缺失时触发：后台多源流式下载 (ModelScope 优先)，
+    完成后 NeuralLipRenderer 自动热挂载真实推理。同一时刻仅允许一个下载任务。
+    """
+    from server.core.avatar.lipsync_weight_downloader import get_lipsync_weight_downloader
+    source = (req.source if req else "modelscope") or "modelscope"
+    task_id = f"dl_{uuid.uuid4().hex[:8]}"
+    downloader = get_lipsync_weight_downloader()
+    result = downloader.start_download(source=source, task_id=task_id)
+    return {"code": 0 if result["ok"] else 1, **result}
+
+
+@router.get("/avatar/download-lipsync-status", summary="查询神经唇形权重下载进度与状态")
+async def get_lipsync_download_status():
+    """供控制台轮询下载进度 (pending / downloading / installed / failed)"""
+    from server.core.avatar.lipsync_weight_downloader import get_lipsync_weight_downloader
+    status = get_lipsync_weight_downloader().get_status()
+    return {"code": 0, "data": status}

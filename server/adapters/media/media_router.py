@@ -14,6 +14,7 @@ from server.adapters.media.musetalk_driver import (
 )
 from server.adapters.media.mock_driver import global_media_driver as global_mock_media_driver
 from server.core.media.audio_frame import validate_audio_frame_batch
+from server.core.media.shared_playback_clock import global_shared_playback_clock
 from server.core.media.virtual_cam import global_virtual_cam
 
 logger = logging.getLogger("LiveAgent.MediaRouter")
@@ -291,16 +292,28 @@ class MediaDriverRouter(BaseMediaDriver):
 
     def _with_capability_boundary(self, status: dict) -> dict:
         media_contract = self.get_media_capabilities()
+        # 共享单调时钟实况 (升级 heuristic_uniform -> shared_monotonic_pts)
+        try:
+            clock_status = global_shared_playback_clock.get_alignment_status()
+        except Exception:
+            clock_status = {
+                "shared_playback_clock": False,
+                "hardware_dac_clock": False,
+                "clock_source": None,
+                "clock_precision": "none",
+                "alignment_mode": "heuristic_uniform",
+            }
         caps = {
             "procedural_avatar": status.get("render_backend") == "procedural",
             "neural_lipsync": bool(status.get("neural_lipsync", False)),
             "viseme_lipsync": status.get("viseme_lipsync", True if status.get("render_backend") == "procedural" else False),
             "g2p_aligned": status.get("g2p_aligned", False),
-            "alignment_mode": status.get("alignment_mode", "heuristic_uniform" if status.get("render_backend") == "procedural" else "none"),
-            "shared_playback_clock": False,
-            "hardware_dac_clock": False,
-            "clock_source": None,
-            "clock_precision": "none",
+            "alignment_mode": clock_status.get("alignment_mode", "heuristic_uniform"),
+            "shared_playback_clock": bool(clock_status.get("shared_playback_clock")),
+            "hardware_dac_clock": bool(clock_status.get("hardware_dac_clock", False)),
+            "clock_source": clock_status.get("clock_source"),
+            "clock_precision": clock_status.get("clock_precision", "none"),
+            "av_drift_ms": clock_status.get("drift_ms", 0.0),
             "local_preview": bool(status.get("is_running")),
             "virtual_camera": bool((status.get("virtual_cam") or {}).get("is_active")),
             "audio_frame_input": bool(media_contract.get("accepts_audio_frames")),

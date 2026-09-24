@@ -25,60 +25,31 @@ from server.core.avatar.registry import register_avatar_driver
 logger = logging.getLogger("LiveAgent.NativeNeuralDriver")
 
 
-class MelSpectrogramExtractor:
-    """轻量级流式音频 Mel 频谱特征提取器 (纯 NumPy 实现，零笨重外部依赖)"""
+def _resolve_active_anchor_asset_dir() -> Optional[Path]:
+    """查询数据库中当前激活主播的数字人切片资产目录 (无绑定记录时返回 None)"""
+    try:
+        import asyncio
+        from server.database.db import AsyncSessionLocal
+        from server.database.models import Anchor
+        from sqlalchemy import select
 
-    def __init__(self, sample_rate: int = 16000, n_fft: int = 800, hop_length: int = 200, n_mels: int = 80):
-        self.sample_rate = sample_rate
-        self.n_fft = n_fft
-        self.hop_length = hop_length
-        self.n_mels = n_mels
-        self._mel_basis = self._build_mel_basis()
+        async def _query() -> Optional[Path]:
+            async with AsyncSessionLocal() as db:
+                res = await db.execute(
+                    select(Anchor.avatar_asset_dir)
+                    .where(Anchor.avatar_asset_dir.isnot(None))
+                    .order_by(Anchor.created_at.desc())
+                    .limit(1)
+                )
+                row = res.first()
+                if not row or not row[0]:
+                    return None
+                p = Path(row[0])
+                return p if (p / "coords.pkl").exists() and (p / "face_imgs").exists() else None
 
-    def _build_mel_basis(self) -> np.ndarray:
-        """构建标准 Mel 滤波器组矩阵 (80 x (n_fft // 2 + 1))"""
-        weights = np.zeros((self.n_mels, int(1 + self.n_fft // 2)), dtype=np.float32)
-        # 简化的线性三角滤波组近似
-        fftfreqs = np.linspace(0, self.sample_rate / 2.0, int(1 + self.n_fft // 2))
-        mel_min = 0.0
-        mel_max = 2595.0 * np.log10(1.0 + (self.sample_rate / 2.0) / 700.0)
-        mels = np.linspace(mel_min, mel_max, self.n_mels + 2)
-        freqs = 700.0 * (10.0 ** (mels / 2595.0) - 1.0)
-
-        for i in range(self.n_mels):
-            f_prev = freqs[i]
-            f_curr = freqs[i + 1]
-            f_next = freqs[i + 2]
-            for j, f in enumerate(fftfreqs):
-                if f_prev <= f <= f_curr and (f_curr - f_prev) > 0:
-                    weights[i, j] = (f - f_prev) / (f_curr - f_prev)
-                elif f_curr < f <= f_next and (f_next - f_curr) > 0:
-                    weights[i, j] = (f_next - f) / (f_next - f_curr)
-        return weights
-
-    def extract_mel(self, pcm_bytes: bytes) -> np.ndarray:
-        """从 16kHz 单声道 s16le PCM 中提取标准 Mel 频谱 (80 维)"""
-        if not pcm_bytes:
-            return np.zeros((self.n_mels, 1), dtype=np.float32)
-        samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        if len(samples) < self.n_fft:
-            samples = np.pad(samples, (0, self.n_fft - len(samples)), mode="constant")
-
-        # 简单短时窗谱计算
-        window = np.hanning(self.n_fft)
-        num_frames = max(1, (len(samples) - self.n_fft) // self.hop_length + 1)
-        stft_matrix = []
-        for i in range(num_frames):
-            start = i * self.hop_length
-            chunk = samples[start : start + self.n_fft]
-            if len(chunk) < self.n_fft:
-                chunk = np.pad(chunk, (0, self.n_fft - len(chunk)), mode="constant")
-            fft_mag = np.abs(np.fft.rfft(chunk * window))
-            stft_matrix.append(fft_mag)
-        stft_matrix = np.array(stft_matrix).T  # shape: (n_fft//2 + 1, num_frames)
-        mel_spec = np.dot(self._mel_basis, stft_matrix)
-        mel_spec = np.log(np.maximum(1e-5, mel_spec))
-        return mel_spec
+        return asyncio.run(_query())
+    except Exception:
+        return None
 
 
 @register_avatar_driver("native_neural")
@@ -96,17 +67,32 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         self.fps = self.config.get("fps", 25)
         self.width = self.config.get("width", 720)
         self.height = self.config.get("height", 960)
-        self.active_model_key = self.config.get("model_key", "wav2lip_256")
+        self.active_model_key = self.config.get("model_key", "onnx_lipsync")
 
-        self._audio_queue = asyncio.Queue(maxsize=1000)
+        self._audio_queue: "asyncio.Queue[bytes]" = asyncio.Queue(maxsize=1000)
         self._loop_task: Optional[asyncio.Task] = None
         self._current_energy = 0.0
         self._current_viseme = 0.0
         self.total_frames_synthesized = 0
 
+        # 复用全局动作状态机单例，确保弹幕礼物事件与话术关键词驱动同一画面状态机
+        from server.core.avatar.action_state_machine import get_action_state_machine
+        self.action_state_machine = get_action_state_machine()
+
         # 检测自包含模型就绪状态
         self.is_neural_ready = global_neural_model_manager.is_model_available(self.active_model_key)
         self.active_model_path = global_neural_model_manager.find_model_path(self.active_model_key)
+
+        # 真实神经唇形重绘引擎 (与主 ProceduralAvatarDriver 同款的 Wav2Lip ONNX 契约)
+        self.lip_renderer: Optional[Any] = None
+        try:
+            from server.core.avatar.neural_lip_renderer import NeuralLipRenderer
+            self.lip_renderer = NeuralLipRenderer(model_key=self.active_model_key)
+        except Exception as e:
+            logger.debug(f"神经唇形渲染引擎加载失败，保留 RealAvatarLite 回退: {e}")
+
+        # 最近一帧的 16kHz float32 音频切片，供神经 Mel 特征提取使用
+        self._latest_pcm_16k: Optional["np.ndarray"] = None
 
     async def start(self) -> bool:
         self.is_active = True
@@ -116,10 +102,24 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         self.is_neural_ready = global_neural_model_manager.is_model_available(self.active_model_key)
         self.active_model_path = global_neural_model_manager.find_model_path(self.active_model_key)
 
+        # 自动挂载当前激活主播的切片资产 (coords.pkl + face_imgs)，权重到位即激活真实推理
+        if self.lip_renderer is not None and not getattr(self.lip_renderer, "has_anchor_assets", False):
+            try:
+                asset_dir = await asyncio.to_thread(_resolve_active_anchor_asset_dir)
+                if asset_dir:
+                    await asyncio.to_thread(self.lip_renderer.load_anchor_assets, asset_dir)
+            except Exception as e:
+                logger.debug(f"自动挂载主播切片资产跳过: {e}")
+
         if self._loop_task is None or self._loop_task.done():
             self._loop_task = asyncio.create_task(self._main_render_loop())
 
-        engine_desc = "⚡ 真实深度神经网络驱动" if self.is_neural_ready else "🌿 内置高保真 RealAvatarLite (平滑回退)"
+        neural_active = bool(
+            self.lip_renderer is not None
+            and getattr(self.lip_renderer, "is_ready", False)
+            and getattr(self.lip_renderer, "has_anchor_assets", False)
+        )
+        engine_desc = "⚡ 真实深度神经网络驱动 (Wav2Lip ONNX 唇形重绘)" if neural_active else "🌿 内置高保真 RealAvatarLite (平滑回退)"
         logger.info(
             f"原生自包含数字人驱动器已启动 (引擎模式: {engine_desc}, 分辨率: {self.width}x{self.height}@{self.fps}FPS)"
         )
@@ -159,8 +159,10 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             energy = float(np.mean(np.abs(samples))) / 32768.0
             # 引入非线性平滑放大函数
             self._current_energy = min(1.0, math.sqrt(energy) * 2.8)
+            # 保留 16kHz float32 切片供神经唇形 Mel 特征提取
+            self._latest_pcm_16k = samples.astype(np.float32) / 32768.0
 
-        # 2. 话术关键词双轨研判动作状态机
+        # 2. 话术关键词双轨研判动作状态机 (复用全局单例，弹幕事件可驱动同一画面)
         if eventpoint and eventpoint.get("text"):
             self.action_state_machine.evaluate_text(str(eventpoint["text"]))
 
@@ -186,26 +188,44 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         logger.info("原生自包含数字人已执行瞬间打断 (flush_talk)")
 
     def _render_frame(self, frame_idx: int) -> np.ndarray:
-        """单帧画面原生合成管线 (动作状态机切片优先 + 待机真人微动态底模)"""
+        """单帧画面原生合成管线 (动作切片 → 神经唇形重绘 → 真人微动态 → 兜底底图)"""
         mouth_open = self._current_energy if self._speaking else 0.0
         # 语音停顿超时平滑归零
         if time.time() - self._last_speech_time > 0.25:
             self._speaking = False
             mouth_open = 0.0
 
-        # 1. 尝试从动作状态机获取当前动作切片帧
+        # 1. 优先从 (全局) 动作状态机获取当前动作切片帧
         base_frame = self.action_state_machine.get_frame(frame_idx)
 
-        # 2. 若当前无动作切片（处于待机呼吸位），则调用 RealAvatarLite 渲染真人微动态底模
+        # 2. 神经唇形重绘：模型与主播切片资产均就绪时执行真实 ONNX 前向推理
+        if (
+            self.lip_renderer is not None
+            and getattr(self.lip_renderer, "is_ready", False)
+            and getattr(self.lip_renderer, "has_anchor_assets", False)
+        ):
+            pcm_window = self._latest_pcm_16k if self._speaking else None
+            try:
+                neural_frame = self.lip_renderer.render_lip_frame(
+                    base_frame if base_frame is not None else np.zeros((self.height, self.width, 3), dtype=np.uint8),
+                    frame_idx,
+                    pcm_window,
+                    mouth_open=mouth_open,
+                )
+                if neural_frame is not None:
+                    base_frame = neural_frame
+            except Exception as e:
+                logger.debug(f"神经唇形重绘异常，平滑降级: {e}")
+
+        # 3. 待机或神经未就绪：调用 RealAvatarLite 渲染真人微动态底模
         if base_frame is None:
             from server.core.media.real_avatar_lite import global_real_avatar_lite
             t = frame_idx / float(max(1, self.fps))
-            is_blinking = (frame_idx % 80 in (78, 79))
             rendered = global_real_avatar_lite.render_frame(
                 t=t,
                 mouth_open=mouth_open,
                 mouth_form=0.0,
-                is_blinking=is_blinking,
+                is_blinking=(frame_idx % 80 in (78, 79)),
             )
             if rendered is not None:
                 base_frame = rendered
@@ -246,15 +266,22 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             await asyncio.sleep(sleep_time)
 
     def get_capabilities(self) -> Dict[str, Any]:
-        """如实上报当前自包含驱动器的硬件与渲染能力 (恪守 ADR-16 架构诚实)"""
+        """如实上报当前自包含驱动器的硬件与渲染能力 (恪守 ADR-16 架构诚实契约)"""
+        neural_lip_active = bool(
+            self.lip_renderer is not None
+            and getattr(self.lip_renderer, "is_ready", False)
+            and getattr(self.lip_renderer, "has_anchor_assets", False)
+        )
         return {
             "driver": "native_neural_driver",
             "self_contained": True,
-            "neural_lipsync": False,  # 恪守 ADR-16：如实声明当前未加载深度神经推理运行时
-            "engine_type": "real_avatar_lite",
+            # 恪守 ADR-16：只有 ONNX 会话与主播切片资产同时就绪才宣称神经推理
+            "neural_lipsync": neural_lip_active,
+            "engine_type": "wav2lip_onnx" if neural_lip_active else "real_avatar_lite",
             "model_key": self.active_model_key,
             "model_installed": bool(self.is_neural_ready),
             "model_path": str(self.active_model_path) if self.active_model_path else "",
+            "anchor_assets_loaded": bool(getattr(self.lip_renderer, "has_anchor_assets", False)) if self.lip_renderer else False,
             "resolution": f"{self.width}x{self.height}",
             "fps": self.fps,
             "external_dependencies": False,  # 绝无外部系统依赖
@@ -262,10 +289,16 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
 
     def get_status(self) -> Dict[str, Any]:
         base = super().get_status()
+        neural_lip_active = bool(
+            self.lip_renderer is not None
+            and getattr(self.lip_renderer, "is_ready", False)
+            and getattr(self.lip_renderer, "has_anchor_assets", False)
+        )
         base.update({
             "self_contained": True,
-            "is_neural_ready": False,
-            "engine_type": "real_avatar_lite",
+            "neural_lipsync": neural_lip_active,
+            "is_neural_ready": neural_lip_active,
+            "engine_type": "wav2lip_onnx" if neural_lip_active else "real_avatar_lite",
             "active_model_key": self.active_model_key,
             "total_frames_synthesized": self.total_frames_synthesized,
             "current_energy": round(self._current_energy, 3),

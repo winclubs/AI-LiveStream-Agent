@@ -30,6 +30,7 @@ from server.core.media.audio_frame import validate_audio_frame_batch
 from server.core.media.virtual_cam import global_virtual_cam
 from server.core.media.av_sync import global_av_sync
 from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state
+from server.core.media.shared_playback_clock import global_shared_playback_clock
 
 if TYPE_CHECKING:
     import cv2
@@ -116,7 +117,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         # 初始化肖像底图
         self._load_or_generate_avatar(avatar_source_path)
 
-    def _load_landmarks(self, path: str, transform: Optional[dict] = None):
+    def _load_landmarks(self, path: Optional[str], transform: Optional[dict] = None):
         """读取原图人脸框并映射到 720x960 cover-crop 输出坐标。"""
         if not path:
             return None
@@ -141,7 +142,11 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             return
         from server.core.media.procedural_renderer import load_or_build_portrait, encode_jpeg
         self.base_portrait, transform = load_or_build_portrait(path, self.width, self.height)
-        self.face_box = self._load_landmarks(self.landmarks_cache, transform)
+        self.face_box = (
+            self._load_landmarks(self.landmarks_cache, transform)
+            if self.landmarks_cache is not None
+            else None
+        )
 
         # 可选：用户预录真人小切片目录 (data/avatars/actions/*.jpg)
         self.action_clip = None
@@ -150,8 +155,10 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             if actions_dir and actions_dir.exists():
                 clips = sorted([p for p in actions_dir.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png")])
                 if clips:
-                    self.action_clip = cv2.cvtColor(cv2.imread(str(clips[0])), cv2.COLOR_BGR2RGB)
-                    logger.info(f"已加载真人动作切片用于防封杀穿插: {clips[0].name}")
+                    img = cv2.imread(str(clips[0]))
+                    if img is not None:
+                        self.action_clip = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                        logger.info(f"已加载真人动作切片用于防封杀穿插: {clips[0].name}")
         except Exception:
             self.action_clip = None
 
@@ -572,6 +579,18 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             # 记录单帧基础渲染耗时用于音画同步补偿 (规划 §15.1)
             global_av_sync.record_render_latency((time.time() - render_started) * 1000.0)
 
+            # 采集音频播放头至共享时钟 (复用 virtual_audio 真实游标，构成漂移计算的音频侧锚点)
+            try:
+                if sent is not None and clock is not None and clock.get("has_started"):
+                    _audio_head_ms = (float(clock.get("elapsed_sec", 0.0) or 0.0)) * 1000.0
+                    global_shared_playback_clock.report_audio_head(sent.get("audio_id"), _audio_head_ms)
+                    _drift = global_shared_playback_clock.compute_drift()
+                    global_av_sync.apply_drift(_drift, anchored=True)
+                else:
+                    global_av_sync.apply_drift(None, anchored=False)
+            except Exception:
+                pass
+
             # 3/4. 先合成一次发布画层，再分发到虚拟摄像头与 JPEG 预览。
             self._publish_frame(frame_rgb)
 
@@ -584,6 +603,11 @@ class ProceduralAvatarDriver(BaseMediaDriver):
 
     def _publish_frame(self, frame_rgb: "np.ndarray") -> None:
         """Compose once, then fan the same publish frame out to camera, RTMP, WebRTC and recorder."""
+        # 共享单调时钟：视频帧发布时打 PTS (音画漂移补偿的视频侧锚点)
+        try:
+            global_shared_playback_clock.stamp_video(self.current_frame_id)
+        except Exception:
+            pass
         publish_frame = compose_scene_overlays(
             frame_rgb,
             global_scene_overlay_state.snapshot(),
@@ -614,7 +638,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
 
         # 4. 投递至短视频与带货切片录制器
         try:
-            from server.core.avatar.task_manager import get_record_manager
+            from server.core.media.recorder import get_record_manager
             rec_mgr = get_record_manager()
             if rec_mgr and getattr(rec_mgr, "is_recording", lambda: False)():
                 rec_mgr.feed_frame(publish_frame)

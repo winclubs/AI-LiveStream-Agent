@@ -663,10 +663,10 @@ async def fetch_tts_models(req: FetchTTSModelsRequest, db: AsyncSession = Depend
         try:
             start_t = time.time()
             async with httpx.AsyncClient(timeout=3.5, verify=True) as client:
-                res = await client.get(f"{base_url}/models", headers=headers)
+                http_res = await client.get(f"{base_url}/models", headers=headers)
                 latency_ms = int((time.time() - start_t) * 1000)
-                if res.status_code == 200:
-                    data = res.json()
+                if http_res.status_code == 200:
+                    data = http_res.json()
                     raw_list = []
                     if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
                         raw_list = data["data"]
@@ -1608,8 +1608,7 @@ async def preview_tts_audio(req: TTSPreviewRequest):
         # 检查是否为用户克隆音色
         if str(voice_key).startswith("clone_") or "clone" in str(voice_key):
             try:
-                from server.database import async_session_factory
-                async with async_session_factory() as db:
+                async with AsyncSessionLocal() as db:
                     stmt = select(VoiceProfile).where(VoiceProfile.id == voice_key)
                     res = await db.execute(stmt)
                     vp = res.scalar_one_or_none()

@@ -14,11 +14,18 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 
+from server.config import DATA_DIR
+
 logger = logging.getLogger("LiveAgent.ASREngine")
 
 _model_lock = threading.Lock()
 _asr_model = None
 _asr_backend_type = None
+
+# Faster-Whisper 默认模型与本地缓存目录 (首次自动下载并落盘，后续离线可用)
+_FASTER_WHISPER_MODEL_NAME = os.getenv("LIVE_AGENT_ASR_MODEL", "tiny")
+_FASTER_WHISPER_CACHE_DIR = DATA_DIR / "models" / "faster-whisper"
+_FASTER_WHISPER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def is_voice_active(
@@ -47,7 +54,7 @@ def is_voice_active(
 
 
 def _load_asr_model():
-    """懒加载本地 ASR 模型 (优先 SenseVoice，其次 Faster-Whisper)"""
+    """懒加载本地 ASR 模型 (优先 Faster-Whisper 轻量引擎，其次 SenseVoice 高精度)"""
     global _asr_model, _asr_backend_type
     if _asr_model is not None:
         return _asr_model, _asr_backend_type
@@ -65,7 +72,26 @@ def _load_asr_model():
         else:
             logger.info(f"本地显卡显存仅 {local_gpu.vram_total_gb}GB，ASR 语音模型已安全选用 CPU 推理，确保显存稳定")
 
-        # 1. 尝试加载阿里 SenseVoiceSmall / FunASR
+        # 1. 优先 Faster-Whisper (依赖 ctranslate2，轻量；无 torch 全家桶负担)
+        try:
+            from faster_whisper import WhisperModel
+            device = "cuda" if safe_device != "cpu" else "cpu"
+            compute_type = "float16" if device == "cuda" else "int8"
+            logger.info(f"正在加载 Faster-Whisper ASR 模型 (base, device={device})...")
+            model = WhisperModel(
+                _FASTER_WHISPER_MODEL_NAME,
+                device=device,
+                compute_type=compute_type,
+                download_root=str(_FASTER_WHISPER_CACHE_DIR),
+            )
+            _asr_model = model
+            _asr_backend_type = "faster_whisper"
+            logger.info(f"Faster-Whisper ASR 模型就绪 (模型缓存: {_FASTER_WHISPER_CACHE_DIR})")
+            return _asr_model, _asr_backend_type
+        except Exception as e:
+            logger.info(f"Faster-Whisper 未安装或加载跳过 ({e})")
+
+        # 2. 其次尝试加载阿里 SenseVoiceSmall / FunASR (高精度，依赖较重)
         try:
             from funasr import AutoModel
             device = safe_device
@@ -85,22 +111,36 @@ def _load_asr_model():
         except Exception as e:
             logger.info(f"FunASR/SenseVoice 未安装或加载跳过 ({e})")
 
-        # 2. 尝试加载 Faster-Whisper
-        try:
-            from faster_whisper import WhisperModel
-            device = "cuda" if safe_device != "cpu" else "cpu"
-            compute_type = "float16" if device == "cuda" else "int8"
-            logger.info(f"正在加载 Faster-Whisper ASR 模型 (base, device={device})...")
-            model = WhisperModel("base", device=device, compute_type=compute_type)
-            _asr_model = model
-            _asr_backend_type = "faster_whisper"
-            logger.info("Faster-Whisper ASR 模型就绪")
-            return _asr_model, _asr_backend_type
-        except Exception as e:
-            logger.info(f"Faster-Whisper 未安装或加载跳过 ({e})")
-
         _asr_backend_type = "mock_fallback"
         return None, _asr_backend_type
+
+
+def get_asr_status() -> dict:
+    """
+    上报 ASR 引擎当前后端与就绪状态 (供体检与控制台诊断消费)。
+    - faster_whisper: 轻量引擎 (默认推荐)
+    - sensevoice: 高精度引擎 (可选)
+    - mock_fallback: 无可用引擎，语音转写不可用 (VAD 打断不受影响)
+    """
+    backend = _asr_backend_type
+    if backend is None:
+        # 尚未懒加载时探测一次，避免每次体检都触发真实加载
+        return {
+            "backend": None,
+            "ready": False,
+            "model_name": "",
+            "message": "ASR 引擎尚未初始化，首次语音输入时懒加载",
+        }
+    return {
+        "backend": backend,
+        "ready": backend in ("faster_whisper", "sensevoice") and _asr_model is not None,
+        "model_name": _FASTER_WHISPER_MODEL_NAME if backend == "faster_whisper" else "SenseVoiceSmall",
+        "message": (
+            "轻量语音转写引擎就绪" if backend == "faster_whisper"
+            else "高精度语音转写引擎就绪" if backend == "sensevoice"
+            else "未安装语音转写引擎，转写不可用 (打断/VAD 不受影响)"
+        ),
+    }
 
 
 def transcribe_audio_bytes(audio_bytes: bytes, sample_rate: int = 16000) -> str:

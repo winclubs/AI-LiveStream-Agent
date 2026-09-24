@@ -66,12 +66,12 @@ def _extract_text(filename: str, path: Path) -> str:
         try:
             import docx
             document = docx.Document(str(path))
-            parts: list[str] = []
+            docx_parts: list[str] = []
             used = 0
             for paragraph in document.paragraphs:
                 if paragraph.text.strip():
-                    used = append_bounded(parts, paragraph.text, used, MAX_KNOWLEDGE_TEXT_CHARS, "Word 文本超过 100 万字符预算")
-            return "\n".join(parts)
+                    used = append_bounded(docx_parts, paragraph.text, used, MAX_KNOWLEDGE_TEXT_CHARS, "Word 文本超过 100 万字符预算")
+            return "\n".join(docx_parts)
         except ImportError as exc:
             raise HTTPException(status_code=400, detail="解析 DOCX 需要安装 python-docx 库 (pip install python-docx)") from exc
 

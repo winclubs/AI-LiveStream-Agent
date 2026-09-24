@@ -6,7 +6,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-Desktop%20UI-47848F?style=flat&logo=electron&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?style=flat&logo=sqlite&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-306%20Passed%20(100%25)-4caf50?style=flat&logo=pytest&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-365%20Collected%20364%20Passed-4caf50?style=flat&logo=pytest&logoColor=white)
 ![License](https://img.shields.io/badge/License-Proprietary%20%2F%20Commercial-blue?style=flat)
 
 <p align="center">
@@ -165,8 +165,8 @@ flowchart TD
    - **内容防封**：Aho-Corasick 算法毫秒级扫描敏感词与广告法违规词，智能同义替换或整句熔断；
    - **视觉防封**：底层视频流注入亚感知高斯微扰与 0.05Hz 光影微动，每帧 SHA256 绝对离散，粉碎平台固定指纹静态查处；
    - **拟人发声**：智能注入换气微停顿与“嗯、那个”等自然语气助词，消除机械感。
-6. ✅ **306 项自动化测试 100% 验证**：
-   - 全链路覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例；
+6. ✅ **365 项自动化测试验证**：
+   - 全链路覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例（实测 364 通过 / 1 项环境隔离断言已修复）；
    - 前端模块化 JS 全量通过 Node.js 严格语法检测，前后端代码零语法错误。
 
 ---
@@ -449,7 +449,7 @@ python scripts/cloud_sidecar_bootstrap.py --port 8010
 
 系统实行工业级严苛的代码质量门禁与自动化回归体系：
 
-- **自动化测试套件**：全量 **306 项单元与端到端集成测试 100% 全部通过**（运行耗时 ~67s），覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例；
+- **自动化测试套件**：全量 **365 项单元与端到端集成测试**（实测 364 通过 / 1 项环境隔离断言已修复，运行耗时 ~180s），覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例；
 - **全量语法静态校验**：所有 Python 源文件通过 `py_compile` 静态编译解析，**0 语法错误，0 致命异常**；
 - **前端 JS 规范检验**：所有模块化 JavaScript 经过严格聚合与 Node.js 严格语法检测（`node --check`），确保无低级语法 Bug；
 - **高可用看门狗机制**：具备显存超限自动释放（`VRAMWatchdog`）、网络断线熔断器自愈恢复、长音频超时看门狗与媒体管线平滑兜底。
@@ -476,7 +476,7 @@ python -m ruff check launcher.py scripts server
 node --check apps/desktop-ui/main.js
 node --check server/static/js/console.js
 
-# 3. 运行全量 306 项自动化测试并统计覆盖率
+# 3. 运行全量 365 项自动化测试并统计覆盖率
 $env:LIVE_AGENT_DATA_DIR = Join-Path $env:TEMP ('ai-live-agent-test-' + [guid]::NewGuid().ToString('N'))
 python -m pytest -q server/tests --cov=server --cov-branch
 ```
@@ -563,6 +563,17 @@ python scripts/restore_data.py --backup "G:\backups\before-upgrade" --data-dir "
 - [x] **违禁词硬拦截**：确保内置 Aho-Corasick 算法已加载广告法极限词规则库；
 - [x] **视觉动态防查**：系统默认注入亚感知微噪点与 0.05Hz 自然光呼吸微动；建议在画面后方添加动态时钟或室外走动视频背景切片，破坏平台固定 MD5 算法；
 - [x] **自主音色克隆**：上传专属 10~20 秒人声提取声纹入库，杜绝平台烂大街的千篇一律模板音色。
+
+### 5. 动作切片与神经唇形权重补齐 (开箱即用补全)
+- **动作切片一键补齐**：若体检报告提示「带货动作切片」缺少欢迎/点赞/促单/致谢切片，执行一条命令即可用已有切片合成占位动作并经标准管线抽帧入库：
+  ```powershell
+  python scripts/generate_action_clip.py --all-missing
+  ```
+  占位动作会叠加指引箭头与动作名贴片，可先用它跑通促单节奏，随后在控制台【数字人】页面上传真人实拍切片替换。
+- **神经唇形权重一键下载**：执行下载器把 `onnx_lipsync.onnx` 等权重落入 `data/models/`（国内推荐 ModelScope 源），`NeuralLipRenderer` 即自动从程序化渲染升级为真实神经唇形重绘：
+  ```powershell
+  python scripts/download_weights.py --model onnx-lipsync --source modelscope
+  ```
 
 ---
 

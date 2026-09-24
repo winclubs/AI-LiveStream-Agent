@@ -99,7 +99,8 @@ class AvatarDriverFactory:
 
         driver_instance = target_cls(config or {})
         if warning_msg:
-            driver_instance.hardware_warning = warning_msg
+            # 硬件警示挂载到实例 (基类预留属性)，供前端/日志读取
+            setattr(driver_instance, "hardware_warning", warning_msg)
         return driver_instance
 
     @classmethod

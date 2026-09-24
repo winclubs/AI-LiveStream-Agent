@@ -172,6 +172,9 @@ class DenseVectorEmbedder:
             logger.warning(f"加载 ONNX 嵌入模型失败，回退哈希投影向量: {e}")
 
     def _embed_onnx(self, text: str) -> Optional["np.ndarray"]:
+        # ONNX 后端未就绪时 (权重缺失或加载失败) 显式返回 None，交由上层回退哈希投影
+        if self.onnx_session is None or self.tokenizer is None:
+            return None
         try:
             ids = self.tokenizer.encode(text)
             if not ids:

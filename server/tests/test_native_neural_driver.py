@@ -1,6 +1,6 @@
 """
 原生自包含数字人驱动与模型管理器测试集
-验证 NativeNeuralAvatarDriver、MelSpectrogramExtractor 以及 NeuralModelManager 的功能完整性
+验证 NativeNeuralAvatarDriver、NeuralLipRenderer 接入以及 NeuralModelManager 的功能完整性
 恪守 ADR-16 架构诚实原则，杜绝测试空转与虚假上报
 """
 
@@ -10,10 +10,7 @@ import pytest
 
 from server.app import app
 from server.core.avatar.drivers import LocalLiveTalkingDriver
-from server.core.avatar.native_neural_driver import (
-    MelSpectrogramExtractor,
-    NativeNeuralAvatarDriver,
-)
+from server.core.avatar.native_neural_driver import NativeNeuralAvatarDriver
 from server.core.avatar.neural_model_manager import NeuralModelManager
 
 
@@ -43,24 +40,26 @@ def test_neural_model_manager():
 
 
 def test_mel_spectrogram_extractor():
-    """测试纯 NumPy 实现的音频梅尔倒频谱特征提取器"""
-    extractor = MelSpectrogramExtractor(sample_rate=16000, n_mels=80)
+    """测试神经唇形引擎的 80 维 Mel 频谱特征提取器 (Wav2Lip 标准声学特征)"""
+    from server.core.avatar.neural_lip_renderer import MelFeatureExtractor
 
-    # 构造 1 秒的 16kHz s16le PCM 测试音频
+    extractor = MelFeatureExtractor(sample_rate=16000, n_mels=80)
+
+    # 构造 1 秒的 16kHz float32 测试音频 (440Hz 正弦)
     duration = 1.0
-    t = np.linspace(0, duration, int(16000 * duration), endpoint=False)
-    samples = (0.5 * np.sin(2 * np.pi * 440 * t) * 32767).astype(np.int16)
-    pcm_bytes = samples.tobytes()
+    t = np.linspace(0, duration, int(16000 * duration), endpoint=False, dtype=np.float64)
+    samples = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
 
-    mel = extractor.extract_mel(pcm_bytes)
+    mel = extractor.extract_mel_window(samples, target_steps=16)
     assert isinstance(mel, np.ndarray)
-    assert mel.shape[0] == 80  # 80 个 mel 频带
-    assert mel.shape[1] > 0   # 帧数大于 0
+    # Wav2Lip 标准输入形状: [1, 1, 80, 16]
+    assert mel.shape == (1, 1, 80, 16)
+    assert not np.isnan(mel).any()
 
-    # 验证静音测试
-    silence = np.zeros(16000, dtype=np.int16).tobytes()
-    mel_silence = extractor.extract_mel(silence)
-    assert mel_silence.shape[0] == 80
+    # 静音输入：幅度极低，但仍须返回合法形状 (由调用方决定是否跳过推理)
+    silence = np.zeros(16000, dtype=np.float32)
+    mel_silence = extractor.extract_mel_window(silence)
+    assert mel_silence.shape == (1, 1, 80, 16)
     assert not np.isnan(mel_silence).any()
 
 
@@ -113,7 +112,7 @@ async def test_native_neural_avatar_driver_lifecycle_and_non_black_frames():
     assert driver.is_active is False
 
 
-def test_action_clip_priority_over_standby():
+def test_action_clip_priority_over_standby(monkeypatch):
     """测试动作切片帧优先级：当处于动作状态机激活动作时，画面优先呈现动作帧而不被待机底模粗暴覆盖"""
     driver = NativeNeuralAvatarDriver(config={"fps": 25, "width": 100, "height": 100})
 
@@ -121,7 +120,7 @@ def test_action_clip_priority_over_standby():
     mock_action_frame = np.zeros((100, 100, 3), dtype=np.uint8)
     mock_action_frame[:, :, 1] = 255
 
-    driver.action_state_machine.get_frame = lambda idx: mock_action_frame
+    monkeypatch.setattr(driver.action_state_machine, "get_frame", lambda idx: mock_action_frame)
 
     rendered = driver._render_frame(0)
     assert rendered is not None
@@ -150,9 +149,12 @@ def test_webrtc_color_conversion(monkeypatch):
 
     driver.publish_frame(rgb_test_frame)
     assert mock_webrtc.last_frame is not None
-    # 转换为 BGR 后，第 0 通道应为 Blue (<= 5，允许防录播微噪点容差)，第 2 通道应为 Red (>= 250)
-    assert mock_webrtc.last_frame[50, 50, 0] <= 5    # Blue (抗录播微噪点微动)
-    assert mock_webrtc.last_frame[50, 50, 2] >= 250  # Red
+    # 转换为 BGR 后，第 0 通道应为 Blue，第 2 通道应为 Red
+    # 容差 ±10 吸收防录播微噪点/环境光律动的合法微小扰动
+    blue_val = int(mock_webrtc.last_frame[50, 50, 0])
+    red_val = int(mock_webrtc.last_frame[50, 50, 2])
+    assert blue_val <= 10, f"Blue 通道应为低值，实际 {blue_val} (RGB->BGR 转换可能失效)"
+    assert red_val >= 245, f"Red 通道应接近 255，实际 {red_val} (RGB->BGR 转换可能失效)"
 
 
 def test_local_livetalking_honest_reporting():

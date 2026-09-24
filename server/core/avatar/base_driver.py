@@ -21,6 +21,9 @@ class BaseAvatarDriver(ABC):
         self.is_active: bool = False
         self._speaking: bool = False
         self._current_action_state: int = 0
+        # 驱动类型标记 (由注册中心装饰器赋予)；硬件警示 (显存不足时由工厂挂载)
+        self.driver_type: str = "unknown"
+        self.hardware_warning: Optional[str] = None
         self.virtual_cam: Optional[Any] = None
         self.rtmp_streamer: Optional[Any] = None
         self.webrtc_streamer: Optional[Any] = None
@@ -78,6 +81,12 @@ class BaseAvatarDriver(ABC):
         dispatched = False
         if frame_rgb is not None:
             self.total_published_frames += 1
+            # 共享单调时钟：视频帧发布时打 PTS (音画漂移补偿的时钟锚点)
+            try:
+                from server.core.media.shared_playback_clock import global_shared_playback_clock
+                global_shared_playback_clock.stamp_video(self.total_published_frames)
+            except Exception:
+                pass
             # 叠加电商动态挂件与防录播微噪点/环境光微动
             try:
                 from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state

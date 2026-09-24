@@ -2,36 +2,77 @@ import os
 import json
 import uuid
 import struct
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+import tempfile
+from pathlib import Path
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select, update, event, text
-from server.config import DATABASE_URL
+from server.config import BASE_DIR, DATABASE_URL as _PROD_DATABASE_URL
 from server.database.models import (
     Base, AnchorRole, ProhibitedWord, ApiProviderConfig, Avatar, VoiceProfile, KnowledgeChunk,
     LiveSessionRecord, utc_now
 )
 
+# ---------------------------------------------------------------------------
+# 测试隔离支持 (ADR-07)
+#
+# 旧方案在 conftest 里设置 LIVE_AGENT_DATA_DIR，会把整个 DATA_DIR 重定向到
+# 临时目录。但 DATA_DIR 同时承载主播数字人资产 (avatar_assets/coords.pkl) 与
+# 神经模型权重 (data/models/)，整体重定向会破坏依赖真实资产的断言，并让权重
+# 落盘目录与 NeuralModelManager 检索路径脱钩。
+#
+# 新方案只重定向 *数据库文件*：enable_test_isolation() 重建指向临时 SQLite 的
+# engine 与 AsyncSessionLocal，DATA_DIR 保持不变，资产/权重路径完全不受影响。
+# ---------------------------------------------------------------------------
+_TEST_DB_PATH: "Path | None" = None
+DB_PATH = Path(_PROD_DATABASE_URL.replace("sqlite+aiosqlite:///", ""))
+
+# SQLAlchemy 2.0 异步会话工厂类型 (async_sessionmaker 提供正确的 AsyncSession 重载)
+AsyncSessionFactory = async_sessionmaker(bind=None, class_=AsyncSession, expire_on_commit=False)
+
+
+def _build_session_factory(async_engine) -> async_sessionmaker:
+    return async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
+
+
+def enable_test_isolation(prefix: str = "liveagent_test_db_") -> Path:
+    """切换到临时隔离数据库 (仅用于单元测试)。必须在 import 阶段、建表之前调用。"""
+    global engine, AsyncSessionLocal, _TEST_DB_PATH
+    tmp_dir = Path(tempfile.mkdtemp(prefix="liveagent_test_data_"))
+    _TEST_DB_PATH = tmp_dir / "live_agent.db"
+    test_url = f"sqlite+aiosqlite:///{_TEST_DB_PATH.as_posix()}"
+    engine = create_async_engine(
+        test_url,
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+    _install_connection_pragmas(engine)
+    AsyncSessionLocal = _build_session_factory(engine)
+    return _TEST_DB_PATH
+
+
+def is_test_isolation_enabled() -> bool:
+    return _TEST_DB_PATH is not None
+
+
+def _install_connection_pragmas(async_engine) -> None:
+    @event.listens_for(async_engine.sync_engine, "connect")
+    def _configure_sqlite_connection(dbapi_connection, _connection_record):
+        """所有连接统一启用引用约束和合理的锁等待。"""
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
+
+
 # 创建异步 SQLite 数据库引擎 (启用 WAL 模式)
 engine = create_async_engine(
-    DATABASE_URL,
+    _PROD_DATABASE_URL,
     echo=False,
     connect_args={"check_same_thread": False}
 )
+_install_connection_pragmas(engine)
 
-
-@event.listens_for(engine.sync_engine, "connect")
-def _configure_sqlite_connection(dbapi_connection, _connection_record):
-    """所有连接统一启用引用约束和合理的锁等待。"""
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA busy_timeout=5000")
-    cursor.close()
-
-AsyncSessionLocal = sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
+AsyncSessionLocal: async_sessionmaker = _build_session_factory(engine)
 
 async def get_db():
     """FastAPI 依赖注入：获取数据库会话"""

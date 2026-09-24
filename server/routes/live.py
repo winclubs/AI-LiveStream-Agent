@@ -11,7 +11,7 @@ import inspect
 import wave
 import psutil
 from collections import deque
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Response, Request, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, AsyncGenerator
@@ -1514,7 +1514,7 @@ class LiveSessionController:
                     except Exception:
                         pass
                     try:
-                        from server.core.avatar.task_manager import get_record_manager
+                        from server.core.media.recorder import get_record_manager
                         rec_mgr = get_record_manager()
                         if rec_mgr and getattr(rec_mgr, "is_recording", lambda: False)():
                             rec_mgr.feed_audio(pcm_for_stream)
@@ -1543,7 +1543,9 @@ class LiveSessionController:
             "audio_id": audio_id,
             "audio_generation": audio_generation,
             "session_generation": session_generation,
-            "delay_ms": 0,
+            # 音画同步补偿：将渲染耗时采样换算的音频前置延迟补偿量真实下发给前端播放器，
+            # 使唇形画面与声波对齐（闭环 av_sync.AVSyncController 的规划 §15.1 补偿回路）
+            "delay_ms": int(max(0, min(300, global_av_sync.recommended_delay_ms))),
             "pts_ms": pts_ms,
             "wallclock_ms": int(time.time() * 1000),
         })
@@ -3143,6 +3145,79 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             "内置高保真微动态引擎 (RealAvatarLite) 就绪，零显存稳定开播；可在 data/models/ 挂载扩展模型资产",
         ))
 
+    # 12. 核心带货动作切片完整性 (缺失会如实告警并给出一键补齐指引)
+    from server.core.avatar.action_state_machine import get_action_state_machine
+    action_sm = get_action_state_machine()
+    try:
+        await action_sm.load_configs_from_db()
+    except Exception:
+        logger.debug("预体检加载动作切片配置失败，按内存默认槽位评估", exc_info=True)
+    action_status = action_sm.get_status()
+    missing_codes = action_status.get("missing_action_codes", [])
+    if not missing_codes:
+        checks.append(_pf(
+            "pass", "action_clips", "带货动作切片",
+            f"{action_status.get('loaded_clips_count', 0)}/{action_status.get('total_configured_actions', 0)} "
+            f"组动作切片全部就绪 (待机/欢迎/点赞/促单/致谢)",
+        ))
+    else:
+        missing_names = "、".join(action_status.get("missing_action_names", [])) or "未命名"
+        checks.append(_pf(
+            "warn", "action_clips", "带货动作切片",
+            f"缺少 {len(missing_codes)} 组核心动作切片：{missing_names}；触发该动作时将保持待机画面，影响促单节奏",
+            "执行 `python scripts/generate_action_clip.py --all-missing` 一键补齐，或在控制台上传真人实拍切片", None,
+        ))
+
+    # 13. 神经唇形权重就绪度 (缺失时给出按需下载指引，下载完成自动热挂载真实推理)
+    try:
+        from server.core.avatar.lipsync_weight_downloader import get_lipsync_weight_downloader
+        downloader = get_lipsync_weight_downloader()
+        dl_status = downloader.get_status()
+        if downloader.is_weight_ready():
+            checks.append(_pf(
+                "pass", "lipsync_weight", "神经唇形权重",
+                "ONNX 神经唇形重绘权重已就绪，NeuralLipRenderer 将执行真实深度推理 (高保真口型)",
+            ))
+        elif dl_status.get("is_busy"):
+            progress = dl_status.get("progress", 0)
+            checks.append(_pf(
+                "warn", "lipsync_weight", "神经唇形权重",
+                f"后台下载进行中 ({progress}%)：{dl_status.get('message', '')}；下载完成前保持 RealAvatarLite 微动态渲染",
+                "可在控制台等待下载完成，或调用 GET /api/v1/anchors/avatar/download-lipsync-status 轮询进度", None,
+            ))
+        else:
+            checks.append(_pf(
+                "warn", "lipsync_weight", "神经唇形权重",
+                "未检测到 ONNX 神经唇形权重 (onnx_lipsync.onnx)，当前使用 RealAvatarLite 形变级渲染；下载后自动升级为真实神经唇形重绘",
+                "调用 POST /api/v1/anchors/avatar/download-lipsync-weight 一键下载 (约45MB，ModelScope 源)", None,
+            ))
+    except Exception:
+        logger.debug("预体检神经唇形权重检查异常", exc_info=True)
+
+    # 14. ASR 语音转写引擎 (faster-whisper 轻量默认；缺失时 VAD 打断仍可用但无转写)
+    try:
+        from server.core.audio.asr_engine import get_asr_status
+        asr_status = get_asr_status()
+        if asr_status.get("ready"):
+            checks.append(_pf(
+                "pass", "asr_engine", "语音转写 (ASR)",
+                f"{asr_status.get('message')} (后端: {asr_status.get('backend')})",
+            ))
+        elif asr_status.get("backend") is None:
+            checks.append(_pf(
+                "warn", "asr_engine", "语音转写 (ASR)",
+                "ASR 引擎尚未初始化，首次语音输入时自动懒加载 (需已安装 faster-whisper)",
+                "执行 pip install faster-whisper 安装轻量转写引擎；打断功能不受影响", None,
+            ))
+        else:
+            checks.append(_pf(
+                "warn", "asr_engine", "语音转写 (ASR)",
+                "未安装语音转写引擎，语音转写不可用 (VAD 极速打断不受影响)",
+                "执行 pip install faster-whisper 安装轻量转写引擎 (约30MB，无 torch 依赖)", None,
+            ))
+    except Exception:
+        logger.debug("预体检 ASR 引擎检查异常", exc_info=True)
+
     fails = sum(1 for c in checks if c["status"] == "fail")
     warns = sum(1 for c in checks if c["status"] == "warn")
     passes = sum(1 for c in checks if c["status"] == "pass")
@@ -3531,7 +3606,7 @@ class StartRecordRequest(BaseModel):
 
 
 @router.post("/record/start", summary="启动直播短视频讲解切片录制")
-async def start_clip_recording(req: StartRecordRequest = StartRecordRequest()):
+async def start_clip_recording(req: StartRecordRequest = Body(default_factory=lambda: StartRecordRequest())):
     """
     一键开始录制当前数字人直播画面的 1080P/720P 高清切片
     """

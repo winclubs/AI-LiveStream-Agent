@@ -12,3 +12,7 @@ mediapipe==0.10.21
 sounddevice==0.5.2
 aiortc==1.15.0
 av==17.1.0
+# 轻量 ASR 语音转写引擎 (默认推荐)：无 torch 全家桶负担，CPU 友好，首次自动下载 tiny 模型
+faster-whisper==1.1.1
+# 高精度 ASR 可选引擎 (依赖较重，按需启用)
+# funasr==1.2.15

@@ -501,6 +501,14 @@ class ActionStateMachine:
         clip = self.clips.get(self.current_action)
         time_left = max(0.0, self.action_duration - (time.time() - self.action_start_time)) if self.action_duration > 0 and self.current_action != 0 else 0.0
 
+        # 核心带货动作切片缺失检测 (恪守 ADR-16：缺失即如实暴露，绝不静默冒充已就绪)
+        # 促单指引购物车 (3) 是最高商业价值的转化动作，缺失时触发降级保持待机画面
+        critical_codes = (1, 2, 3, 4)
+        missing_codes = [
+            code for code in critical_codes
+            if code in self.clips and self.clips[code].total_frames <= 0
+        ]
+
         return {
             "current_action": self.current_action,
             "action_code": self.current_action,
@@ -512,6 +520,9 @@ class ActionStateMachine:
             "is_idle": self.current_action == 0,
             "total_configured_actions": len(self.clips),
             "loaded_clips_count": sum(1 for c in self.clips.values() if c.total_frames > 0),
+            "missing_action_codes": missing_codes,
+            "missing_action_names": [self.clips[c].action_name for c in missing_codes if c in self.clips],
+            "action_assets_complete": len(missing_codes) == 0,
         }
 
 

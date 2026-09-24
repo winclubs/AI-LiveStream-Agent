@@ -40,7 +40,7 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
         self.is_connected = False  # 恪守 ADR-16：未探活前绝不虚假标记为 True
         self.total_audio_chunks = 0
         self.total_audio_bytes = 0
-        self._http_client = None
+        self._http_client: Any = None
 
     async def _get_client(self):
         import httpx

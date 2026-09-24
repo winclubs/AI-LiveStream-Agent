@@ -68,6 +68,8 @@ MEDIA_DEPENDENCIES = {
     "pyvirtualcam": "pyvirtualcam",
     "sounddevice": "sounddevice",
     "edge_tts": "edge-tts",
+    # 轻量 ASR 语音转写引擎 (默认推荐)：无 torch 全家桶负担，CPU 友好
+    "faster_whisper": "faster-whisper",
 }
 
 
