@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
+from server.core.avatar.speech_drive_preview import SidecarConnection
 from server.database.models import Anchor
 
 
@@ -249,3 +250,128 @@ def test_preview_session_frame_rejects_path_traversal(client, anchor_with_asset)
     assert client.get(f"{base}/00000000000000000000/face/0.jpg").status_code == 404
     assert client.get(f"{base}/..%2F..%2Fface/0.jpg").status_code in (404, 422)
     assert client.get(f"{base}/00000000000000000000/audio.mp3").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task 6: 云端 Sidecar 批量推理
+# ---------------------------------------------------------------------------
+def _fake_cloud_info():
+    from server.core.hardware.gpu_capability import CloudGpuInfo
+
+    return CloudGpuInfo(
+        configured=True,
+        provider_name="sidecar_v3",
+        adapter="sidecar_v3",
+        base_url="ws://127.0.0.1:8890/ws/render-v3",
+        is_active=True,
+        is_reachable=True,
+        api_key="",
+        gpu_name="NVIDIA RTX 4090",
+        vram_total_gb=24.0,
+    )
+
+
+class _FakeCloudDriver:
+    """模拟 sidecar 驱动：feed_audio_frames 时发布 2 帧并完成"""
+
+    def __init__(self):
+        self.started = False
+        self.stopped = False
+        self.published: list = []
+        self._selected_descriptor = {"model_version": "musetalk-0.1", "device": "NVIDIA RTX 4090"}
+        self._timeline_task = None
+
+    async def start(self):
+        self.started = True
+
+    async def stop(self):
+        self.stopped = True
+
+    async def feed_audio_frames(self, frames):
+        import cv2
+
+        for i in range(2):
+            ok, buf = cv2.imencode(".jpg", np.full((64, 64, 3), 30 + i, dtype=np.uint8))
+            await self._publish_video_frame(buf.tobytes(), None)
+
+    async def _publish_video_frame(self, jpeg, owner):
+        self.published.append(jpeg)
+
+
+@pytest.mark.anyio
+async def test_render_cloud_collects_frames(monkeypatch, fake_asset):
+    """mock 驱动：验证云端会话收集 JPEG 帧并按序号排序"""
+    from server.core.avatar.speech_drive_preview import (
+        SpeechDrivePreviewService,
+        _build_audio_frame_batch,
+    )
+
+    pcm = (np.sin(np.linspace(0, 100 * np.pi, 16000)) * 0.2).astype(np.float32)
+    frames = _build_audio_frame_batch(pcm)
+    assert frames[0].is_first and frames[-1].is_final
+    assert frames[-1].pts_samples + frames[-1].duration_samples == len(pcm)
+
+    service = SpeechDrivePreviewService()
+
+    driver = _FakeCloudDriver()
+
+    async def _fake_resolve(cloud_gpu):
+        return SidecarConnection(
+            node_url=cloud_gpu.base_url,
+            auth_token="",
+            canonical={"backend_id": "musetalk", "avatar_id": "default"},
+            model_name="auto",
+        )
+
+    def _fake_build(conn):
+        return driver
+
+    monkeypatch.setattr(service, "_resolve_sidecar_connection", _fake_resolve)
+    monkeypatch.setattr(
+        "server.core.avatar.speech_drive_preview._build_sidecar_driver", _fake_build
+    )
+
+    cloud = _fake_cloud_info()
+    outcome = await service._render_cloud(cloud, fake_asset, pcm, 2)
+    assert outcome is not None
+    assert len(outcome.full_frames) == 2
+    assert all(f.shape[0] == 64 for f in outcome.full_frames)
+    assert len(outcome.face_frames) == 2
+    assert outcome.device == "NVIDIA RTX 4090"
+    assert driver.started and driver.stopped
+
+
+@pytest.mark.anyio
+async def test_render_cloud_failure_returns_none(monkeypatch, fake_asset):
+    """握手失败时返回 None，交由上层回退本地/降级"""
+    from server.core.avatar.speech_drive_preview import (
+        SpeechDrivePreviewService,
+    )
+
+    class _BoomDriver:
+        async def start(self):
+            raise RuntimeError("connection refused")
+
+        async def stop(self):
+            pass
+
+    service = SpeechDrivePreviewService()
+
+    async def _fake_resolve(cloud_gpu):
+        return SidecarConnection(
+            node_url=cloud_gpu.base_url,
+            auth_token="",
+            canonical={"backend_id": "musetalk"},
+            model_name="auto",
+        )
+
+    def _fake_build(conn):
+        return _BoomDriver()
+
+    monkeypatch.setattr(service, "_resolve_sidecar_connection", _fake_resolve)
+    monkeypatch.setattr(
+        "server.core.avatar.speech_drive_preview._build_sidecar_driver", _fake_build
+    )
+
+    outcome = await service._render_cloud(_fake_cloud_info(), fake_asset, np.zeros(1600, dtype=np.float32), 1)
+    assert outcome is None

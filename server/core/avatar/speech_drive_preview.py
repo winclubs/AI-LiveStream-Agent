@@ -221,6 +221,80 @@ def _build_local_renderer(asset_dir: Path, allow_cpu: bool = False) -> Optional[
     return renderer
 
 
+def _build_audio_frame_batch(pcm16k: np.ndarray):
+    """把 16k 单声道 PCM 切分为 sidecar v3 要求的连续 AudioFrame 批次（每帧 400ms）"""
+    import uuid
+
+    from server.core.media.audio_frame import AudioFrame, AudioFormat, validate_audio_frame_batch
+
+    fmt = AudioFormat(codec="pcm_s16le", sample_rate=16000, channels=1)
+    int16 = np.clip(pcm16k * 32767.0, -32768.0, 32767.0).astype(np.int16)
+    frame_samples = int(16000 * 0.4)  # 400ms/帧，低于 1s 上限
+    audio_id = uuid.uuid4().hex
+    frames = []
+    pos = 0
+    total = int(len(int16))
+    while pos < total:
+        chunk = int16[pos: pos + frame_samples]
+        frames.append(
+            AudioFrame(
+                data=chunk.tobytes(),
+                format=fmt,
+                audio_id=audio_id,
+                sequence=len(frames),
+                pts_samples=pos,
+                audio_generation=0,
+                session_generation=0,
+                text="",
+                is_first=(len(frames) == 0),
+                is_final=False,
+            )
+        )
+        pos += len(chunk)
+    if frames:
+        last = frames[-1]
+        frames[-1] = AudioFrame(
+            data=last.data,
+            format=last.format,
+            audio_id=last.audio_id,
+            sequence=last.sequence,
+            pts_samples=last.pts_samples,
+            audio_generation=last.audio_generation,
+            session_generation=last.session_generation,
+            text=last.text,
+            is_first=last.is_first,
+            is_final=True,
+        )
+    return validate_audio_frame_batch(frames)
+
+
+@dataclass(frozen=True)
+class SidecarConnection:
+    node_url: str
+    auth_token: str
+    canonical: dict
+    model_name: str
+
+
+def _build_sidecar_driver(conn: "SidecarConnection"):
+    """按连接参数构造 NeuralSidecarMediaDriver（预览会话独占，不与直播管路共享）"""
+    from server.adapters.media.neural_sidecar_driver import NeuralSidecarMediaDriver
+
+    canonical = conn.canonical or {}
+    return NeuralSidecarMediaDriver(
+        node_url=conn.node_url,
+        auth_token=conn.auth_token,
+        backend_id=str(canonical.get("backend_id") or conn.model_name or "auto"),
+        avatar_id=str(canonical.get("avatar_id") or "default"),
+        avatar_revision=str(canonical.get("avatar_revision") or ""),
+        avatar_digest=str(canonical.get("avatar_digest") or ""),
+        license_manifest_digest=str(canonical.get("license_manifest_digest") or ""),
+        weights_sha256=str(canonical.get("weights_sha256") or ""),
+        model_version=str(canonical.get("model_version") or ""),
+        require_neural_lipsync=canonical.get("require_neural_lipsync") is True,
+    )
+
+
 class SpeechDrivePreviewService:
     def __init__(self, sessions_root: Path = PREVIEW_SESSION_ROOT) -> None:
         self._sessions_root = Path(sessions_root)
@@ -370,10 +444,138 @@ class SpeechDrivePreviewService:
         return outcome
 
     # ------------------------------------------------------------------
-    # 云端 Sidecar 批量推理 (Task 6)
+    # 云端 Sidecar 批量推理
     # ------------------------------------------------------------------
-    async def _render_cloud(self, cloud_gpu, asset_dir: Path, pcm: np.ndarray, n_frames_hint: int) -> Optional[RenderOutcome]:
-        raise NotImplementedError
+    async def _resolve_sidecar_connection(self, cloud_gpu) -> Optional["SidecarConnection"]:
+        """复用 evaluate_compute 的探活结果，从同一 DB 记录取连接参数"""
+        import json
+
+        from sqlalchemy import select
+
+        from server.adapters.media.avatar_provider_registry import (
+            normalize_avatar_provider_config,
+        )
+        from server.config import decrypt_secret
+        from server.database.db import AsyncSessionLocal
+        from server.database.models import ApiProviderConfig
+
+        base_url = (getattr(cloud_gpu, "base_url", "") or "").strip()
+        if not base_url:
+            return None
+        async with AsyncSessionLocal() as db:
+            stmt = (
+                select(ApiProviderConfig)
+                .where(
+                    ApiProviderConfig.config_group.in_(["neural_renderer", "remote_gpu"]),
+                    ApiProviderConfig.is_active == 1,
+                )
+                .order_by(ApiProviderConfig.updated_at.desc())
+            )
+            res = await db.execute(stmt)
+            record = next(
+                (c for c in res.scalars().all() if (c.base_url or "").strip() == base_url),
+                None,
+            )
+        if record is None:
+            return None
+        credential = decrypt_secret(record.encrypted_api_key) if record.encrypted_api_key else ""
+        extra: dict = {}
+        raw_extra = getattr(record, "extra_params_json", "") or "{}"
+        try:
+            extra = json.loads(raw_extra) if isinstance(raw_extra, str) else dict(raw_extra)
+        except Exception:
+            extra = {}
+        try:
+            canonical = normalize_avatar_provider_config(
+                extra,
+                base_url=base_url,
+                credential_present=bool(str(credential).strip()),
+            )
+        except Exception as e:
+            logger.warning(f"云端 sidecar 配置规范化失败，跳过云端试播: {e}")
+            return None
+        return SidecarConnection(
+            node_url=base_url,
+            auth_token=str(credential),
+            canonical=canonical,
+            model_name=str(getattr(record, "model_name", "") or "auto"),
+        )
+
+    async def _render_cloud(
+        self,
+        cloud_gpu,
+        asset_dir: Path,
+        pcm: np.ndarray,
+        n_frames_hint: int,
+    ) -> Optional[RenderOutcome]:
+        driver = None
+        try:
+            conn = await self._resolve_sidecar_connection(cloud_gpu)
+            if conn is None:
+                logger.warning("无法解析云端 sidecar 连接参数，跳过云端试播")
+                return None
+
+            frames = _build_audio_frame_batch(pcm)
+            driver = _build_sidecar_driver(conn)
+
+            collected: list[bytes] = []
+
+            async def _collect(jpeg: bytes, owner=None) -> None:
+                # 预览专用收集器：不接管虚拟摄像头/直播画面，仅缓存 JPEG
+                if jpeg:
+                    collected.append(jpeg)
+
+            # 包裹实例方法：预览会话独占，不与直播管路共享连接
+            driver._publish_video_frame = _collect  # noqa: SLF001
+
+            started = time.monotonic()
+            await driver.start()
+
+            await driver.feed_audio_frames(frames)
+            # 时间线 consumer 按实时节奏发帧，等待其排空
+            timeline_task = getattr(driver, "_timeline_task", None)
+            if timeline_task is not None and not timeline_task.done():
+                timeout = (len(pcm) / 16000.0) + 10.0
+                await asyncio.wait_for(asyncio.shield(timeline_task), timeout=timeout)
+        except Exception as e:
+            logger.warning(f"云端 sidecar 试播失败: {e}")
+            return None
+        finally:
+            if driver is not None:
+                try:
+                    await driver.stop()
+                except Exception as e:
+                    logger.debug(f"关闭预览 sidecar 连接忽略: {e}")
+
+        if not collected:
+            return None
+
+        coords = _load_coords(asset_dir)
+        outcome = RenderOutcome()
+        outcome.device = str(
+            (getattr(driver, "_selected_descriptor", {}) or {}).get("device")
+            or getattr(cloud_gpu, "gpu_name", "")
+            or ""
+        )
+        outcome.providers = ["remote:neural_lipsync"]
+        vram = getattr(cloud_gpu, "vram_total_gb", None)
+        outcome.vram_total_gb = round(float(vram), 2) if vram else None
+
+        per_frame = (time.monotonic() - started) * 1000.0 / max(1, len(collected))
+        for i, jpeg in enumerate(collected):
+            arr = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+            if arr is None:
+                continue
+            outcome.full_frames.append(arr)
+            if coords:
+                outcome.face_frames.append(_crop_like(arr, coords[i % len(coords)]))
+            else:
+                outcome.face_frames.append(cv2.resize(arr, (256, 256), interpolation=cv2.INTER_AREA))
+            outcome.timings_ms.append(round(per_frame, 2))
+
+        if not outcome.full_frames:
+            return None
+        return outcome
 
     # ------------------------------------------------------------------
     # 落盘与清理
