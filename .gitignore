@@ -10,6 +10,7 @@ v/
 # Local runtime data
 .env
 data/
+.master.key
 *.db
 *.db-wal
 *.db-shm

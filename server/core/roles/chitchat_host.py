@@ -61,14 +61,22 @@ class ChitchatHostRole(BaseAnchorRole):
                 yield chunk
             return
 
-        # 观众常规弹幕 (chat)：顺着聊、接梗、抛话题
+        # 观众常规弹幕 (chat)：顺着聊、接梗、抛话题；命中本地知识库时注入事实
         text = payload.get("text", "")
         theme = live_context.get("theme") or ""
         theme_hint = f"今日直播主题是【{theme}】，话题尽量往这上面引。" if theme else ""
+        rag_hint = await self.build_rag_context_hint(text)
         prompt_input = (
             f"{theme_hint}观众【{user_name}】在公屏说：\"{text}\"。"
             f"顺着这个话茬接下去唠，像真人唠嗑一样自然回应，可以适当延伸抛出新话题让大家接着聊（40字左右）。"
         )
+        if rag_hint:
+            prompt_input = (
+                f"{rag_hint}\n"
+                f"观众【{user_name}】在公屏说：\"{text}\"。"
+                f"如果上面的知识库资料正好聊到这个话题，就自然地带入一点真实信息接唠（像随口提到一样，别照本宣科），"
+                f"40字左右；没关系就按原话题唠。{theme_hint}"
+            )
         async for chunk in LLMClient.generate_stream(
             self.system_prompt, prompt_input, history=live_context.get("history"), context=live_context, temperature=0.9
         ):

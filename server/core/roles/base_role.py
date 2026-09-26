@@ -21,6 +21,26 @@ class BaseAnchorRole(ABC):
         self.pitch_shift = pitch_shift
         self.guardrail_profile = guardrail_profile
 
+    async def build_rag_context_hint(self, query: str, top_k: int = 3) -> str:
+        """
+        全角色共享的本地知识库检索增强 (规划 §5.4 / README「商品货盘 RAG」)。
+
+        检索命中且过置信度门限时返回「【本地知识库】…」注入提示词；
+        未命中或无知识库时返回空串，保持原提示词链路不变 (ADR-11 严格门控)。
+        任何异常都不阻断直播主流程。
+        """
+        try:
+            from server.core.rag.engine import global_rag
+            if not query.strip():
+                return ""
+            result = await global_rag.search_async(query, top_k=top_k)
+            if not result.get("matched"):
+                return ""
+            block = global_rag.build_context_block(result)
+            return block
+        except Exception:
+            return ""
+
     @abstractmethod
     async def process_event(
         self,

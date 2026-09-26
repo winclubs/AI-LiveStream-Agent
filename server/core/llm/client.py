@@ -6,6 +6,7 @@ from sqlalchemy import select
 from server.database.db import AsyncSessionLocal
 from server.database.models import ApiProviderConfig
 from server.config import decrypt_secret
+from server.core.llm.budget_manager import estimate_tokens
 
 logger = logging.getLogger("LiveAgent.LLMClient")
 
@@ -98,7 +99,7 @@ class LLMClient:
         prompt_caching = bool(extras.get("prompt_caching"))
 
         # P2-1: 会话 Token 预算超额熔断拦截
-        from server.core.llm.budget_manager import get_llm_budget_manager
+        from server.core.llm.budget_manager import get_llm_budget_manager, estimate_tokens
         budget_mgr = get_llm_budget_manager()
         if budget_mgr.is_budget_exceeded():
             logger.warning(
@@ -108,6 +109,13 @@ class LLMClient:
             for i in range(0, len(fallback_reply), 3):
                 yield fallback_reply[i:i+3]
             return
+
+        # 累积本轮 prompt 与 completion 文本，流式结束后统一记账预算
+        prompt_text = system_prompt
+        if history:
+            for m in history[-4:]:
+                prompt_text += str(getattr(m, "content", m) or "")
+        output_parts: list[str] = []
 
         # 构造上下文与消息
         messages = [{"role": "system", "content": system_prompt}]
@@ -188,6 +196,7 @@ class LLMClient:
                                             content = delta.get("content", "")
                                             if content:
                                                 yielded_any = True
+                                                output_parts.append(content)
                                                 yield content
                                     except Exception:
                                         continue
@@ -197,12 +206,14 @@ class LLMClient:
                                         content = chunk_json.get("message", {}).get("content", "")
                                         if content:
                                             yielded_any = True
+                                            output_parts.append(content)
                                             yield content
                                         if chunk_json.get("done", False):
                                             break
                                     except Exception:
                                         continue
                             if yielded_any:
+                                cls._record_budget_usage(budget_mgr, prompt_text, "".join(output_parts), user_content)
                                 return
                             logger.warning("LLM 接口返回 HTTP 200 但未产生有效文本，触发动态兜底生成")
                         else:
@@ -210,15 +221,37 @@ class LLMClient:
             except Exception as e:
                 if locals().get("yielded_any", False):
                     logger.warning("LLM 远程流已产生部分文本后中断 (%s)，保留已输出内容且不拼接离线兜底", e)
+                    cls._record_budget_usage(budget_mgr, prompt_text, "".join(output_parts), user_content)
                     return
                 logger.warning(f"LLM 远程流式请求异常 ({e})，触发动态兜底生成")
 
         # 优雅降级兜底生成逻辑（在无 Key 或断网时触发）
         logger.info("使用离线智能人设模板生成话术")
         fallback_reply = cls._generate_fallback(system_prompt, user_message, context)
+        # 本地模板生成 0 远程 Token，仅记录 prompt 侧估算以便遥测口径一致
+        cls._record_budget_usage(budget_mgr, prompt_text, fallback_reply, user_content)
         # 模拟自然流式切分
         for i in range(0, len(fallback_reply), 3):
             yield fallback_reply[i:i+3]
+
+    @staticmethod
+    def _record_budget_usage(budget_mgr, prompt_text: str, completion_text: str, user_content: str) -> None:
+        """
+        将本轮对话估算 Token 计入会话预算 (ADR-16: 声明为估算值，非精确计费)。
+
+        completion 为空 (远程未产字) 时只计 prompt 侧，避免重复记账兜底重试。
+        """
+        try:
+            prompt_est = estimate_tokens(f"{prompt_text}{user_content}")
+            completion_est = estimate_tokens(completion_text)
+            if prompt_est + completion_est <= 0:
+                return
+            budget_mgr.record_usage(
+                estimated_prompt_tokens=prompt_est,
+                estimated_completion_tokens=completion_est,
+            )
+        except Exception:
+            logger.exception("记录 LLM Token 预算消耗失败 (不影响直播主流程)")
 
     @staticmethod
     def _generate_fallback(system_prompt: str, user_message: str, context: Optional[dict]) -> str:

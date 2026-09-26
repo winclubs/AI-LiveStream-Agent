@@ -532,6 +532,38 @@ class LiveSessionController:
                 return driver
             logger.warning("MiniMax TTS 缺少有效 API Key，自动降级 Edge-TTS (ADR-10)")
 
+        # 2.6) ElevenLabs 云端 TTS (规划 §9.2)：有凭据即启用，合成失败自动回退 Edge (ADR-10)
+        # voice_id 优先取配置 extra_params，其次取克隆档案登记的 ElevenLabs voice_id
+        # (voices.py 克隆成功后把官方 voice_id 直接写入 VoiceProfile.id)
+        if tts_cfg and "eleven" in (tts_cfg.provider_name or "").lower():
+            from server.adapters.media.elevenlabs_driver import ElevenLabsTTSMediaDriver
+            extra = {}
+            try:
+                extra = json.loads(tts_cfg.extra_params_json or "{}")
+            except Exception:
+                pass
+            key = decrypt_secret(str(tts_cfg.encrypted_api_key)) if tts_cfg.encrypted_api_key else ""
+            el_voice = extra.get("voice_id", "")
+            if not el_voice and active_voice and str(getattr(active_voice, "id", "") or ""):
+                # 克隆档案的 id 即 ElevenLabs 官方 voice_id (voices.py IVC 落库约定)
+                vid = str(active_voice.id)
+                if not vid.startswith("clone_"):
+                    el_voice = vid
+            driver = ElevenLabsTTSMediaDriver(
+                api_base=tts_cfg.base_url or "https://api.elevenlabs.io/v1",
+                api_key=key,
+                voice_id=el_voice,
+                model_id=extra.get("model_id", "eleven_multilingual_v2"),
+            )
+            if await driver.health_check():
+                await driver.start()
+                if active_voice:
+                    await driver.apply_volume_gain(getattr(active_voice, "volume_gain", 1.0) or 1.0)
+                    await driver.apply_speech_speed(getattr(active_voice, "speech_speed", 1.0) or 1.0)
+                logger.info(f"已启用 ElevenLabs 云端 TTS 驱动 (音色: {el_voice or '默认'})")
+                return driver
+            logger.warning("ElevenLabs TTS 缺少有效 API Key 或音色，自动降级 Edge-TTS (ADR-10)")
+
         # 3) Edge-TTS 云端兜底
         voice_name = (tts_cfg.model_name if tts_cfg and tts_cfg.model_name else "")
         if not voice_name and active_voice and ("Neural" in active_voice.name or "zh-" in active_voice.name):
@@ -1570,6 +1602,13 @@ class LiveSessionController:
                         action_taken="drop" if is_dropped else hit["action"]
                     )
                     session.add(log_item)
+                    # alert 命中按策略语义属于高危放行不可播报：整句已被拦截，
+                    # 与 drop 的区别是它面向人工复核的严重等级，单独告警留痕
+                    if is_dropped and hit["action"] == "alert":
+                        logger.warning(
+                            "⚠️ 高危告警词命中，整句已拦截禁止播报 (人工复核): session=%s word=%s category=%s sentence=%s",
+                            session_id or "session_default", hit["matched_word"], hit["category"], original[:200]
+                        )
                 await session.commit()
         except Exception:
             logger.exception("写入违禁词审计日志失败")

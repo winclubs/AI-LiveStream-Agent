@@ -113,6 +113,23 @@ class LLMBudgetManager:
 _global_llm_budget_manager: Optional[LLMBudgetManager] = None
 
 
+def estimate_tokens(text: str, is_cjk_heavy: bool = True) -> int:
+    """
+    轻量零依赖 Token 估算，用于预算熔断近似计数 (ADR-16: 如实声明为估算值)。
+
+    CJK(中文/日文/韩文) 在主流 BPE 分词中平均 1.5~2.5 字符/token，
+    拉丁字母系平均约 4 字符/token。此处取保守偏高的系数，确保预算
+    判定宁可早触发熔断也不要超支。
+    """
+    if not text:
+        return 0
+    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff" or "\u3040" <= ch <= "\u30ff" or "\uac00" <= ch <= "\ud7af")
+    other = len(text) - cjk
+    if is_cjk_heavy and cjk > other:
+        return int(cjk / 1.5) + int(other / 4) + 1
+    return int((cjk / 1.5 + other / 4)) + 1
+
+
 def get_llm_budget_manager() -> LLMBudgetManager:
     """获取全局 LLM 预算管理器单例"""
     global _global_llm_budget_manager

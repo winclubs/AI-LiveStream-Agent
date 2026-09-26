@@ -48,6 +48,9 @@ class ProhibitedWordSanitizer:
         :param current_role: 当前主播角色 (all / ecommerce / entertainment / expert)
         :param current_platform: 当前直播平台 (all / douyin / wechat / kuaishou / bilibili)
         :return: (处理后的文本, 触发的违规记录列表, 是否需要整句丢弃阻断)
+                 阻断语义统一覆盖 drop 与 alert：drop 为确定性整句拦截，
+                 alert 为高危告警命中，同样不得播报，由调用方记入告警日志。
+                 二者可通过 hit['action'] / 返回的 hits 区分，is_dropped 均为 True。
         """
         if not self.is_ready or not text:
             return text, [], False
@@ -72,7 +75,7 @@ class ProhibitedWordSanitizer:
         if not raw_matches:
             return text, [], False
 
-        # 如果命中需要整句阻断的词 (action == 'drop')
+        # 如果命中需要整句阻断的词 (drop 确定性拦截 / alert 高危告警同样不得播报)
         for match in raw_matches:
             start_idx, end_idx, word, action, replacement, category, platform = match
             hits.append({
@@ -84,11 +87,11 @@ class ProhibitedWordSanitizer:
                 "end_idx": end_idx,
                 "replacement": replacement
             })
-            if action == "drop":
+            if action in ("drop", "alert"):
                 is_dropped = True
 
         if is_dropped:
-            # 整句阻断，返回空文本
+            # 整句阻断，返回空文本 (drop 与 alert 均不再播报原文)
             return "", hits, True
 
         # 按照 start_idx 升序，长度降序排序

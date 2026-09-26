@@ -88,6 +88,13 @@ class EntertainmentHostRole(BaseAnchorRole):
 
         theme = live_context.get("theme") or ""
         theme_hint = f"今日直播主题是【{theme}】，互动尽量贴合主题。" if theme else ""
+        rag_hint = await self.build_rag_context_hint(text)
         prompt_input = f"{theme_hint}观众【{user_name}】发弹幕说：\"{text}\"。请以元气活泼的主播娜娜身份，幽默搞笑且充满情商地回应这位朋友（40字左右）！"
+        if rag_hint:
+            prompt_input = (
+                f"{rag_hint}\n"
+                f"观众【{user_name}】发弹幕说：\"{text}\"。如果上面的知识库资料和话题相关，就用活泼有趣的方式自然带出一点真实信息，"
+                f"千万别像念稿子；没关系就按原话题互动。{theme_hint}（40字左右）"
+            )
         async for chunk in LLMClient.generate_stream(self.system_prompt, prompt_input, history=live_context.get("history"), context=live_context, temperature=0.85):
             yield chunk

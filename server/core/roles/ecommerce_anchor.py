@@ -214,11 +214,26 @@ class EcommerceAnchorRole(BaseAnchorRole):
             if size_res.get("ok"):
                 tool_hint += "【MCP工具已执行】已在控制台显示尺码对照画层，请引导观众根据真实尺码数据选择。"
 
+        # 商品货盘 RAG (README §4)：用观众提问 + 当前商品标题检索本地知识库，
+        # 命中时注入卖点/FAQ 真实事实，避免口播捏造；未命中保持原链路 (ADR-11 门控)
+        rag_query = text
+        if current_product and current_product.get("title"):
+            rag_query = f"{text} {current_product.get('title')}"
+        rag_hint = await self.build_rag_context_hint(rag_query)
+
         prompt_input = (
             f"观众【{user_name}】发弹幕提问：\"{text}\"。"
             f"请结合当前商品卖点和带货主播人设，给出热情、接地气、有促单力度的简短解答（50字左右），引导去小黄车下单！"
             f"{tool_hint}"
         )
+        if rag_hint:
+            prompt_input = (
+                f"{rag_hint}\n"
+                f"观众【{user_name}】发弹幕提问：\"{text}\"。"
+                f"如果上面的知识库资料正好覆盖该问题或商品，回答必须严格基于其中事实（卖点/参数/FAQ），自然融入促单话术，"
+                f"严禁与资料矛盾或捏造未提及的信息；资料无关则照常结合当前商品作答（50字左右），引导去小黄车下单！"
+                f"{tool_hint}"
+            )
         async for chunk in LLMClient.generate_stream(
             self.system_prompt, prompt_input, history=live_context.get("history"), context=live_context, temperature=0.8
         ):

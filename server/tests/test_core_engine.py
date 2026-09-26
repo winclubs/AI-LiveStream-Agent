@@ -48,6 +48,58 @@ def test_aho_corasick_guardrail():
     assert is_dropped
     assert sanitized_drop == ""
 
+
+def test_alert_policy_blocks_broadcast_and_is_logged():
+    """回归：action_policy='alert' 必须阻止播报且保留告警语义 (不再原样放行)
+
+    缺陷复现：sanitize() 曾只有 drop/substitute 两个分支，alert 命中后
+    文本原样返回，高危词被播报出去。修复后 alert 与 drop 同样整句拦截，
+    调用方可经 hit['action'] 区分以写入告警日志。
+    """
+    sanitizer = ProhibitedWordSanitizer()
+    sanitizer.load_words([
+        {"word": "高危词", "category": "sensitive", "role_scope": "all",
+         "platform": "all", "action_policy": "alert", "replacement_word": "", "is_enabled": 1},
+        {"word": "最便宜", "category": "extreme", "role_scope": "all",
+         "platform": "all", "action_policy": "substitute", "replacement_word": "很实惠", "is_enabled": 1},
+    ])
+
+    # 1. 纯 alert 命中：整句阻断，不播报原文
+    text = "这款产品有个高危词在里面"
+    sanitized, hits, is_dropped = sanitizer.sanitize(text, current_role="ecommerce", current_platform="douyin")
+    assert is_dropped is True, "alert 命中必须整句拦截，禁止播报"
+    assert sanitized == "", "alert 命中后文本必须为空"
+    assert len(hits) == 1
+    assert hits[0]["matched_word"] == "高危词"
+    assert hits[0]["action"] == "alert", "命中记录须保留 action='alert' 以区分 drop"
+
+    # 2. alert 与 substitute 混合：存在 alert 即整句阻断，平替不再生效
+    mixed = "这个商品最便宜，但有个高危词"
+    sanitized_m, hits_m, dropped_m = sanitizer.sanitize(mixed, current_role="ecommerce")
+    assert dropped_m is True
+    assert sanitized_m == ""
+    actions = sorted(h["action"] for h in hits_m)
+    assert actions == ["alert", "substitute"]
+
+    # 3. 前端/日志可据 action 区分 drop 与 alert，二者均阻断播报
+    sanitizer.load_words([
+        {"word": "高危词", "category": "sensitive", "role_scope": "all",
+         "platform": "all", "action_policy": "alert", "replacement_word": "", "is_enabled": 1},
+        {"word": "根治", "category": "medical", "role_scope": "all",
+         "platform": "all", "action_policy": "drop", "replacement_word": "", "is_enabled": 1},
+    ])
+    _, hits_alert, dropped_alert = sanitizer.sanitize("命中高危词", current_role="all")
+    _, hits_drop, dropped_drop = sanitizer.sanitize("能彻底根治", current_role="all")
+    assert dropped_alert and dropped_drop, "drop 与 alert 均阻断播报"
+    assert hits_alert[0]["action"] == "alert"
+    assert hits_drop[0]["action"] == "drop"
+
+    # 4. 未命中任何规则时放行且不误伤
+    clean, hits_clean, dropped_clean = sanitizer.sanitize("今天直播间的商品都很实惠", current_role="all")
+    assert clean == "今天直播间的商品都很实惠"
+    assert hits_clean == [] and dropped_clean is False
+
+
 def test_multi_platform_guardrail():
     """测试多平台违禁词规则隔离与动态匹配 (通用规则 + 抖音 + 视频号 + 快手 + B站)"""
     sanitizer = ProhibitedWordSanitizer()
@@ -1048,7 +1100,194 @@ def test_select_tts_driver_minimax_chain(monkeypatch):
     asyncio.run(_async_test())
 
 
-# 4.42 测试：渲染循环必须运行在独立线程 (回归：25fps cv2+JPEG 编码阻塞事件循环 5~15ms/帧)
+# 4.42 测试：ElevenLabs TTS 驱动接入选择链 (回归：声音克隆可用但无法用它播报)
+def test_elevenlabs_tts_driver_contract(monkeypatch):
+    from server.adapters.media import elevenlabs_driver as el_mod
+    from server.adapters.media.elevenlabs_driver import ElevenLabsTTSMediaDriver
+    from server.adapters.media.edgetts_driver import EdgeTTSMediaDriver
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        content = b"\x49\x44\x33" + b"audio" * 20  # mp3 帧头 + 有效载荷
+
+    class FakeAsyncClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, params=None, headers=None, json=None):
+            captured["url"] = url
+            captured["params"] = params
+            captured["headers"] = headers
+            captured["body"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(el_mod.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def _run():
+        d = ElevenLabsTTSMediaDriver(
+            api_base="https://api.elevenlabs.io/v1", api_key="xi-1234567890",
+            voice_id="cloned_voice_abc", model_id="eleven_multilingual_v2",
+        )
+        await d.apply_speech_speed(1.1)
+        await d.apply_volume_gain(1.2)
+        chunks = []
+        async for c in d.synthesize_stream("欢迎来到直播间"):
+            chunks.append(c)
+        return chunks
+
+    chunks = asyncio.run(_run())
+
+    # 1. 请求契约: /text-to-speech/{voice_id} + xi-api-key 鉴权 + 语速进 voice_settings
+    assert "/text-to-speech/cloned_voice_abc" in captured["url"]
+    assert captured["headers"]["xi-api-key"] == "xi-1234567890"
+    vs = captured["body"]["voice_settings"]
+    assert abs(vs["speed"] - 1.1) < 1e-6
+    assert captured["body"]["model_id"] == "eleven_multilingual_v2"
+
+    # 2. 音频被正确切分产出
+    assert b"".join(chunks) == FakeResponse.content
+
+    # 3. 无 Key 时健康检查必须返回 False (ADR-10 诚实降级)
+    d_nocred = ElevenLabsTTSMediaDriver(api_key="", voice_id="v1")
+    assert asyncio.run(d_nocred.health_check()) is False, "无 API Key 不得宣称可用"
+
+    # 4. 合成失败时自动回退 Edge-TTS (ADR-10)，不产出静默伪音频
+    async def boom(self, url, params=None, headers=None, json=None):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(el_mod.httpx, "AsyncClient", _BoomClient := type("C", (), {
+        "__init__": lambda self, **kw: None,
+        "__aenter__": lambda self: _async_self(self),
+        "__aexit__": lambda self, *a: _async_false(),
+        "post": boom,
+    }))
+
+    async def fake_edge(self, text):
+        yield b"EDGE_CHUNK"
+
+    monkeypatch.setattr(EdgeTTSMediaDriver, "synthesize_stream", fake_edge)
+    chunks2 = asyncio.run(_run())
+    assert chunks2 == [b"EDGE_CHUNK"], "ElevenLabs 失败后应回退 Edge-TTS"
+
+    # 5. 缺 voice_id 时合成必须失败并回退，不得产出静默伪音频
+    monkeypatch.setattr(el_mod.httpx, "AsyncClient", FakeAsyncClient)
+    async def _run_no_voice():
+        d = ElevenLabsTTSMediaDriver(api_key="xi-1234567890", voice_id="")
+        out = []
+        async for c in d.synthesize_stream("测试"):
+            out.append(c)
+        return out
+    chunks3 = asyncio.run(_run_no_voice())
+    assert chunks3 == [b"EDGE_CHUNK"], "缺 voice_id 必须降级而非静默"
+
+
+# 4.42b 测试：TTS 选择链接入 ElevenLabs (远程 GPU -> CosyVoice -> MiniMax -> ElevenLabs -> Edge)
+def test_select_tts_driver_elevenlabs_chain(monkeypatch):
+    async def _async_test():
+        from sqlalchemy import select
+        from server.database.db import AsyncSessionLocal
+        from server.database.models import ApiProviderConfig
+        from server.routes.live import global_live_controller
+        from server.adapters.media.elevenlabs_driver import ElevenLabsTTSMediaDriver
+        from server.adapters.media.edgetts_driver import EdgeTTSMediaDriver
+
+        async with AsyncSessionLocal() as s:
+            for r in (await s.execute(select(ApiProviderConfig).where(ApiProviderConfig.config_group == "tts"))).scalars().all():
+                r.is_active = 1 if "eleven" in (r.provider_name or "") else 0
+            s.add(ApiProviderConfig(
+                id="cfg_tts_eleven", config_group="tts", provider_name="elevenlabs", is_active=1,
+                encrypted_api_key="", base_url="https://api.elevenlabs.io/v1",
+                extra_params_json='{"voice_id": "cloned_voice_xyz", "model_id": "eleven_turbo_v2_5"}'
+            ))
+            await s.commit()
+
+        async def healthy(self, timeout: float = 4.0):
+            return True
+
+        monkeypatch.setattr(ElevenLabsTTSMediaDriver, "health_check", healthy)
+        driver = await global_live_controller._select_tts_driver()
+        assert isinstance(driver, ElevenLabsTTSMediaDriver), f"期望 ElevenLabs 驱动，实际 {type(driver).__name__}"
+        assert driver.voice_id == "cloned_voice_xyz"
+        assert driver.model_id == "eleven_turbo_v2_5"
+
+        # 健康检查不过 (无 Key/无音色) -> 自动降级 Edge
+        async def unhealthy(self, timeout: float = 4.0):
+            return False
+        monkeypatch.setattr(ElevenLabsTTSMediaDriver, "health_check", unhealthy)
+        driver2 = await global_live_controller._select_tts_driver()
+        assert isinstance(driver2, EdgeTTSMediaDriver), "ElevenLabs 不可用时必须降级 Edge-TTS"
+
+        # 还原默认种子状态
+        async with AsyncSessionLocal() as s:
+            for r in (await s.execute(select(ApiProviderConfig).where(ApiProviderConfig.config_group == "tts"))).scalars().all():
+                r.is_active = 1 if "cosyvoice" in (r.provider_name or "") else 0
+            await s.commit()
+
+    asyncio.run(_async_test())
+
+
+# 4.42c 测试：全角色 RAG 注入 (回归：电商/娱乐/闲聊人设此前不查知识库，与 README「商品货盘 RAG」宣传脱节)
+def test_rag_context_hint_injected_for_all_roles():
+    async def _async_test():
+        from server.core.rag.engine import global_rag
+        from server.core.roles.chitchat_host import ChitchatHostRole
+        from server.core.roles.entertainment_host import EntertainmentHostRole
+        from server.core.roles.ecommerce_anchor import EcommerceAnchorRole
+
+        global_rag.clear()
+        # 注入一条明确的知识库事实
+        global_rag.add_chunk(
+            chunk_id="chk_test_1", doc_id="doc_test", doc_name="产品手册",
+            content="极光玻尿酸精华原液的核心成分是5重玻尿酸，主打深层补水锁水，适合干性肌肤。",
+        )
+        try:
+            for role in (
+                ChitchatHostRole(),
+                EntertainmentHostRole(),
+                EcommerceAnchorRole(),
+            ):
+                hit = await role.build_rag_context_hint("极光玻尿酸精华核心成分是什么")
+                assert "极光玻尿酸" in hit, f"{type(role).__name__} 未注入命中知识库事实"
+                assert "【本地知识库" in hit or "【本地权威知识库" in hit, f"{type(role).__name__} 缺少知识库来源标注"
+                # 未命中时必须返回空串，保持原链路 (用零词法重叠的查询)
+                miss = await role.build_rag_context_hint("zzz qqq www")
+                assert miss == "", f"{type(role).__name__} 未命中时应返回空串"
+        finally:
+            global_rag.clear()
+
+    asyncio.run(_async_test())
+
+
+# 4.42d 测试：RAG 异常不阻断直播主流程 (知识库引擎故障时静默放行)
+def test_rag_context_hint_swallows_errors():
+    async def _async_test():
+        from server.core.roles.chitchat_host import ChitchatHostRole
+        import server.core.rag.engine as rag_mod
+
+        async def boom_search(self, query, top_k=3, min_score=None):
+            raise RuntimeError("知识库引擎故障")
+
+        role = ChitchatHostRole()
+        orig = rag_mod.KnowledgeBaseEngine.search_async
+        rag_mod.KnowledgeBaseEngine.search_async = boom_search
+        try:
+            hint = await role.build_rag_context_hint("任何问题")
+            assert hint == "", "RAG 异常时必须返回空串，不得中断直播"
+        finally:
+            rag_mod.KnowledgeBaseEngine.search_async = orig
+
+    asyncio.run(_async_test())
+
+
+# 4.43 测试：渲染循环必须运行在独立线程 (回归：25fps cv2+JPEG 编码阻塞事件循环 5~15ms/帧)
 def test_render_loop_runs_off_event_loop_thread():
     import threading as _threading
     import time as _time
