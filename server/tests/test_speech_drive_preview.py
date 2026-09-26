@@ -3,6 +3,7 @@
 import math
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 
@@ -34,3 +35,101 @@ def test_frame_count_bounds_by_max_frames():
     # 零时长
     assert _compute_frame_count(0.0) == 0
     assert FPS == 25
+
+
+@pytest.fixture
+def fake_asset(tmp_path):
+    """构造最小可用资产目录 (1 张 face + 1 张 full + coords)"""
+    import pickle
+
+    import cv2
+
+    (tmp_path / "face_imgs").mkdir()
+    (tmp_path / "full_imgs").mkdir()
+    cv2.imwrite(str(tmp_path / "face_imgs" / "0.jpg"), np.zeros((256, 256, 3), dtype=np.uint8))
+    cv2.imwrite(str(tmp_path / "full_imgs" / "0.jpg"), np.zeros((200, 200, 3), dtype=np.uint8))
+    with open(tmp_path / "coords.pkl", "wb") as f:
+        pickle.dump([(0, 100, 0, 100)], f)
+    return tmp_path
+
+
+@pytest.fixture
+def no_gpu(monkeypatch):
+    """强制 evaluate_compute 返回本地不可用、云端未配置"""
+
+    async def _fake_evaluate(*args, **kwargs):
+        from server.core.hardware.gpu_capability import ComputePlan
+
+        return ComputePlan(
+            feature_name="test",
+            required_vram_gb=8,
+            use_cloud=False,
+            can_execute=False,
+            is_low_spec_local=True,
+            has_cloud_gpu=False,
+            local_gpu={"gpu_name": "GT 710", "vram_total_gb": 1.0, "cuda_available": False},
+            cloud_gpu=None,
+            alert_type="insufficient_hardware",
+            user_message="test",
+            recommended_driver="procedural",
+        )
+
+    from server.core.hardware import gpu_capability as gc
+
+    monkeypatch.setattr(gc, "evaluate_compute", _fake_evaluate)
+
+
+def test_render_local_sync_produces_frames(monkeypatch, fake_asset):
+    from server.core.avatar.speech_drive_preview import _render_local_sync
+
+    class _FakeRenderer:
+        def crop_face_256(self, full, coord):
+            import cv2
+
+            return cv2.resize(full, (256, 256))
+
+        def render_lip_frame(self, full, idx, pcm, mouth_open, return_face=False):
+            import cv2
+
+            face = cv2.resize(full, (256, 256))
+            return (full, face) if return_face else full
+
+    pcm = (np.sin(np.linspace(0, 100 * np.pi, 16000)) * 0.2).astype(np.float32)  # 1s
+    full_imgs = [cv2.imread(str(fake_asset / "full_imgs" / "0.jpg"))]
+    renderer = _FakeRenderer()
+    outcome = _render_local_sync(renderer, pcm, 25, full_imgs)
+    assert len(outcome.face_frames) == 25 and len(outcome.full_frames) == 25
+    assert all(f.shape[:2] == (256, 256) for f in outcome.face_frames)
+    assert len(outcome.timings_ms) == 25 and all(t >= 0.0 for t in outcome.timings_ms)
+
+
+def _silence_mp3() -> bytes:
+    """生成一段可被 soundfile 解码的最小 WAV（测试统一用 wav 容器）"""
+    import io
+
+    import soundfile as sf  # noqa: PLC0415  (测试环境依赖)
+
+    buf = io.BytesIO()
+    sf.write(buf, np.zeros(int(16000 * 1.0), dtype=np.float32), 16000, format="WAV")
+    return buf.getvalue()
+
+
+@pytest.mark.anyio
+async def test_service_falls_back_honestly(monkeypatch, fake_asset, no_gpu):
+    """无 GPU 且无云端时必须诚实降级，且不得伪造设备信息"""
+    from server.core.avatar.speech_drive_preview import (
+        ENGINE_FALLBACK,
+        get_speech_drive_preview_service,
+    )
+
+    service = get_speech_drive_preview_service()
+    service._sessions_root = fake_asset / "sessions"
+    # 降级渲染用真实素材路径
+    audio = _silence_mp3()
+    result = await service.run("anchor_test", fake_asset, audio)
+    assert result.engine == ENGINE_FALLBACK
+    assert result.mode == "fallback"
+    assert result.device == ""
+    assert result.providers == []
+    assert result.fallback_reason is not None
+    assert result.frame_count > 0

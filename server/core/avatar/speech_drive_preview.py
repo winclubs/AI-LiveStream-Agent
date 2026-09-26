@@ -106,6 +106,121 @@ def _load_full_imgs(asset_dir: Path) -> List[np.ndarray]:
     return imgs
 
 
+def _load_coords(asset_dir: Path) -> list:
+    import pickle
+
+    coords_file = asset_dir / "coords.pkl"
+    if not coords_file.exists():
+        return []
+    try:
+        with open(coords_file, "rb") as f:
+            return list(pickle.load(f))
+    except Exception:
+        return []
+
+
+def _load_face_imgs(asset_dir: Path) -> List[np.ndarray]:
+    imgs: List[np.ndarray] = []
+    for p in sorted(asset_dir.glob("face_imgs/*.jpg"), key=lambda q: int(q.stem) if q.stem.isdigit() else 0):
+        img = cv2.imread(str(p))
+        if img is not None:
+            if img.shape[0] != 256 or img.shape[1] != 256:
+                img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_AREA)
+            imgs.append(img)
+    return imgs
+
+
+def _crop_like(full: np.ndarray, coord_box) -> np.ndarray:
+    """与 NeuralLipRenderer.crop_face_256 同口径的轻量裁剪（降级路径用）"""
+    try:
+        ymin, ymax, xmin, xmax = coord_box
+        fh, fw = full.shape[:2]
+        ymin = max(0, min(fh - 1, int(ymin)))
+        ymax = max(0, min(fh, int(ymax)))
+        xmin = max(0, min(fw - 1, int(xmin)))
+        xmax = max(0, min(fw, int(xmax)))
+        if ymax - ymin < 10 or xmax - xmin < 10:
+            return cv2.resize(full, (256, 256))
+        return cv2.resize(full[ymin:ymax, xmin:xmax], (256, 256), interpolation=cv2.INTER_AREA)
+    except Exception:
+        return cv2.resize(full, (256, 256))
+
+
+def _describe_local_device() -> str:
+    try:
+        from server.core.hardware.gpu_capability import probe_local_gpu
+
+        gpu = probe_local_gpu()
+        return str(gpu.gpu_name or "")
+    except Exception:
+        return ""
+
+
+def _local_vram_gb() -> Optional[float]:
+    try:
+        from server.core.hardware.gpu_capability import probe_local_gpu
+
+        gpu = probe_local_gpu()
+        vram = float(gpu.vram_total_gb or 0.0)
+        return round(vram, 2) if vram > 0 else None
+    except Exception:
+        return None
+
+
+def _render_local_sync(
+    renderer,
+    pcm: np.ndarray,
+    n_frames: int,
+    full_imgs: List[np.ndarray],
+    allow_cpu: bool = False,
+) -> Optional[RenderOutcome]:
+    """同步执行：以给定 renderer 在 25FPS 逐帧真实推理（供 run_cpu_bound 线程内调用）"""
+    outcome = RenderOutcome()
+    outcome.providers = list(getattr(getattr(renderer, "session", None), "get_providers", lambda: [])())
+    outcome.device = _describe_local_device()
+    outcome.vram_total_gb = _local_vram_gb()
+
+    n = len(full_imgs)
+    timings: List[float] = []
+    face_out: List[np.ndarray] = []
+    full_out: List[np.ndarray] = []
+    for i in range(n_frames):
+        center = int(i * (16000.0 / FPS))
+        window = pcm[max(0, center - MEL_CONTEXT_SAMPLES): center + MEL_CONTEXT_SAMPLES]
+        if window.size == 0:
+            window = np.zeros(MEL_CONTEXT_SAMPLES * 2, dtype=np.float32)
+        amp = float(np.sqrt(np.mean(np.square(window)))) if window.size else 0.0
+        mouth_open = min(1.0, amp * 12.5)  # 与既有试听驱动相同灵敏度
+        t0 = time.perf_counter()
+        out = renderer.render_lip_frame(
+            full_imgs[i % n], i, window, mouth_open, return_face=True
+        )
+        dt = (time.perf_counter() - t0) * 1000.0
+        if out is None:
+            return None  # 推理失败，交给上层降级
+        full_blended, face256 = out
+        full_out.append(full_blended)
+        face_out.append(face256)
+        timings.append(dt)
+
+    outcome.face_frames = face_out
+    outcome.full_frames = full_out
+    outcome.timings_ms = timings
+    return outcome
+
+
+def _build_local_renderer(asset_dir: Path, allow_cpu: bool = False) -> Optional["object"]:
+    """构造并载入资产的 NeuralLipRenderer（模块级，供线程内调用）"""
+    from server.core.avatar.neural_lip_renderer import NeuralLipRenderer
+
+    renderer = NeuralLipRenderer()
+    if not renderer.is_ready:
+        return None
+    if not renderer.load_anchor_assets(asset_dir):
+        return None
+    return renderer
+
+
 class SpeechDrivePreviewService:
     def __init__(self, sessions_root: Path = PREVIEW_SESSION_ROOT) -> None:
         self._sessions_root = Path(sessions_root)
@@ -156,12 +271,108 @@ class SpeechDrivePreviewService:
             )
 
     # ------------------------------------------------------------------
-    # 算力分流 (Task 4 填充 _resolve_compute_plan；Task 6 填充云端分支)
+    # 算力分流
     # ------------------------------------------------------------------
     async def _resolve_compute_plan(self):
-        raise NotImplementedError
+        from server.core.hardware.gpu_capability import evaluate_compute
+
+        return await evaluate_compute(feature_name="试播台词驱动")
 
     async def _dispatch_render(self, plan, asset_dir, pcm, n_frames):
+        """返回 (outcome, engine, mode, fallback_reason)。云端失败自动回退本地。"""
+        local_gpu = plan.local_gpu or {}
+        local_ok = bool(
+            local_gpu.get("cuda_available")
+            and float(local_gpu.get("vram_total_gb") or 0) >= 2.0
+        )
+        cloud = getattr(plan, "cloud_gpu", None)
+        cloud_ok = bool(plan.use_cloud and plan.has_cloud_gpu and cloud and cloud.get("is_reachable"))
+
+        if cloud_ok:
+            try:
+                outcome = await self._render_cloud(cloud, asset_dir, pcm, n_frames)
+                if outcome is not None and outcome.full_frames:
+                    return outcome, ENGINE_CLOUD, "cloud", None
+                logger.warning("云端试播渲染未产出帧，自动回退本地引擎")
+            except Exception as e:
+                logger.warning(f"云端试播渲染失败，自动回退本地引擎: {e}")
+            if local_ok:
+                outcome = await self._render_local(asset_dir, pcm, n_frames)
+                if outcome is not None:
+                    return outcome, ENGINE_LOCAL, "local", "sidecar_unreachable"
+
+        if local_ok:
+            outcome = await self._render_local(asset_dir, pcm, n_frames)
+            if outcome is not None:
+                return outcome, ENGINE_LOCAL, "local", None
+            return self._render_fallback(asset_dir, n_frames), ENGINE_FALLBACK, "fallback", "render_error"
+
+        # 本地无 CUDA：仍尝试 CPU 推理，模型缺失/异常时诚实降级
+        outcome = await self._render_local(asset_dir, pcm, n_frames, allow_cpu=True)
+        if outcome is not None:
+            return outcome, ENGINE_LOCAL, "local", "cuda_unavailable_cpu_fallback"
+        reason = self._diagnose_local_failure()
+        return self._render_fallback(asset_dir, n_frames), ENGINE_FALLBACK, "fallback", reason
+
+    # ------------------------------------------------------------------
+    # 本地 ONNX 推理
+    # ------------------------------------------------------------------
+    async def _render_local(
+        self,
+        asset_dir: Path,
+        pcm: np.ndarray,
+        n_frames: int,
+        allow_cpu: bool = False,
+    ) -> Optional[RenderOutcome]:
+        from server.core.avatar.neural_model_manager import global_neural_model_manager
+
+        if not global_neural_model_manager.is_model_available("onnx_lipsync"):
+            logger.info("神经唇形模型未安装，试播跳过本地推理")
+            return None
+        try:
+            from server.core.cpu_worker import run_cpu_bound
+
+            outcome = await run_cpu_bound(_render_local_sync, asset_dir.as_posix(), pcm, n_frames, allow_cpu)
+            return outcome
+        except Exception as e:
+            logger.warning(f"本地试播渲染异常: {e}")
+            return None
+
+    def _diagnose_local_failure(self) -> str:
+        from server.core.avatar.neural_model_manager import global_neural_model_manager
+
+        if not global_neural_model_manager.is_model_available("onnx_lipsync"):
+            return "model_not_installed"
+        return "onnx_runtime_unavailable"
+
+    # ------------------------------------------------------------------
+    # 降级：仅回放原素材（微动态），绝不声称神经渲染
+    # ------------------------------------------------------------------
+    def _render_fallback(self, asset_dir: Path, n_frames: int) -> RenderOutcome:
+        full_imgs = _load_full_imgs(asset_dir)
+        coords = _load_coords(asset_dir)
+        if not full_imgs:
+            raise RuntimeError("主播资产缺少 full_imgs 帧序列")
+        face_imgs = _load_face_imgs(asset_dir)
+        n = max(1, len(full_imgs))
+        outcome = RenderOutcome()
+        outcome.device = ""
+        for i in range(n_frames):
+            full = full_imgs[i % n]
+            outcome.full_frames.append(full)
+            if face_imgs:
+                outcome.face_frames.append(face_imgs[i % len(face_imgs)])
+            elif coords:
+                outcome.face_frames.append(_crop_like(full, coords[i % len(coords)]))
+            else:
+                outcome.face_frames.append(cv2.resize(full, (256, 256)))
+            outcome.timings_ms.append(0.0)
+        return outcome
+
+    # ------------------------------------------------------------------
+    # 云端 Sidecar 批量推理 (Task 6)
+    # ------------------------------------------------------------------
+    async def _render_cloud(self, cloud_gpu, asset_dir: Path, pcm: np.ndarray, n_frames_hint: int) -> Optional[RenderOutcome]:
         raise NotImplementedError
 
     # ------------------------------------------------------------------
