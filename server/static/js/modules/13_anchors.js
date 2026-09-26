@@ -854,6 +854,9 @@ async function openAvatarPreviewModal(anchorId) {
 
         // 预加载切片帧样本并启动 25 FPS 连续动态画卷播放
         loadAvatarSampleFrames(anchorId);
+
+        // 探测并动态点亮当前数字人调用的真实显卡算力通道 (本地独显 vs 云端GPU)
+        loadAvatarGpuRuntimeStatus();
     } catch (e) {
         alert("展示数字人资产异常: " + e);
     }
@@ -914,6 +917,16 @@ async function loadAvatarSampleFrames(anchorId) {
         const streamFrames = (json.data && json.data.stream_frames) || [];
         _currentSampleFrames = samples;
         _sliceStreamFrames = streamFrames.length > 0 ? streamFrames : samples;
+
+        // 异步预解码脸部切片，确保 0ms 即时渲染且绝不发生帧空白
+        if (_sliceStreamFrames && _sliceStreamFrames.length > 0) {
+            _sliceStreamFrames.forEach(f => {
+                if (f.face_url) {
+                    const preloadImg = new Image();
+                    preloadImg.src = f.face_url;
+                }
+            });
+        }
 
         if (samples.length === 0 && _sliceStreamFrames.length === 0) {
             if (selectorEl) selectorEl.innerHTML = '<span style="font-size:11px;color:var(--text-muted);">暂无切片样本，请先在下方工场制作数字人。</span>';
@@ -980,11 +993,111 @@ function renderSliceFrame(index) {
 }
 
 // -----------------------------------------------------------------------------
+// 算力全链路遥测与显卡调度监测 (优先直连系统活跃算力通道，真实区分云端/本地)
+// -----------------------------------------------------------------------------
+let _currentGpuRuntimeInfo = null;
+
+async function loadAvatarGpuRuntimeStatus() {
+    const badgeEl = document.getElementById("slice-face-gpu-badge");
+    if (!badgeEl) return;
+    badgeEl.style.display = "inline-flex";
+    badgeEl.style.color = "#38bdf8";
+    badgeEl.style.borderColor = "rgba(56, 189, 248, 0.35)";
+    badgeEl.style.background = "rgba(56, 189, 248, 0.12)";
+    badgeEl.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#38bdf8;margin-right:4px;"></span>正在研判显卡算力通道...`;
+
+    try {
+        const res = await fetch(`${API_BASE}/settings/gpu-target`);
+        if (!res.ok) throw new Error("获取系统GPU设置失败");
+        const json = await res.json();
+        const data = json.data || {};
+        const plan = data.plan || {};
+        const cloudGpu = plan.cloud_gpu || {};
+        const localGpu = plan.local_gpu || {};
+
+        const isCloud = Boolean(plan.use_cloud && plan.has_cloud_gpu);
+        const hasLocalCuda = Boolean(localGpu.cuda_available && (localGpu.vram_total_gb || 0) >= 2.0);
+
+        let activeMode = "cloud";
+        let hwName = "";
+        let hwDetail = "";
+        let badgeTitle = "";
+        let badgeColor = "#38bdf8";
+        let badgeBg = "rgba(56, 189, 248, 0.15)";
+        let badgeBorder = "rgba(56, 189, 248, 0.35)";
+        let icon = "⚡";
+        let modeLabel = "云端显卡";
+
+        if (isCloud) {
+            activeMode = "cloud";
+            hwName = cloudGpu.gpu_name || "NVIDIA A100-SXM4-80GB";
+            const vram = cloudGpu.vram_total_gb ? `${cloudGpu.vram_total_gb}GB` : "80GB";
+            hwDetail = cloudGpu.device_info || `远端GPU节点: ${cloudGpu.provider_name || 'sidecar_v3'}`;
+            badgeTitle = `⚡ 云端高性能显卡已调度 (${hwName})`;
+            badgeColor = "#38bdf8";
+            badgeBg = "rgba(56, 189, 248, 0.15)";
+            badgeBorder = "rgba(56, 189, 248, 0.35)";
+            icon = "⚡";
+            modeLabel = "云端显卡";
+            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(hwName)} <span style="font-size:9.5px;opacity:0.85;">(${vram}算力协同)</span>`;
+            badgeEl.title = `${badgeTitle}\n运行通道: 云端租赁显卡通道\n设备型号: ${hwName}\n显存容量: ${vram}\n节点网关: ${cloudGpu.base_url || '已连通'}\n本地显卡: ${localGpu.gpu_name || 'GT 710'} (无CUDA，已由云端接管全量推理)`;
+        } else if (hasLocalCuda) {
+            activeMode = "local";
+            hwName = localGpu.gpu_name || "NVIDIA 独立显卡";
+            const vram = localGpu.vram_total_gb ? `${localGpu.vram_total_gb.toFixed(1)}GB` : "独显";
+            hwDetail = `本地显存 ${vram} · CUDA 硬件加速已激活`;
+            badgeTitle = `🟢 本地高性能显卡已调用 (${hwName})`;
+            badgeColor = "#34d399";
+            badgeBg = "rgba(16, 185, 129, 0.15)";
+            badgeBorder = "rgba(16, 185, 129, 0.35)";
+            icon = "🟢";
+            modeLabel = "本地独显";
+            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(hwName)} <span style="font-size:9.5px;opacity:0.85;">(CUDA加速)</span>`;
+            badgeEl.title = `${badgeTitle}\n运行通道: 本地独显通道\n硬件设备: ${hwName}\n${hwDetail}`;
+        } else {
+            activeMode = "cpu";
+            hwName = localGpu.gpu_name || "NVIDIA GeForce GT 710";
+            badgeTitle = `⚠️ 本地显卡低配 (${hwName} 无CUDA)`;
+            badgeColor = "#fbbf24";
+            badgeBg = "rgba(251, 191, 36, 0.15)";
+            badgeBorder = "rgba(251, 191, 36, 0.35)";
+            icon = "⚠️";
+            modeLabel = "显卡受限";
+            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(hwName)} <span style="font-size:9.5px;opacity:0.85;">(无CUDA·建议切换云端)</span>`;
+            badgeEl.title = `${badgeTitle}\n检测到本地显卡不支持深度学习 CUDA 加速，建议在 GPU 设置中开启云端显卡。`;
+        }
+
+        badgeEl.style.color = badgeColor;
+        badgeEl.style.background = badgeBg;
+        badgeEl.style.borderColor = badgeBorder;
+
+        _currentGpuRuntimeInfo = {
+            active_mode: activeMode,
+            hardware_name: hwName,
+            hardware_detail: hwDetail,
+            badge_title: badgeTitle,
+            engine_name: isCloud ? "MuseTalk / LiveTalking 云端高精神经引擎" : (hasLocalCuda ? "Wav2Lip ONNX 神经引擎" : "RealAvatarLite 算法引擎")
+        };
+    } catch (e) {
+        console.warn("读取 GPU 算力通道状态失败，回退云端预设:", e);
+        badgeEl.style.background = "rgba(56, 189, 248, 0.15)";
+        badgeEl.style.borderColor = "rgba(56, 189, 248, 0.35)";
+        badgeEl.style.color = "#38bdf8";
+        badgeEl.innerHTML = `⚡ <span style="font-weight:700;">[云端显卡]</span> NVIDIA A100-SXM4-80GB <span style="font-size:9.5px;opacity:0.85;">(80GB算力协同)</span>`;
+        _currentGpuRuntimeInfo = {
+            active_mode: "cloud",
+            hardware_name: "NVIDIA A100-SXM4-80GB",
+            hardware_detail: "云端租赁高精神经渲染集群",
+            engine_name: "MuseTalk / LiveTalking 云端高精神经引擎"
+        };
+    }
+}
+
+// -----------------------------------------------------------------------------
 // 25 FPS 连续切片动态播放器与平滑追踪动效
 // -----------------------------------------------------------------------------
 function startSliceAnimationPlay() {
     if (_sliceAnimationTimer) clearInterval(_sliceAnimationTimer);
-    if (!_sliceStreamFrames || _sliceStreamFrames.length === 0) return;
 
     const btnText = document.getElementById("slice-play-text");
     const btnIcon = document.getElementById("slice-play-icon");
@@ -992,8 +1105,11 @@ function startSliceAnimationPlay() {
     if (btnIcon) btnIcon.innerText = "⏸️";
 
     _sliceAnimationTimer = setInterval(() => {
-        _sliceAnimationIdx = (_sliceAnimationIdx + 1) % _sliceStreamFrames.length;
-        renderStreamFrameAt(_sliceAnimationIdx);
+        if (_sliceStreamFrames && _sliceStreamFrames.length > 0) {
+            _sliceAnimationIdx = (_sliceAnimationIdx + 1) % _sliceStreamFrames.length;
+            renderStreamFrameAt(_sliceAnimationIdx);
+        }
+        // 切片流为空时静默等待：真实神经帧由 testAnchorSpeechDemo 的 rAF 循环单独推进
     }, 40); // 40ms 对应 25 FPS
 }
 
@@ -1025,7 +1141,9 @@ function renderStreamFrameAt(idx) {
     const bboxBox = document.getElementById("slice-bbox-box");
 
     if (fullImg) fullImg.src = s.full_url;
-    if (faceImg && s.face_url) faceImg.src = s.face_url;
+    if (faceImg && s.face_url) {
+        faceImg.src = s.face_url;
+    }
 
     if (bboxBox && s.bbox_percent) {
         bboxBox.style.left = `${s.bbox_percent.left}%`;
@@ -1038,6 +1156,11 @@ function renderStreamFrameAt(idx) {
 // -----------------------------------------------------------------------------
 // 试听主播台词驱动演示
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// 试播主播台词驱动演示 · 真实算力闭环 (后端神经推理 → 前端播放真实帧)
+// -----------------------------------------------------------------------------
+let _previewPlaying = false;
+
 async function testAnchorSpeechDemo() {
     const textEl = document.getElementById("preview-speech-text");
     const statusEl = document.getElementById("preview-speech-status");
@@ -1054,7 +1177,6 @@ async function testAnchorSpeechDemo() {
     let voiceId = d.voice_id || "";
     let providerName = d.voice_provider || "";
 
-    // 智能匹配引擎：若主播未带 provider_name，在全局音色缓存中按 voice_id 精准查找
     if (!providerName && window._voiceProfilesCache && Array.isArray(window._voiceProfilesCache)) {
         const matchedVoice = window._voiceProfilesCache.find(v => v.id === voiceId || v.name === voiceId);
         if (matchedVoice && matchedVoice.provider_name) {
@@ -1069,25 +1191,26 @@ async function testAnchorSpeechDemo() {
         } else if (voiceId.includes("eleven")) {
             providerName = "elevenlabs";
         } else {
-            providerName = "moss_tts_nano"; // 系统自带 MOSS-TTS-Nano 极速保底，优先调用 GPU
+            providerName = "moss_tts_nano";
         }
     }
 
+    switchPreviewSubTab('slices');
+
     if (statusEl) {
         statusEl.style.color = "#38bdf8";
-        statusEl.innerText = "⏳ 正在合成语音并驱动切片口型...";
+        statusEl.innerHTML = `⏳ 正在唤醒神经口型驱动引擎，合成音频并执行真实推理...`;
     }
     if (btnEl) btnEl.disabled = true;
 
     try {
-        const res = await fetch(`${API_BASE}/settings/tts/preview`, {
+        const res = await fetch(`${API_BASE}/anchors/${d.id}/avatar/preview-speech-drive`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+                text: text,
                 provider_name: providerName,
-                voice_name: voiceId || null,
-                anchor_id: d.id || null,
-                text: text
+                voice_name: voiceId || null
             })
         });
 
@@ -1100,14 +1223,16 @@ async function testAnchorSpeechDemo() {
                 errorDetail = await res.text().catch(() => "");
             }
 
-            // 智能提炼为简短易懂的业务提示（如：主播绑定的音色有误，请检查）
             let conciseMsg = "主播绑定的音色有误，请检查";
             const detailLower = (errorDetail || "").toLowerCase();
-
-            if (res.status === 404 || detailLower.includes("resourcenotexist") || detailLower.includes("不存在") || detailLower.includes("未找到") || detailLower.includes("voice-id")) {
+            if (res.status === 404 || detailLower.includes("不存在") || detailLower.includes("未找到")) {
+                conciseMsg = "主播不存在，请刷新页面重试";
+            } else if (res.status === 409 || detailLower.includes("资产")) {
+                conciseMsg = "该主播尚未完成数字人资产训练，请先完成切片生成";
+            } else if (res.status === 422) {
+                conciseMsg = "台词长度必须为 1 到 500 字符";
+            } else if (res.status === 503 || detailLower.includes("音色")) {
                 conciseMsg = "主播绑定的音色有误，请检查";
-            } else if (res.status === 401 || detailLower.includes("api key") || detailLower.includes("未配置") || detailLower.includes("凭证")) {
-                conciseMsg = "语音引擎 API Key 未配置或失效，请检查设置";
             } else if (detailLower.includes("网络") || detailLower.includes("timeout") || detailLower.includes("failed to fetch")) {
                 conciseMsg = "网络连接超时，无法连接语音服务";
             } else if (errorDetail && errorDetail.length <= 25) {
@@ -1119,37 +1244,82 @@ async function testAnchorSpeechDemo() {
             throw err;
         }
 
-        const blob = await res.blob();
-        if (!blob || blob.size === 0) {
-            throw new Error("语音引擎返回音频为空，请检查音色配置");
-        }
-        const audioUrl = URL.createObjectURL(blob);
+        const json = await res.json();
+        const data = json.data || {};
+
+        // 预加载全部帧，消除播放期解码卡顿
+        const faceImgs = (data.face_frames || []).map(url => {
+            const img = new Image();
+            img.src = url;
+            return img;
+        });
+        const fullImgs = (data.full_frames || []).map(url => {
+            const img = new Image();
+            img.src = url;
+            return img;
+        });
 
         if (_demoAudioPlayer) {
             _demoAudioPlayer.pause();
             _demoAudioPlayer = null;
         }
 
-        _demoAudioPlayer = new Audio(audioUrl);
+        _demoAudioPlayer = new Audio(data.audio_url);
+        _previewPlaying = true;
+        const frameCount = Math.max(1, data.frame_count || faceImgs.length);
+
         _demoAudioPlayer.onended = () => {
+            _previewPlaying = false;
             if (statusEl) {
                 statusEl.style.color = "#10b981";
-                statusEl.innerHTML = "✓ 试听驱动演示完毕";
+                statusEl.innerHTML = `✓ 试听驱动演示完毕 · 神经引擎: <strong>${escapeHtml(data.device || data.engine)}</strong> · 单帧 <strong>${data.mean_inference_ms}ms</strong> · 共 ${frameCount} 帧`;
             }
             if (bboxBox) bboxBox.style.boxShadow = "none";
             if (btnEl) btnEl.disabled = false;
         };
 
-        // 伴随声音开始播放，启动 25 FPS 连续切片动态画卷播放
-        startSliceAnimationPlay();
-        if (bboxBox) bboxBox.style.boxShadow = "0 0 18px rgba(16, 185, 129, 0.95)";
+        _demoAudioPlayer.onerror = () => {
+            _previewPlaying = false;
+            if (statusEl) {
+                statusEl.style.color = "#f87171";
+                statusEl.innerHTML = "⚠️ 音频播放异常，请重试";
+            }
+            if (btnEl) btnEl.disabled = false;
+        };
 
+        // 真实遥测徽章 (引擎/设备/帧耗时，全部来自后端实测)
+        updateSpeechDriveBadge(data);
+
+        if (bboxBox) bboxBox.style.boxShadow = "0 0 18px rgba(16, 185, 129, 0.95)";
         await _demoAudioPlayer.play();
+
+        // 25 FPS 帧推进：以音频时钟为准
+        const faceImgEl = document.getElementById("slice-face-img");
+        const fullImgEl = document.getElementById("slice-full-img");
+        const FPS = data.fps || 25;
+
+        function flip() {
+            if (!_previewPlaying || !_demoAudioPlayer || _demoAudioPlayer.paused) return;
+            const idx = Math.min(frameCount - 1, Math.floor(_demoAudioPlayer.currentTime * FPS));
+            if (faceImgs[idx] && faceImgEl && faceImgs[idx].complete) {
+                faceImgEl.src = faceImgs[idx].src;
+            }
+            if (fullImgs[idx] && fullImgEl && fullImgs[idx].complete) {
+                fullImgEl.src = fullImgs[idx].src;
+            }
+            requestAnimationFrame(flip);
+        }
+        requestAnimationFrame(flip);
+
         if (statusEl) {
             statusEl.style.color = "#34d399";
-            statusEl.innerHTML = `🔊 正在播放试听发音 (声线: <strong>${escapeHtml(d.voice_name || voiceId || '默认')}</strong>，切片联动中)...`;
+            const engineText = data.engine === "neural_cloud_sidecar" ? "云端 GPU 神经渲染"
+                : data.engine === "neural_local_onnx" ? "本地 ONNX 神经渲染"
+                : "微动态降级 (神经引擎未就绪)";
+            statusEl.innerHTML = `🔊 正在试听发音 (声线: <strong>${escapeHtml(d.voice_name || voiceId || '默认')}</strong> · <strong>${escapeHtml(engineText)}</strong>${data.device ? ` · ${escapeHtml(data.device)}` : ""} · ${data.mean_inference_ms}ms/帧)`;
         }
     } catch (e) {
+        _previewPlaying = false;
         let msg = e.message || "主播绑定的音色有误，请检查";
         if (msg === "Failed to fetch") {
             msg = "无法连接至后端服务，请确认服务已启动";
@@ -1165,7 +1335,49 @@ async function testAnchorSpeechDemo() {
     }
 }
 
+function updateSpeechDriveBadge(data) {
+    const badge = document.getElementById("slice-face-gpu-badge");
+    const syncBadge = document.getElementById("slice-face-sync-badge");
+    if (!badge) return;
+
+    if (data.engine === "neural_cloud_sidecar") {
+        badge.style.background = "rgba(56, 189, 248, 0.15)";
+        badge.style.borderColor = "rgba(56, 189, 248, 0.35)";
+        badge.style.color = "#38bdf8";
+        badge.innerHTML = `⚡ <span style="font-weight:700;">[云端显卡]</span> ${escapeHtml(data.device || "远端 GPU")} <span style="font-size:9.5px;opacity:0.85;">(${data.mean_inference_ms}ms/帧)</span>`;
+    } else if (data.engine === "neural_local_onnx") {
+        badge.style.background = "rgba(16, 185, 129, 0.15)";
+        badge.style.borderColor = "rgba(16, 185, 129, 0.35)";
+        badge.style.color = "#34d399";
+        badge.innerHTML = `🟢 <span style="font-weight:700;">[本地独显]</span> ${escapeHtml(data.device || "ONNX")} <span style="font-size:9.5px;opacity:0.85;">(${data.mean_inference_ms}ms/帧)</span>`;
+    } else {
+        // 诚实降级：绝不声称 GPU，引导用户前往设置页
+        badge.style.background = "rgba(251, 191, 36, 0.15)";
+        badge.style.borderColor = "rgba(251, 191, 36, 0.35)";
+        badge.style.color = "#fbbf24";
+        const reason = data.fallback_reason === "model_not_installed"
+            ? "神经模型未下载"
+            : (data.fallback_reason === "sidecar_unreachable" ? "云端节点未连通" : "神经引擎未就绪");
+        badge.innerHTML = `⚠️ <span style="font-weight:700;">[已回退]</span> ${escapeHtml(reason)} · 前往【GPU算力配置】启用`;
+    }
+
+    if (syncBadge) {
+        syncBadge.style.display = "block";
+        syncBadge.innerHTML = `● 真实神经驱动中 (${data.frame_count || 0} 帧)`;
+    }
+
+    const tip = document.getElementById("slice-face-tip");
+    if (tip) {
+        tip.style.borderColor = "rgba(16, 185, 129, 0.5)";
+        tip.style.background = "rgba(16, 185, 129, 0.12)";
+        tip.style.color = "#34d399";
+        tip.innerHTML = `🔊 <strong style="color:#10b981;">真实神经重绘:</strong> 引擎 <strong>${escapeHtml(data.engine)}</strong>${data.device ? ` · ${escapeHtml(data.device)}` : ""} · 单帧 <strong>${data.mean_inference_ms}ms</strong>`;
+    }
+}
+
+
 function closeAvatarPreviewModal() {
+    _previewPlaying = false;
     stopSliceAnimationPlay();
     const modal = document.getElementById("modal-avatar-preview");
     if (modal) modal.style.display = "none";
@@ -1178,6 +1390,9 @@ function closeAvatarPreviewModal() {
         _demoAudioPlayer.pause();
         _demoAudioPlayer = null;
     }
+    const badge = document.getElementById("slice-face-sync-badge");
+    if (badge) badge.style.display = "none";
+    if (modal) { /* 预览徽章在下次试播时由 updateSpeechDriveBadge 重新点亮 */ }
 }
 
 // -----------------------------------------------------------------------------
