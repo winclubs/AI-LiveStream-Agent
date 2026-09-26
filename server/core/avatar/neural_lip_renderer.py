@@ -301,7 +301,7 @@ class NeuralLipRenderer:
 
         return full_frame
 
-    def _crop_face_256(
+    def crop_face_256(
         self,
         full_frame: np.ndarray,
         coord_box: Tuple[int, int, int, int],
@@ -348,7 +348,8 @@ class NeuralLipRenderer:
         pcm_window: np.ndarray,
         mouth_open: float = 0.0,
         override_coord: Optional[Tuple[int, int, int, int]] = None,
-    ) -> Optional[np.ndarray]:
+        return_face: bool = False,
+    ) -> Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]]:
         """
         执行单帧真实神经唇形重绘管线
         参数:
@@ -360,6 +361,9 @@ class NeuralLipRenderer:
             用于动作切片等非底图帧：动作帧与待机底片素材不对齐，需显式指定
             当前帧的人脸位置，并从当前帧实时裁剪 256x256 人脸送推理，
             避免把底片素材贴到动作帧的错误位置。
+          - return_face: 为 True 时额外返回神经重绘的 256x256 原始人脸，
+            供试播主监视舱直接展示神经输出（避免从全图裁剪上采样失真）。
+            默认 False，保持真实开播管路调用签名与行为完全不变。
         """
         if not self.is_ready or not self.session:
             return None
@@ -370,13 +374,13 @@ class NeuralLipRenderer:
 
         # 静音、能量极低或音频切片为空时，无需执行深度推理，直接返回原帧保持纯正自然
         if pcm_window is None or len(pcm_window) == 0:
-            return full_frame
+            return self._wrap_silent(full_frame, frame_idx, override_coord, return_face)
         if mouth_open < 0.01 and float(np.max(np.abs(pcm_window))) < 0.01:
-            return full_frame
+            return self._wrap_silent(full_frame, frame_idx, override_coord, return_face)
 
         if override_coord is not None:
             # 动作帧路径：从当前帧实时裁剪对齐人脸，坐标用外部传入值
-            face_256 = self._crop_face_256(full_frame, override_coord)
+            face_256 = self.crop_face_256(full_frame, override_coord)
             if face_256 is None:
                 return None
             coord_box = override_coord
@@ -420,8 +424,29 @@ class NeuralLipRenderer:
             # 5. 动态无缝羽化融合回贴原帧
             result_frame = full_frame.copy()
             result_frame = self._blend_back(result_frame, rendered_face, coord_box)
-            return result_frame
+            return (result_frame, rendered_face) if return_face else result_frame
 
         except Exception as e:
             logger.debug(f"神经唇形渲染单帧推理跳过 ({e})，将回退微动态引擎")
             return None
+
+    def _wrap_silent(
+        self,
+        full_frame: np.ndarray,
+        frame_idx: int,
+        override_coord: Optional[Tuple[int, int, int, int]],
+        return_face: bool,
+    ) -> Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]]:
+        """静音帧：跳过推理，返回原帧；需要时附带未形变的对齐人脸"""
+        if not return_face:
+            return full_frame
+        if override_coord is not None:
+            face = self.crop_face_256(full_frame, override_coord)
+        else:
+            total_frames = len(self.face_imgs)
+            if total_frames == 0:
+                return full_frame
+            face = self.face_imgs[frame_idx % total_frames]
+        if face is None:
+            return full_frame
+        return full_frame, face
