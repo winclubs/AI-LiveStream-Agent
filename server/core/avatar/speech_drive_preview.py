@@ -231,7 +231,7 @@ def _build_audio_frame_batch(pcm16k: np.ndarray):
     int16 = np.clip(pcm16k * 32767.0, -32768.0, 32767.0).astype(np.int16)
     frame_samples = int(16000 * 0.4)  # 400ms/帧，低于 1s 上限
     audio_id = uuid.uuid4().hex
-    frames = []
+    frames: List[AudioFrame] = []
     pos = 0
     total = int(len(int16))
     while pos < total:
