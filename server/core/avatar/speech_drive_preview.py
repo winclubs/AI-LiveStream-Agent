@@ -356,17 +356,42 @@ async def _upload_asset_chunked(asset_url: str, headers: dict, zip_bytes: bytes)
 
     用户规约：画质优先、时长不敏感。单次整包上传在弱速临时隧道上极易整包失败，
     分块后单块失败只需重传该块 (约 1.4MB)，且小块在抖动链路上更易穿透。
+    对单块 120s 写超时叠加 URLError 重试，避免隧穿抖动误杀首帧。
     """
     import base64
     import hashlib
     import json
     import uuid
+    import urllib.error
+    import urllib.request
 
     upload_id = uuid.uuid4().hex
     total = (len(zip_bytes) + ASSET_UPLOAD_CHUNK_BYTES - 1) // ASSET_UPLOAD_CHUNK_BYTES
     zip_sha = hashlib.sha256(zip_bytes).hexdigest()
     chunk_url = f"{asset_url}/chunks"
     commit_url = f"{asset_url}/commit"
+
+    async def _post_chunk(idx: int, payload: bytes, timeout: int) -> None:
+        last_err: Exception | None = None
+        for attempt in range(3):
+            req = urllib.request.Request(chunk_url, headers=headers, data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+            try:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=timeout))
+                return
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    raise _AssetEndpointMissing(chunk_url)
+                raise RuntimeError(f"资产上传失败: POST {chunk_url} 返回 {e.code}")
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                last_err = e
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                raise RuntimeError(
+                    f"资产上传失败: chunk {idx+1}/{total} 多次重试后仍无法连接 ({last_err})，请检查隧道带宽与节点状态"
+                )
 
     for idx in range(total):
         chunk = zip_bytes[idx * ASSET_UPLOAD_CHUNK_BYTES:(idx + 1) * ASSET_UPLOAD_CHUNK_BYTES]
@@ -378,7 +403,7 @@ async def _upload_asset_chunked(asset_url: str, headers: dict, zip_bytes: bytes)
         }).encode("utf-8")
         # 块虽小，仍按载荷放宽写超时，覆盖慢速蠕动链路
         timeout = 120 + int(len(payload) / (0.05 * 1024 * 1024))
-        await _post_asset(chunk_url, headers, payload, timeout)
+        await _post_chunk(idx, payload, timeout)
 
     commit_payload = json.dumps({"upload_id": upload_id, "total": total, "sha256": zip_sha}).encode("utf-8")
     await _post_asset(commit_url, headers, commit_payload, 120)
