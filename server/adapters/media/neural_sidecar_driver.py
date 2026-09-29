@@ -46,7 +46,7 @@ _TIMELINE_END = object()
 class NeuralSidecarMediaDriver(BaseMediaDriver):
     """版本化 renderer-only sidecar；失败时可由路由透明保留程序化画面。"""
 
-    CONNECT_TIMEOUT = 1.0
+    CONNECT_TIMEOUT = 10.0
     MESSAGE_TIMEOUT = 20.0
     REQUEST_TIMEOUT = 120.0
     RETRY_INTERVAL = 5.0
@@ -115,6 +115,10 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
             if value <= 0:
                 raise ValueError(f"{field} 必须大于 0")
             setattr(self, field.upper(), value)
+        # 针对远程公网节点，保底至少 8.0 秒握手窗口，防止跨网/隧道抖动导致误判超时
+        is_loopback = any(h in (self.node_url or "").lower() for h in ("127.0.0.1", "localhost", "::1"))
+        if not is_loopback and self.CONNECT_TIMEOUT < 8.0:
+            self.CONNECT_TIMEOUT = 8.0
         if self.CONNECT_TIMEOUT > self.REQUEST_TIMEOUT:
             raise ValueError("connect_timeout 不能大于 request_timeout")
         if self.MESSAGE_TIMEOUT > self.REQUEST_TIMEOUT:
@@ -233,7 +237,11 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         ):
             if not self._non_empty_string(descriptor.get(field)):
                 return f"backend descriptor 缺少 {field}"
-        if descriptor["avatar_id"] != self.avatar_id:
+        if (
+            descriptor["avatar_id"] != self.avatar_id
+            and descriptor["avatar_id"] != "default"
+            and self.avatar_id != "default"
+        ):
             return "backend descriptor avatar_id 与配置不匹配"
         expected = {
             "model_version": self.model_version,
@@ -325,13 +333,22 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
             await self._send_raw(
                 json.dumps(build_auth_message(self.auth_token)), handshake_deadline
             )
-            raw = await asyncio.wait_for(
-                self._ws.recv(),
-                timeout=max(0.001, handshake_deadline - time.monotonic()),
-            )
-            if isinstance(raw, bytes):
-                raise RuntimeError("sidecar 握手返回了非法二进制消息")
-            negotiated = validate_auth_reply(json.loads(raw))
+            # 服务端在 accept 后会先发送 handshake_ack 能力公告，再回复 auth_ok；
+            # 在窗口内吸收公告消息，直到拿到真正的鉴权应答。
+            negotiated = None
+            for _ in range(4):
+                raw = await asyncio.wait_for(
+                    self._ws.recv(),
+                    timeout=max(0.001, handshake_deadline - time.monotonic()),
+                )
+                if isinstance(raw, bytes):
+                    raise RuntimeError("sidecar 握手返回了非法二进制消息")
+                greeting = json.loads(raw)
+                if greeting.get("event") == "auth_ok":
+                    negotiated = validate_auth_reply(greeting)
+                    break
+            if negotiated is None:
+                raise RuntimeError("sidecar 握手窗口内未返回 auth_ok")
             capabilities = dict(negotiated["capabilities"])
             descriptor = self._select_renderer_descriptor(capabilities)
             self._selected_version = negotiated["selected_version"]
@@ -349,10 +366,13 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
             await self._close_connection()
             raise
         except Exception as exc:
-            self.last_error = str(exc)
+            err_msg = str(exc).strip()
+            if not err_msg or isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+                err_msg = f"连接云端 sidecar 节点握手超时 ({self.CONNECT_TIMEOUT:.1f}s)，请检查网络延迟与节点状态"
+            self.last_error = err_msg
             self.is_degraded = True
             self._next_retry_at = time.monotonic() + self.RETRY_INTERVAL
-            logger.warning("神经渲染 sidecar 不可用，保留程序化降级: %s", exc)
+            logger.warning("神经渲染 sidecar 不可用，保留程序化降级: %s", err_msg)
             await self._close_connection()
             return False
 
@@ -526,10 +546,23 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
                 )
             advertised_formats = self._capabilities.get("input_formats")
             actual_format = first.format.to_dict()
+            # sample_width / sample_width_bytes 为同一语义的两种命名，协商时双向兼容
+            format_key_aliases = {"sample_width_bytes": "sample_width"}
+
+            def _format_matches(item: dict) -> bool:
+                if not isinstance(item, dict):
+                    return False
+                for key, value in actual_format.items():
+                    if item.get(key) == value:
+                        continue
+                    alias = format_key_aliases.get(key)
+                    if alias is not None and item.get(alias) == value:
+                        continue
+                    return False
+                return True
+
             if not isinstance(advertised_formats, list) or not any(
-                isinstance(item, dict)
-                and all(item.get(key) == value for key, value in actual_format.items())
-                for item in advertised_formats
+                _format_matches(item) for item in advertised_formats
             ):
                 raise ProviderError(
                     ProviderErrorCode.CAPABILITY_MISMATCH,
@@ -610,7 +643,7 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
                         )
                         continue
                     message = self._decode_control(raw)
-                    if message.get("request_id") != request_id:
+                    if message.get("request_id") != request_id and message.get("event") != "render_credit":
                         raise ProviderError(
                             ProviderErrorCode.PROTOCOL_VIOLATION,
                             "sidecar 在单事务连接返回了其他 request_id",
@@ -753,7 +786,9 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
             )
             return credit
         message = self._decode_control(raw)
-        if message.get("request_id") != request_id:
+        # render_credit 为同流流量控制信令，参考 sidecar 实现可能省略 request_id；
+        # 单事务连接下它必然属于当前事务，缺失时不应判为协议违例。
+        if message.get("request_id") != request_id and message.get("event") != "render_credit":
             raise ProviderError(
                 ProviderErrorCode.PROTOCOL_VIOLATION,
                 "sidecar 在单事务连接返回了其他 request_id",

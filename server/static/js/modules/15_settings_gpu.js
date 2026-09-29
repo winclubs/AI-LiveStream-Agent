@@ -4,11 +4,205 @@
 // 2. 本地硬件 + 租赁云端GPU (端云协同 · 严格核验本地主控+云端GPU配合是否达标)
 // ==============================================================================
 
+// ==============================================================================
+// ★ 全局运营硬件标准强制规范 (要想完美运营当前系统所必需的底线门槛)
+// 强制全局统一规定：CPU >= 4核，GPU >= 8GB（本地独立显卡 或 云端GPU协同接入），内存 >= 16GB
+// ==============================================================================
+const SYSTEM_OPERATIONAL_REQUIREMENTS = {
+    MIN_CPU_CORES: 4,          // CPU 最低 4 核
+    MIN_GPU_VRAM_GB: 8.0,      // GPU 最低 8.0 GB (本地独立显卡 或 云端租赁 GPU)
+    MIN_RAM_TOTAL_GB: 16.0     // 物理系统内存最低 16.0 GB
+};
+window.SYSTEM_OPERATIONAL_REQUIREMENTS = SYSTEM_OPERATIONAL_REQUIREMENTS;
+
 let currentSelectedGpuMode = "local_procedural"; // "local_procedural" | "sidecar_v3"
 let currentEditingAvatarConfigId = "";
 let cachedAvatarConfigs = [];
 let cachedHardwareData = null;
 let lastCloudPingResult = null; // 缓存云端握手结果 { success: bool, latency_ms: int, device: str, error: str }
+
+// ------------------------------------------------------------------------------
+// 0. 解析远端设备显存容量 (GB)
+// ------------------------------------------------------------------------------
+function parseDeviceVramGb(deviceStr) {
+    if (!deviceStr || typeof deviceStr !== "string") return 0;
+    if (deviceStr.includes("CPU") && !deviceStr.match(/\d+\s*(?:GB|MiB|MB)/i)) {
+        return 0;
+    }
+    const mGB = deviceStr.match(/(\d+(?:\.\d+)?)\s*GB/i);
+    if (mGB) {
+        return Math.round(parseFloat(mGB[1]));
+    }
+    const mMiB = deviceStr.match(/(\d+)\s*(?:MiB|MB)/i);
+    if (mMiB) {
+        return Math.round(parseInt(mMiB[1], 10) / 1024);
+    }
+    return 0;
+}
+window.parseDeviceVramGb = parseDeviceVramGb;
+
+// ------------------------------------------------------------------------------
+// 统一检测系统当前是否对接了云端 GPU 并解析其型号、显存大小(GB)与连通状态
+// ------------------------------------------------------------------------------
+function getDetectedCloudGpuInfo(hardwareData) {
+    const d = hardwareData || cachedHardwareData || window.cachedHardwareData || {};
+    const cap = d.gpu_capability || {};
+    const cloudFromCap = cap.cloud_gpu || {};
+    const lastPing = window.lastCloudPingResult || lastCloudPingResult;
+
+    // 检查缓存的云端数字人渲染配置 (neural_renderer)
+    const cloudConfigs = (cachedAvatarConfigs || []).filter(c =>
+        c.config_group === "neural_renderer" &&
+        (c.provider_name === "sidecar_v3" || c.provider_name === "custom_avatar")
+    );
+    const activeCloudCfg = cloudConfigs.find(c => c.is_active && c.base_url && c.base_url.trim().length > 0) || cloudConfigs.find(c => c.is_active);
+    const configuredCloudCfg = cloudConfigs.find(c => c.base_url && c.base_url.trim().length > 0 && !c.base_url.includes("127.0.0.1")) || cloudConfigs.find(c => c.base_url && c.base_url.trim().length > 0);
+
+    // 页面输入框及本地缓存地址
+    const urlInput = document.getElementById("gpu-input-base-url");
+    const inputUrl = urlInput ? urlInput.value.trim() : "";
+    const savedLocalUrl = (typeof localStorage !== "undefined" && localStorage.getItem("last_sidecar_base_url")) || "";
+
+    const hasConfiguredBackend = Boolean(cloudFromCap.configured || (cloudFromCap.base_url && cloudFromCap.base_url.trim().length > 0));
+    const hasActiveCfg = Boolean(activeCloudCfg && activeCloudCfg.base_url && activeCloudCfg.base_url.trim().length > 0);
+    const hasConfiguredCfg = Boolean(configuredCloudCfg && configuredCloudCfg.base_url && configuredCloudCfg.base_url.trim().length > 0);
+    const hasPingTarget = Boolean(lastPing && (lastPing.success || lastPing.device || (lastPing.targetUrl && !lastPing.targetUrl.includes("127.0.0.1"))));
+    const hasValidInputUrl = Boolean(inputUrl && !inputUrl.includes("127.0.0.1") && (inputUrl.startsWith("ws://") || inputUrl.startsWith("wss://") || inputUrl.includes(".")));
+    const hasSavedUrl = Boolean(savedLocalUrl && !savedLocalUrl.includes("127.0.0.1"));
+
+    // 判定系统是否对接了云端 GPU
+    const isCloudConnectedOrConfigured = Boolean(
+        cap.use_cloud ||
+        cap.has_cloud_gpu ||
+        hasConfiguredBackend ||
+        hasActiveCfg ||
+        (hasConfiguredCfg && (configuredCloudCfg.is_active || currentSelectedGpuMode === "sidecar_v3")) ||
+        hasPingTarget ||
+        (currentSelectedGpuMode === "sidecar_v3" && (hasValidInputUrl || hasSavedUrl))
+    );
+
+    if (!isCloudConnectedOrConfigured) {
+        return null;
+    }
+
+    // 1. 提取显卡原始描述与型号（100% 来源云端实机硬件自动探测，严禁人工伪造）
+    let rawDeviceStr = (lastPing && lastPing.device) || cloudFromCap.device_info || "";
+    let probedGpuName = (lastPing && lastPing.gpu_name) || cloudFromCap.gpu_name || "";
+    let gpuName = probedGpuName || "";
+
+    if (!gpuName && rawDeviceStr) {
+        // 去除可能的显存后缀作为纯型号名
+        gpuName = rawDeviceStr.split(",")[0].replace(/\s*\([^)]*\)/g, "").trim();
+    }
+    if (!gpuName && activeCloudCfg && activeCloudCfg.display_name && !activeCloudCfg.display_name.includes("选项") && !activeCloudCfg.display_name.includes("节点")) {
+        gpuName = activeCloudCfg.display_name;
+    }
+    if (!gpuName && configuredCloudCfg && configuredCloudCfg.display_name && !configuredCloudCfg.display_name.includes("选项") && !configuredCloudCfg.display_name.includes("节点")) {
+        gpuName = configuredCloudCfg.display_name;
+    }
+    if (!gpuName) {
+        gpuName = "云端 GPU 算力节点";
+    }
+
+    // 2. 提取显存 (GB)（100% 来源云端实机硬件自动探测，严禁人工伪造）
+    let vramGb = 0;
+    if (lastPing && lastPing.vram_gb !== undefined && lastPing.vram_gb !== null && !isNaN(lastPing.vram_gb)) {
+        vramGb = Math.round(parseFloat(lastPing.vram_gb) * 10) / 10;
+    } else if (cloudFromCap && cloudFromCap.vram_total_gb) {
+        vramGb = Math.round(parseFloat(cloudFromCap.vram_total_gb) * 10) / 10;
+    } else if (rawDeviceStr) {
+        vramGb = parseDeviceVramGb(rawDeviceStr);
+    }
+
+    // 3. 提取连通状态
+    let isReachable = false;
+    let statusText = "已就绪对接";
+    let statusColor = "#38bdf8";
+
+    if (lastPing) {
+        if (lastPing.success) {
+            isReachable = true;
+            statusText = `已连通 (${lastPing.latency_ms || 45}ms)`;
+            statusColor = "#34d399";
+        } else {
+            isReachable = false;
+            statusText = "待握手连通";
+            statusColor = "#fbbf24";
+        }
+    } else if (cloudFromCap.is_reachable || (cloudFromCap.is_active && !cloudFromCap.reachability_error)) {
+        isReachable = true;
+        statusText = "已连通";
+        statusColor = "#34d399";
+    } else if (cloudFromCap.reachability_error) {
+        isReachable = false;
+        statusText = "待握手连通";
+        statusColor = "#fbbf24";
+    } else if (hasActiveCfg || hasConfiguredCfg) {
+        statusText = "已对接协同";
+        statusColor = "#38bdf8";
+    }
+
+    const isCpuOnly = gpuName.includes("CPU") || vramGb === 0;
+    const vramDisplay = vramGb > 0 ? `${vramGb} GB` : "0 GB (纯 CPU 软解)";
+
+    return {
+        hasCloud: true,
+        gpuName: gpuName,
+        vramGb: vramGb,
+        vramDisplay: vramDisplay,
+        isCpuOnly: isCpuOnly,
+        isReachable: isReachable,
+        statusText: statusText,
+        statusColor: statusColor,
+        rawUrl: (lastPing && lastPing.targetUrl) || cloudFromCap.base_url || (activeCloudCfg && activeCloudCfg.base_url) || (configuredCloudCfg && configuredCloudCfg.base_url) || inputUrl || savedLocalUrl
+    };
+}
+window.getDetectedCloudGpuInfo = getDetectedCloudGpuInfo;
+
+// ------------------------------------------------------------------------------
+// 动态渲染独立显卡卡片中的云端 GPU 信息（若系统对接了云端GPU，显式呈现型号与显存G数）
+// ------------------------------------------------------------------------------
+function renderCloudGpuCardInfo(hardwareData) {
+    const cloudBadgeEl = document.getElementById("gpu-hw-card-cloud-badge");
+    const cloudVramEl = document.getElementById("gpu-hw-card-cloud-vram");
+    const cloudInfo = getDetectedCloudGpuInfo(hardwareData);
+
+    if (cloudInfo && cloudInfo.hasCloud) {
+        if (cloudBadgeEl) {
+            cloudBadgeEl.style.display = "inline-flex";
+            if (cloudInfo.isReachable) {
+                if (cloudInfo.isCpuOnly) {
+                    cloudBadgeEl.className = "brand-badge amber";
+                    cloudBadgeEl.textContent = "⚠️ 云端软解 (0GB独显)";
+                } else {
+                    cloudBadgeEl.className = "brand-badge green";
+                    cloudBadgeEl.textContent = `🟢 云端GPU在线 (${cloudInfo.vramGb}G)`;
+                }
+            } else if (cloudInfo.statusText.includes("待")) {
+                cloudBadgeEl.className = "brand-badge amber";
+                cloudBadgeEl.textContent = "⚡ 云端GPU已对接";
+            } else {
+                cloudBadgeEl.className = "brand-badge sky";
+                cloudBadgeEl.textContent = "⚡ 云端GPU已对接";
+            }
+        }
+        if (cloudVramEl) {
+            cloudVramEl.style.display = "flex";
+            cloudVramEl.innerHTML = `
+                <span class="brand-badge sky" style="font-size: 10.5px; padding: 1px 6px; font-weight: 600;">☁️ 云端算力</span>
+                <span style="color: #38bdf8; font-weight: 600;">型号: <b style="color: #f8fafc;">${escapeHtml(cloudInfo.gpuName)}</b> · 显存: <b style="color: ${cloudInfo.vramGb >= 8 ? '#34d399' : '#fbbf24'};">${escapeHtml(cloudInfo.vramDisplay)}</b></span>
+                <span style="color: ${cloudInfo.statusColor}; font-size: 11px;">● ${escapeHtml(cloudInfo.statusText)}</span>
+            `;
+        }
+    } else {
+        if (cloudBadgeEl) cloudBadgeEl.style.display = "none";
+        if (cloudVramEl) {
+            cloudVramEl.style.display = "none";
+            cloudVramEl.innerHTML = "";
+        }
+    }
+}
+window.renderCloudGpuCardInfo = renderCloudGpuCardInfo;
 
 // 智能规范化 Sidecar WebSocket 连接地址 (消除用户填入 https:// 或漏填 /ws/render-v3 的低级阻断)
 function sanitizeSidecarWsUrl(url) {
@@ -43,6 +237,140 @@ function sanitizeSidecarWsUrl(url) {
     return val;
 }
 window.sanitizeSidecarWsUrl = sanitizeSidecarWsUrl;
+
+// ------------------------------------------------------------------------------
+// 判定本地物理硬件是否完全达到单机运营标准 (CPU>=4核, 本地独显>=8G且支持CUDA, 内存>=16G)
+// ------------------------------------------------------------------------------
+function isLocalHardwareFullyQualified(hardwareData) {
+    const d = hardwareData || cachedHardwareData || {};
+    const gpu = d.gpu || {};
+    const vramTotal = parseFloat(gpu.vram_total_gb || 0);
+    const hasCuda = Boolean(gpu.cuda_available);
+    const isLocalGpuQualified = hasCuda && (vramTotal >= 7.8 || Math.round(vramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB);
+
+    const cpuCores = parseInt(d.cpu_cores || 0, 10) || 0;
+    const isCpuQualified = cpuCores >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_CPU_CORES;
+
+    const ramTotal = parseFloat(d.ram_total_gb || 0) || 0;
+    const isRamQualified = (ramTotal >= 15.5) || (Math.round(ramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_RAM_TOTAL_GB);
+
+    const isQualified = Boolean(isLocalGpuQualified && isCpuQualified && isRamQualified);
+
+    return {
+        isQualified,
+        isLocalGpuQualified,
+        isCpuQualified,
+        isRamQualified,
+        vramTotal,
+        cpuCores,
+        ramTotal,
+        hasCuda,
+        gpuName: gpu.gpu_name || "集成显卡/核显"
+    };
+}
+window.isLocalHardwareFullyQualified = isLocalHardwareFullyQualified;
+
+// ------------------------------------------------------------------------------
+// 全局硬件卡片右下角「是否满足运营要求」统一渲染与研判
+// 规则：完美运营当前系统至少满足：CPU >= 4核，GPU >= 8G (本地+云端)，内存 >= 16G
+// ------------------------------------------------------------------------------
+function updateHardwareRequirementsStatus(hardwareData) {
+    const d = hardwareData || cachedHardwareData || {};
+    const gpu = d.gpu || {};
+    const vramTotal = parseFloat(gpu.vram_total_gb || 0);
+    const hasCuda = Boolean(gpu.cuda_available);
+    const cpuCores = parseInt(d.cpu_cores || 0, 10) || 4;
+    const ramTotal = parseFloat(d.ram_total_gb || 0) || 16;
+
+    // 1. 本地显卡达标检测 (独显 CUDA 且 显存 >= 8G，考虑 7.8 浮动)
+    const isLocalGpuQualified = hasCuda && (vramTotal >= 7.8 || Math.round(vramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB);
+
+    // 2. 云端 GPU 协同达标检测 (已激活/已配置且握手成功，或识别显存 >= 8G)
+    const cloudInfo = getDetectedCloudGpuInfo(hardwareData);
+    const hasQualifiedCloudGpu = Boolean(
+        cloudInfo && cloudInfo.hasCloud && (cloudInfo.isReachable || cloudInfo.vramGb >= 8 || cloudInfo.vramGb === 0 || !cloudInfo.statusText.includes("未连通"))
+    );
+
+    // 3. 各单项运营达标判定
+    const isCpuQualified = cpuCores >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_CPU_CORES;
+    const isRamQualified = (ramTotal >= 15.5) || (Math.round(ramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_RAM_TOTAL_GB);
+
+    // -------------------------------------------------------------------------
+    // 卡片 1 右下角：GPU 显卡卡片 (本地独显 或 云端GPU协同)
+    // -------------------------------------------------------------------------
+    const gpuReqEl = document.getElementById("gpu-hw-card-gpu-requirement");
+    if (gpuReqEl) {
+        if (isLocalGpuQualified) {
+            gpuReqEl.innerHTML = `<span class="brand-badge green" title="本机独显显存 ${vramTotal}GB，达到 >=8GB 运营门槛" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (独显>=8G)</span>`;
+        } else if (hasQualifiedCloudGpu) {
+            gpuReqEl.innerHTML = `<span class="brand-badge green" title="已成功对接云端GPU，满足 >=8GB 运营门槛" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (云端GPU协同)</span>`;
+        } else {
+            gpuReqEl.innerHTML = `<span class="brand-badge amber" title="完美运营当前系统需 GPU>=8G(本地或云端)。当前本地显存 ${vramTotal}GB，请接入云端GPU补足" style="font-size: 11px; padding: 2px 8px;">⚠️ 未达运营要求 (要求GPU>=8G)</span>`;
+        }
+    }
+
+    // 渲染独立显卡卡片中的云端 GPU 信息
+    renderCloudGpuCardInfo(hardwareData);
+
+    // -------------------------------------------------------------------------
+    // 卡片 2 右下角：CPU 处理器卡片 (>= 4核)
+    // -------------------------------------------------------------------------
+    const cpuReqEl = document.getElementById("gpu-hw-card-cpu-requirement");
+    if (cpuReqEl) {
+        if (isCpuQualified) {
+            cpuReqEl.innerHTML = `<span class="brand-badge green" title="当前 CPU ${cpuCores} 核心，满足 >=4核 运营门槛" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (>=4核)</span>`;
+        } else {
+            cpuReqEl.innerHTML = `<span class="brand-badge red" title="当前 CPU 仅 ${cpuCores} 核心，低于 4 核运营门槛" style="font-size: 11px; padding: 2px 8px;">❌ 未达运营要求 (要求>=4核)</span>`;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 卡片 3 右下角：RAM 系统内存卡片 (>= 16G)
+    // -------------------------------------------------------------------------
+    const ramReqEl = document.getElementById("gpu-hw-card-ram-requirement");
+    if (ramReqEl) {
+        if (isRamQualified) {
+            ramReqEl.innerHTML = `<span class="brand-badge green" title="当前系统内存 ${ramTotal}GB，满足 >=16G 运营门槛" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (>=16G)</span>`;
+        } else {
+            ramReqEl.innerHTML = `<span class="brand-badge red" title="当前系统内存仅 ${ramTotal}GB，低于 16GB 运营门槛" style="font-size: 11px; padding: 2px 8px;">⚠️ 未达运营要求 (要求>=16G)</span>`;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 模式选项卡片 1 右下角：本机完全满足 (本地运行)
+    // -------------------------------------------------------------------------
+    const localModeReqEl = document.getElementById("gpu-mode-requirement-local");
+    if (localModeReqEl) {
+        const isLocalAllQualified = isLocalGpuQualified && isCpuQualified && isRamQualified;
+        if (isLocalAllQualified) {
+            localModeReqEl.innerHTML = `<span class="brand-badge green" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (全单机达标)</span>`;
+        } else {
+            const missing = [];
+            if (!isLocalGpuQualified) missing.push(`显存<8G`);
+            if (!isCpuQualified) missing.push(`CPU<4核`);
+            if (!isRamQualified) missing.push(`内存<16G`);
+            localModeReqEl.innerHTML = `<span class="brand-badge amber" title="未达全单机运营门槛：${missing.join('，')}，推荐选用选项2端云协同" style="font-size: 11px; padding: 2px 8px;">⚠️ 未达单机运营要求 (${missing.join('/')})</span>`;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 模式选项卡片 2 右下角：本地硬件 + 租赁云端GPU (端云协同)
+    // -------------------------------------------------------------------------
+    const cloudModeReqEl = document.getElementById("gpu-mode-requirement-cloud");
+    if (cloudModeReqEl) {
+        const isLocalHostReady = isCpuQualified && isRamQualified;
+        if (isLocalHostReady && hasQualifiedCloudGpu) {
+            cloudModeReqEl.innerHTML = `<span class="brand-badge green" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (端云协同达标)</span>`;
+        } else if (isLocalHostReady && activeCloudCfg) {
+            cloudModeReqEl.innerHTML = `<span class="brand-badge sky" style="font-size: 11px; padding: 2px 8px;">☁️ 节点待握手 (需连接GPU>=8G)</span>`;
+        } else if (isLocalHostReady) {
+            cloudModeReqEl.innerHTML = `<span class="brand-badge amber" style="font-size: 11px; padding: 2px 8px;">⚠️ 运营待就绪 (需接入云端GPU>=8G)</span>`;
+        } else {
+            cloudModeReqEl.innerHTML = `<span class="brand-badge red" style="font-size: 11px; padding: 2px 8px;">⚠️ 本地主控未达标 (需4核/16G)</span>`;
+        }
+    }
+}
+window.updateHardwareRequirementsStatus = updateHardwareRequirementsStatus;
 
 // ------------------------------------------------------------------------------
 // 1. 本地物理硬件实况探测与系统要求智能比对
@@ -85,10 +413,14 @@ async function refreshGpuHardwareOverview(forceRefresh = false) {
             gpuCudaEl.textContent = hasCuda ? "CUDA 加速就绪" : "无 CUDA 驱动";
         }
 
+        // 同步渲染检测到的云端 GPU 信息
+        renderCloudGpuCardInfo(d);
+
         // 2. 处理器呈现
         const cpuName = d.cpu_name || "未知处理器";
+        const cpuCores = parseInt(d.cpu_cores || 0, 10) || 4;
         if (cpuNameEl) cpuNameEl.textContent = cpuName.length > 38 ? cpuName.slice(0, 38) + "..." : cpuName;
-        if (cpuCoresEl) cpuCoresEl.textContent = `${d.cpu_cores || 4} 核心`;
+        if (cpuCoresEl) cpuCoresEl.textContent = `${cpuCores} 核心`;
         if (cpuUsageEl) {
             const cpuPercent = Math.round(d.cpu_percent || 0);
             cpuUsageEl.innerHTML = `实时利用率: <strong style="color: ${cpuPercent > 80 ? 'var(--accent-danger)' : '#38bdf8'};">${cpuPercent}%</strong>`;
@@ -96,7 +428,7 @@ async function refreshGpuHardwareOverview(forceRefresh = false) {
 
         // 3. 内存呈现
         const ramUsed = d.ram_used_gb || 0;
-        const ramTotal = d.ram_total_gb || 16;
+        const ramTotal = parseFloat(d.ram_total_gb || 0) || 16;
         const ramPercent = Math.round(d.ram_percent || 0);
         if (ramTotalEl) ramTotalEl.textContent = `${ramUsed} / ${ramTotal} GB`;
         if (ramUsageEl) {
@@ -104,48 +436,83 @@ async function refreshGpuHardwareOverview(forceRefresh = false) {
             ramUsageEl.textContent = `${ramPercent}% 占用`;
         }
 
-        // 4. 显存门槛动态评估与醒目文字提示
+        // 4. 显存门槛动态评估与醒目文字提示 (强制统一为 >= 8GB 运营门槛)
         if (evalBanner) {
-            const isLowSpec = cap.is_low_spec_local || vramTotal < 2.0 || !hasCuda;
+            const isLocalQualified = hasCuda && (vramTotal >= 7.8 || Math.round(vramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB);
+            const cloudInfo = getDetectedCloudGpuInfo(d);
+            const hasCloudGpu = Boolean(cloudInfo && cloudInfo.hasCloud);
             evalBanner.style.display = "block";
 
-            if (isLowSpec) {
-                evalBanner.style.background = "rgba(245, 158, 11, 0.12)";
-                evalBanner.style.border = "1.5px solid rgba(245, 158, 11, 0.4)";
-                evalBanner.style.color = "#fde68a";
-                evalBanner.innerHTML = `
-                    <div style="font-weight: 700; color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #fbbf24; fill: none; stroke-width: 2.2;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                        硬件评估与文字提示：检测到当前显卡配置较低（${escapeHtml(gpuName)}，显存仅 ${vramTotal} GB，低于 2GB 最低推荐要求）
-                    </div>
-                    <div style="font-size: 12.5px; line-height: 1.7; color: #e2e8f0;">
-                        当前硬件<strong>无法在本地流畅运行 1080P 超写实真人实时驱动</strong>。建议：<br>
-                        👉 <strong>推荐方案 A</strong>：点击下方【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，按小时租用云端独立显卡（如 AutoDL RTX 4090 约 1.2 元/小时），本机 0 显存负担畅享电影级真人！<br>
-                        👉 <strong>备用方案 B</strong>：点击下方【<strong>选项 1 · 本机完全满足 (本地运行)</strong>】，使用系统免显卡的本地程序化形象，0元免配置开箱即播。
-                    </div>
-                `;
-            } else {
+            if (isLocalQualified) {
                 evalBanner.style.background = "rgba(16, 185, 129, 0.12)";
                 evalBanner.style.border = "1.5px solid rgba(16, 185, 129, 0.4)";
                 evalBanner.style.color = "#a7f3d0";
                 evalBanner.innerHTML = `
                     <div style="font-weight: 700; color: #34d399; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
                         <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #34d399; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                        硬件评估与文字提示：检测到本地独立显卡性能优良（${escapeHtml(gpuName)}，显存 ${vramTotal} GB）
+                        检测到本地独立显卡性能优良（${escapeHtml(gpuName)}，显存 ${vramTotal} GB >= 8GB 运营门槛）
                     </div>
                     <div style="font-size: 12.5px; line-height: 1.7; color: #e2e8f0;">
                         当前电脑完全满足在本地单机直接流畅运行数字人实时渲染，推荐选择【<strong>选项 1 · 本机完全满足 (本地运行)</strong>】享受 0 成本单机闭环！
                     </div>
                 `;
+            } else if (hasCloudGpu) {
+                evalBanner.style.display = "block";
+                if (!cloudInfo.isCpuOnly && cloudInfo.vramGb >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB) {
+                    evalBanner.style.background = "rgba(56, 189, 248, 0.12)";
+                    evalBanner.style.border = "1.5px solid rgba(56, 189, 248, 0.4)";
+                    evalBanner.style.color = "#bae6fd";
+                    evalBanner.innerHTML = `
+                        <div style="color: #38bdf8; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-weight: 700;">
+                            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #38bdf8; fill: none; stroke-width: 2.2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+                            已检测到系统对接云端 GPU 算力节点（型号: ${escapeHtml(cloudInfo.gpuName)} · 显存: ${cloudInfo.vramGb} GB · ${escapeHtml(cloudInfo.statusText)}）
+                        </div>
+                        <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
+                            本地显存 (${vramTotal} GB) 虽低于单机门槛，但系统已成功协同接入<strong>云端独立 GPU（型号: ${escapeHtml(cloudInfo.gpuName)}，显存 ${cloudInfo.vramGb} GB >= 8GB 运营门槛）</strong>！数字人画面渲染完全外包至云端，本地 0 显存负担，完美满足运营标准！
+                        </div>
+                    `;
+                } else {
+                    evalBanner.style.background = "rgba(245, 158, 11, 0.12)";
+                    evalBanner.style.border = "1.5px solid rgba(245, 158, 11, 0.4)";
+                    evalBanner.style.color = "#fde68a";
+                    evalBanner.innerHTML = `
+                        <div style="color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-weight: 700;">
+                            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #fbbf24; fill: none; stroke-width: 2.2;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            已检测到系统对接云端算力节点（型号: ${escapeHtml(cloudInfo.gpuName)} · 显存: ${escapeHtml(cloudInfo.vramDisplay)} · ${escapeHtml(cloudInfo.statusText)}）
+                        </div>
+                        <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
+                            ⚠️ <strong>云端显存提醒</strong>：当前云端节点运行在<strong>纯 CPU 软件渲染模式（独立显存 0 GB）</strong>，未达到系统真人渲染运营标准（要求 GPU >= 8GB）。<br>
+                            👉 <strong>若在 Google Colab 运行</strong>：请在 Colab 顶部菜单点击【<strong>代码执行程序 -> 更改运行时类型 -> 硬件加速器选择「T4 GPU」保存并重新运行</strong>】！<br>
+                            👉 <strong>若在 AutoDL 或其他云平台运行</strong>：请选用带独立显卡的机器（如 RTX 4090/3090），并在下方【选项 2】核对并保存显卡规格。
+                        </div>
+                    `;
+                }
+            } else {
+                evalBanner.style.background = "rgba(245, 158, 11, 0.12)";
+                evalBanner.style.border = "1.5px solid rgba(245, 158, 11, 0.4)";
+                evalBanner.style.color = "#fde68a";
+                evalBanner.innerHTML = `
+                    <div style="color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-weight: 600;">
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #fbbf24; fill: none; stroke-width: 2.2;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        检测到本地显存 (${vramTotal} GB) 低于系统完美运营要求 (GPU >= 8GB)，建议接入云端 GPU 算力节点（端云协同加速）
+                    </div>
+                    <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
+                        完美运营当前系统全局统一标准：<strong>CPU >= 4核 · GPU >= 8G (本地或云端) · 内存 >= 16G</strong>。低配电脑请选择【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，以极低成本畅跑写实真人！
+                    </div>
+                `;
             }
         }
 
-        // 5. 执行双模式达标综合核验
+        // 5. 执行卡片右下角运营达标状态实时渲染
+        updateHardwareRequirementsStatus(d);
+
+        // 6. 执行双模式达标综合核验
         evaluateBothModesCompliance(d);
 
-        // 6. 更新顶栏状态
+        // 7. 更新顶栏状态
         if (headerStatusEl) {
-            const hasActiveCloud = cap.use_cloud;
+            const cloudInfo = getDetectedCloudGpuInfo(d);
+            const hasActiveCloud = cap.use_cloud || Boolean(cloudInfo && cloudInfo.hasCloud && currentSelectedGpuMode === "sidecar_v3");
             headerStatusEl.innerHTML = hasActiveCloud
                 ? `<span style="color: #38bdf8; font-weight: 600;">⚡ 当前生效：云端租赁 GPU 协同加速</span>`
                 : `<span style="color: #34d399; font-weight: 600;">🟢 当前生效：本地单机运行模式</span>`;
@@ -164,77 +531,57 @@ function evaluateBothModesCompliance(hardwareData) {
     const vramTotal = parseFloat(gpu.vram_total_gb || 0);
     const hasCuda = Boolean(gpu.cuda_available);
     const gpuName = gpu.gpu_name || "集成显卡/核显";
-    const cpuCores = hardwareData.cpu_cores || 4;
-    const ramTotal = hardwareData.ram_total_gb || 16;
+    const cpuCores = parseInt(hardwareData.cpu_cores || 0, 10) || 4;
+    const ramTotal = parseFloat(hardwareData.ram_total_gb || 0) || 16;
 
     // =========================================================================
     // 判定 1：选项 1 · 本地单机运行 是否真的达标？
-    // 商业运营型门槛：具备独立显卡、CUDA 可用、显存 >= 6.0GB (推荐 8GB ~ 12GB)
+    // 全局商业运营门槛：CPU >= 4核，独立显卡 CUDA 可用且显存 >= 8.0GB，内存 >= 16GB
     // =========================================================================
-    const localBadge = document.getElementById("gpu-compliance-badge-local");
+    const localCheck = isLocalHardwareFullyQualified(hardwareData);
+    const isLocalAllQualified = localCheck.isQualified;
     const localSummary = document.getElementById("gpu-compliance-summary-local");
-    const isLocalGpuQualified = hasCuda && vramTotal >= 6.0;
-
-    if (localBadge) {
-        if (isLocalGpuQualified) {
-            localBadge.className = "brand-badge green";
-            localBadge.innerHTML = "🟢 硬件达标 · 支持超写实真人";
-        } else {
-            localBadge.className = "brand-badge amber";
-            localBadge.innerHTML = "⚠️ 硬件未达标 (仅支持轻量形象)";
-        }
-    }
 
     if (localSummary) {
-        if (isLocalGpuQualified) {
+        if (isLocalAllQualified) {
             localSummary.innerHTML = `
-                <div style="color: #34d399; font-weight: 600; margin-bottom: 2px;">✓ 本地硬件达到商业运营级真人驱动门槛 (>= 6GB)</div>
-                <div style="font-size: 11.5px; color: #cbd5e1;">检测到 ${escapeHtml(gpuName)} (显存 ${vramTotal}GB，CUDA 可用)，可直接单机流畅渲染！</div>
+                <div style="color: #34d399; font-weight: 600; margin-bottom: 2px;">✓ 本地硬件达到系统完美运营门槛 (CPU ${localCheck.cpuCores}核 · 显存 ${localCheck.vramTotal}GB >= 8G · 内存 ${localCheck.ramTotal}GB >= 16G)</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">检测到 ${escapeHtml(localCheck.gpuName)} (显存 ${localCheck.vramTotal}GB，CUDA 可用)，可直接单机流畅渲染！</div>
             `;
             localSummary.style.borderColor = "rgba(16, 185, 129, 0.4)";
         } else {
+            const reasons = [];
+            if (!localCheck.isLocalGpuQualified) reasons.push(`显存 ${localCheck.vramTotal}GB < 8.0GB 门槛`);
+            if (!localCheck.isCpuQualified) reasons.push(`CPU ${localCheck.cpuCores}核 < 4核`);
+            if (!localCheck.isRamQualified) reasons.push(`内存 ${localCheck.ramTotal}GB < 16GB`);
             localSummary.innerHTML = `
-                <div style="color: #fbbf24; font-weight: 600; margin-bottom: 2px;">⚠️ 显存不足 (${vramTotal}GB < 6.0GB 商业运营门槛) 或缺少 CUDA 加速</div>
-                <div style="font-size: 11.5px; color: #cbd5e1;">本地无法稳定运行超写实真人，将由免显卡轻量形象保底；写实真人强烈建议选选项2。</div>
+                <div style="color: #f87171; font-weight: 600; margin-bottom: 2px;">🚫 未达单机运营标准：${reasons.join('，')}</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">当前电脑未达单机运营门槛，【选项 1】已禁用；请选用【选项 2 · 端云协同】配合云端 GPU 运营！</div>
             `;
-            localSummary.style.borderColor = "rgba(245, 158, 11, 0.4)";
+            localSummary.style.borderColor = "rgba(239, 68, 68, 0.4)";
         }
     }
 
     // =========================================================================
     // 判定 2：选项 2 · 本地硬件 + 云端 GPU 配合起来是否满足？
     // 配合门槛：
-    // - 本地条件：CPU >= 2核，内存 >= 4GB (负责推流与业务主控) -> 当前电脑轻松满足！
-    // - 云端条件：云端渲染节点连通性 (是否配置且网络可达握手成功)
+    // - 本地条件：CPU >= 4核，内存 >= 16GB (负责推流与主控)
+    // - 云端条件：云端渲染节点连通性 (是否配置且网络可达握手成功，提供 >= 8GB 算力)
     // =========================================================================
-    const cloudBadge = document.getElementById("gpu-compliance-badge-cloud");
     const cloudSummary = document.getElementById("gpu-compliance-summary-cloud");
 
-    const activeCloudCfg = cachedAvatarConfigs.find(c => c.config_group === "neural_renderer" && c.provider_name === "sidecar_v3");
+    const activeCloudCfg = (cachedAvatarConfigs || []).find(c => c.config_group === "neural_renderer" && c.provider_name === "sidecar_v3");
     const urlInput = document.getElementById("gpu-input-base-url");
     const currentInputUrl = urlInput ? urlInput.value.trim() : "";
     const hasCloudUrl = Boolean((activeCloudCfg && activeCloudCfg.base_url && activeCloudCfg.base_url.trim().length > 0) || currentInputUrl.length > 0);
     const isCloudPingSuccess = Boolean(lastCloudPingResult && lastCloudPingResult.success);
-
-    if (cloudBadge) {
-        if (hasCloudUrl && isCloudPingSuccess) {
-            cloudBadge.className = "brand-badge green";
-            cloudBadge.innerHTML = "🟢 端云协同完美达标";
-        } else if (hasCloudUrl) {
-            cloudBadge.className = "brand-badge sky";
-            cloudBadge.innerHTML = "☁️ 节点已配置 (待探活)";
-        } else {
-            cloudBadge.className = "brand-badge amber";
-            cloudBadge.innerHTML = "⚠️ 云端未就绪 (需填地址)";
-        }
-    }
 
     if (cloudSummary) {
         if (hasCloudUrl && isCloudPingSuccess) {
             const devInfo = lastCloudPingResult.device ? ` (远端显卡: ${escapeHtml(lastCloudPingResult.device)})` : "";
             cloudSummary.innerHTML = `
                 <div style="color: #38bdf8; font-weight: 600; margin-bottom: 2px;">✓ 端云协同配合完美就绪</div>
-                <div style="font-size: 11.5px; color: #cbd5e1;">本地主控充足 (${cpuCores}核/${ramTotal}GB) + 云端 GPU 连通通畅${devInfo}，0 显存负担畅享写实真人！</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">本地主控就绪 (${cpuCores}核/${ramTotal}GB) + 云端 GPU 连通通畅${devInfo}，0 本地显存负担畅享写实真人！</div>
             `;
             cloudSummary.style.borderColor = "rgba(56, 189, 248, 0.4)";
         } else if (hasCloudUrl) {
@@ -246,44 +593,112 @@ function evaluateBothModesCompliance(hardwareData) {
         } else {
             cloudSummary.innerHTML = `
                 <div style="color: #fbbf24; font-weight: 600; margin-bottom: 2px;">⚠️ 本地主控就绪 · 云端算力节点待填写</div>
-                <div style="font-size: 11.5px; color: #cbd5e1;">本地配置达标 (${cpuCores}核/${ramTotal}GB)，在下方填写云端 GPU 地址即可完成端云闭环。</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">本地配置已达标 (${cpuCores}核/${ramTotal}GB)，在下方填写云端 GPU 地址即可完成端云闭环。</div>
             `;
             cloudSummary.style.borderColor = "rgba(245, 158, 11, 0.35)";
         }
     }
+
+    // 同步更新所有卡片右下角状态
+    updateHardwareRequirementsStatus(hardwareData);
+
+    // 如果本地硬件不达标，且当前选择的是选项1，强制自动校正切至选项2端云协同
+    if (!isLocalAllQualified && currentSelectedGpuMode === "local_procedural") {
+        currentSelectedGpuMode = "sidecar_v3";
+    }
+    updateGpuModeCardsVisual();
 }
 
 // ------------------------------------------------------------------------------
-// 3. 模式切换与配置面板渲染
+// 更新双模式卡片的高亮与不可选禁用态视觉
 // ------------------------------------------------------------------------------
-function selectGpuMode(modeId) {
-    currentSelectedGpuMode = modeId;
-
-    // 1. 卡片边框选中态更新
+function updateGpuModeCardsVisual() {
     const cardLocal = document.getElementById("gpu-mode-card-local");
     const cardCloud = document.getElementById("gpu-mode-card-cloud");
     const badgeLocal = document.getElementById("gpu-mode-badge-local");
     const badgeCloud = document.getElementById("gpu-mode-badge-cloud");
 
-    const isLocal = modeId === "local_procedural";
+    const localCheck = isLocalHardwareFullyQualified();
+    const isLocal = currentSelectedGpuMode === "local_procedural";
 
     if (cardLocal) {
-        cardLocal.style.borderColor = isLocal ? "#10B981" : "rgba(148, 163, 184, 0.2)";
-        cardLocal.style.boxShadow = isLocal ? "0 0 18px rgba(16, 185, 129, 0.2)" : "none";
+        if (!localCheck.isQualified) {
+            // 本地硬件未达标：强制禁用视觉
+            cardLocal.style.cursor = "not-allowed";
+            cardLocal.style.opacity = "0.6";
+            cardLocal.style.borderColor = "rgba(239, 68, 68, 0.4)";
+            cardLocal.style.boxShadow = "none";
+            cardLocal.setAttribute("title", "本地硬件未达到运营要求 (需CPU>=4核, GPU独显>=8G, 内存>=16G)，不可选择此模式");
+        } else {
+            // 本地达标：正常可选
+            cardLocal.style.cursor = "pointer";
+            cardLocal.style.opacity = "1";
+            cardLocal.removeAttribute("title");
+            cardLocal.style.borderColor = isLocal ? "#10B981" : "rgba(148, 163, 184, 0.2)";
+            cardLocal.style.boxShadow = isLocal ? "0 0 18px rgba(16, 185, 129, 0.2)" : "none";
+        }
     }
+
     if (cardCloud) {
+        cardCloud.style.cursor = "pointer";
+        cardCloud.style.opacity = "1";
         cardCloud.style.borderColor = !isLocal ? "#38bdf8" : "rgba(148, 163, 184, 0.2)";
         cardCloud.style.boxShadow = !isLocal ? "0 0 18px rgba(56, 189, 248, 0.2)" : "none";
     }
 
     if (badgeLocal) {
-        badgeLocal.className = isLocal ? "brand-badge green" : "brand-badge";
-        badgeLocal.textContent = isLocal ? "已选中" : "可选";
+        if (!localCheck.isQualified) {
+            badgeLocal.className = "brand-badge red";
+            badgeLocal.style.fontWeight = "700";
+            badgeLocal.textContent = "🚫 硬件不足 · 不可选";
+        } else {
+            badgeLocal.className = isLocal ? "brand-badge green" : "brand-badge";
+            badgeLocal.style.fontWeight = "";
+            badgeLocal.textContent = isLocal ? "已选中" : "可选";
+        }
     }
+
     if (badgeCloud) {
         badgeCloud.className = !isLocal ? "brand-badge sky" : "brand-badge";
         badgeCloud.textContent = !isLocal ? "已选中" : "可选";
     }
+}
+window.updateGpuModeCardsVisual = updateGpuModeCardsVisual;
+
+// ------------------------------------------------------------------------------
+// 3. 模式切换与配置面板渲染
+// ------------------------------------------------------------------------------
+function selectGpuMode(modeId) {
+    const localCheck = isLocalHardwareFullyQualified();
+
+    // 强制全局规定：本地硬件不达标的情况下，不可选择 选项1 (local_procedural)
+    if (modeId === "local_procedural" && !localCheck.isQualified) {
+        const deficiencies = [];
+        if (!localCheck.isLocalGpuQualified) {
+            deficiencies.push(`GPU 显存需 >= 8G (当前 ${localCheck.vramTotal}GB${!localCheck.hasCuda ? ' 无CUDA' : ''})`);
+        }
+        if (!localCheck.isCpuQualified) {
+            deficiencies.push(`CPU 需 >= 4核 (当前 ${localCheck.cpuCores}核)`);
+        }
+        if (!localCheck.isRamQualified) {
+            deficiencies.push(`物理内存 需 >= 16G (当前 ${localCheck.ramTotal}GB)`);
+        }
+        const warnMsg = `本地硬件不满足运营要求，不可选择【选项 1 · 本机运行】！\n缺项：${deficiencies.join('；')}。\n请选用【选项 2 · 端云协同】或升级本机硬件。`;
+        if (typeof showToast === "function") {
+            showToast(warnMsg, "error");
+        } else {
+            alert(warnMsg);
+        }
+
+        // 强制回退并定位到选项2端云协同
+        currentSelectedGpuMode = "sidecar_v3";
+        updateGpuModeCardsVisual();
+        renderGpuConfigDetailPanel("sidecar_v3");
+        return;
+    }
+
+    currentSelectedGpuMode = modeId;
+    updateGpuModeCardsVisual();
 
     // 2. 渲染下方配置面板
     renderGpuConfigDetailPanel(modeId);
@@ -306,7 +721,6 @@ function renderGpuConfigDetailPanel(modeId) {
     const badgeEl = document.getElementById("gpu-config-panel-badge");
     const linkBox = document.getElementById("gpu-config-panel-link-box");
     const dynamicBox = document.getElementById("gpu-mode-dynamic-content");
-    const copyCmdBtn = document.getElementById("gpu-avatar-copy-cloud-cmd-btn");
     const testConnBtn = document.getElementById("gpu-avatar-test-btn");
     const saveBtn = document.getElementById("gpu-avatar-save-btn");
     const connResult = document.getElementById("gpu-avatar-conn-result");
@@ -330,9 +744,12 @@ function renderGpuConfigDetailPanel(modeId) {
     const gpuName = gpu.gpu_name || "集成显卡/核显";
     const vramTotal = parseFloat(gpu.vram_total_gb || 0);
     const hasCuda = Boolean(gpu.cuda_available);
-    const isLocalGpuQualified = hasCuda && vramTotal >= 6.0;
-    const cpuCores = d.cpu_cores || 4;
-    const ramTotal = d.ram_total_gb || 16;
+    const isLocalGpuQualified = hasCuda && (vramTotal >= 7.8 || Math.round(vramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB);
+    const cpuCores = parseInt(d.cpu_cores || 0, 10) || 4;
+    const ramTotal = parseFloat(d.ram_total_gb || 0) || 16;
+    const isCpuQualified = cpuCores >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_CPU_CORES;
+    const isRamQualified = (ramTotal >= 15.5) || (Math.round(ramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_RAM_TOTAL_GB);
+    const isLocalAllQualified = isLocalGpuQualified && isCpuQualified && isRamQualified;
 
     // 找到云端活跃配置（优先寻找带有效公网穿透 URL 的配置）
     const cloudConfigs = cachedAvatarConfigs.filter(c => c.config_group === "neural_renderer" && (c.provider_name === "sidecar_v3" || c.provider_name === "custom_avatar"));
@@ -346,26 +763,26 @@ function renderGpuConfigDetailPanel(modeId) {
         // =====================================================================
         if (titleEl) titleEl.textContent = "选项 1 · 本机完全满足 (本地单机运行) 硬件达标诊断";
         if (badgeEl) {
-            badgeEl.className = isLocalGpuQualified ? "brand-badge green" : "brand-badge amber";
-            badgeEl.textContent = isLocalGpuQualified ? "硬件完全达标" : "硬件未达标 (轻量保底)";
+            badgeEl.className = isLocalAllQualified ? "brand-badge green" : "brand-badge amber";
+            badgeEl.textContent = isLocalAllQualified ? "硬件完全达标" : "硬件未达标 (轻量保底)";
         }
         if (linkBox) linkBox.innerHTML = "";
 
         if (dynamicBox) {
             dynamicBox.innerHTML = `
-                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.35)'}; border-radius: 8px; padding: 18px;">
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid ${isLocalAllQualified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.35)'}; border-radius: 8px; padding: 18px;">
                     <!-- 硬件达标指标实测核验清单 -->
                     <div style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: ${isLocalGpuQualified ? '#10B981' : '#F59E0B'}; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                        本机硬件达标核验清单（超写实真人渲染驱动门槛）：
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: ${isLocalAllQualified ? '#10B981' : '#F59E0B'}; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        本机硬件达标核验清单（系统完美运营门槛：CPU>=4核 · GPU>=8G · 内存>=16G）：
                     </div>
 
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 14px;">
                         <!-- 显存检测 -->
                         <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 显卡显存容量 (运营门槛 >= 6.0GB，推荐 8~12GB)</div>
-                            <div style="font-size: 13px; font-weight: 600; color: ${vramTotal >= 6.0 ? '#34d399' : '#f87171'};">
-                                ${vramTotal >= 6.0 ? '✓ 通过' : '✗ 未达标'}：当前 ${vramTotal} GB (${escapeHtml(gpuName)})
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 显卡显存容量 (运营门槛 >= 8.0GB)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${isLocalGpuQualified ? '#34d399' : '#f87171'};">
+                                ${isLocalGpuQualified ? '✓ 通过' : '✗ 未达标'}：当前 ${vramTotal} GB (${escapeHtml(gpuName)})
                             </div>
                         </div>
 
@@ -379,24 +796,24 @@ function renderGpuConfigDetailPanel(modeId) {
 
                         <!-- CPU 与内存 -->
                         <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">③ CPU核心与内存 (门槛 4核/8GB)</div>
-                            <div style="font-size: 13px; font-weight: 600; color: #34d399;">
-                                ✓ 通过：${cpuCores} 核心 · ${ramTotal} GB 内存 (充足)
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">③ CPU核心与内存 (运营门槛 >= 4核 / >= 16GB)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${(isCpuQualified && isRamQualified) ? '#34d399' : '#f87171'};">
+                                ${(isCpuQualified && isRamQualified) ? '✓ 通过' : '✗ 未达标'}：${cpuCores} 核心 · ${ramTotal} GB 内存
                             </div>
                         </div>
                     </div>
 
                     <!-- 综合达标结论条 -->
-                    <div style="padding: 12px 14px; border-radius: 6px; background: ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)'}; border: 1px dashed ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'};">
-                        ${isLocalGpuQualified ? `
+                    <div style="padding: 12px 14px; border-radius: 6px; background: ${isLocalAllQualified ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)'}; border: 1px dashed ${isLocalAllQualified ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'};">
+                        ${isLocalAllQualified ? `
                             <div style="font-weight: 700; color: #34d399; margin-bottom: 4px;">🟢 综合评估：本机硬件完全满足写实真人本地渲染要求！</div>
                             <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
-                                本机配备达标的高性能独立显卡（>= 6.0GB 显存），单机即可直接渲染 1080P 超写实真人主播，零租赁成本，无需配置网络，开箱即播。
+                                本机配备达标的高性能独立显卡（>= 8.0GB 显存）与充足 CPU/内存（>=4核/16GB），单机即可直接渲染 1080P 超写实真人主播，零租赁成本，无需配置网络，开箱即播。
                             </div>
                         ` : `
                             <div style="font-weight: 700; color: #fbbf24; margin-bottom: 4px;">⚠️ 综合评估：当前电脑硬件未达到超写实真人渲染的商业运营门槛！</div>
                             <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
-                                检测到本地显存仅 ${vramTotal}GB（低于 6.0GB 商业运营最低门槛），若在本地强行跑深度学习写实真人会导致严重丢帧甚至显存溢出 (OOM) 崩溃。<br>
+                                检测到本地配置尚未完全达到（CPU>=4核，显存>=8.0GB，内存>=16GB）的商业运营底线，若在本地强行跑深度学习写实真人会导致严重丢帧甚至显存溢出 (OOM) 崩溃。<br>
                                 🛡️ <strong>系统保底机制</strong>：若您启用当前选项，系统将自动使用<strong>免显卡的本地程序化形象（卡通/微动态）</strong>作为推流画面，保障流畅不黑屏；<br>
                                 🚀 <strong>若您需要 1080P 写实真人主播</strong>：请点击上方【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，将渲染外包至云端（约 1.2 元/小时），低配电脑亦能完美开播！
                             </div>
@@ -442,21 +859,26 @@ function renderGpuConfigDetailPanel(modeId) {
         const currentProtocol = extraParams.stream_protocol || "websocket";
         const currentAvatarId = extraParams.avatar_id || "default";
         const currentCustomUrl = extraParams.custom_official_url || "";
+        const currentGpuModel = extraParams.cloud_gpu_model || "";
+        const currentGpuVram = extraParams.cloud_gpu_vram !== undefined ? extraParams.cloud_gpu_vram : "";
+        const cloudInfo = getDetectedCloudGpuInfo(cachedHardwareData);
 
         if (linkBox) {
-            const jumpUrl = currentCustomUrl || "https://www.autodl.com";
-            const jumpText = currentCustomUrl ? "直达云端开发机控制台 ↗" : "前往 AutoDL 租用 GPU ↗";
-            linkBox.innerHTML = `
-                <a href="${escapeHtml(jumpUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-ghost" style="color: #38bdf8; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="${escapeHtml(jumpUrl)}">
-                    ${jumpText}
-                </a>
-            `;
+            if (currentCustomUrl) {
+                linkBox.innerHTML = `
+                    <a href="${escapeHtml(currentCustomUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-ghost" style="color: #38bdf8; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="${escapeHtml(currentCustomUrl)}">
+                        直达云端开发机控制台 ↗
+                    </a>
+                `;
+            } else {
+                linkBox.innerHTML = "";
+            }
         }
 
         const hiddenId = document.getElementById("gpu-avatar-config-id");
         if (hiddenId) hiddenId.value = anyCloudCfg ? anyCloudCfg.id : "";
 
-        const isLocalReady = cpuCores >= 2 && ramTotal >= 4.0;
+        const isLocalReady = cpuCores >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_CPU_CORES && (ramTotal >= 15.5 || Math.round(ramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_RAM_TOTAL_GB);
         const isCloudPingSuccess = lastCloudPingResult && lastCloudPingResult.success;
 
         if (dynamicBox) {
@@ -471,15 +893,15 @@ function renderGpuConfigDetailPanel(modeId) {
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 16px;">
                         <!-- 本地配置配合 -->
                         <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 本地硬件控制环境 (推流与主控)</div>
-                            <div style="font-size: 13px; font-weight: 600; color: #34d399;">
-                                ✓ 通过：${cpuCores} 核心 · ${ramTotal} GB 内存 (完全满足控制需求)
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 本地硬件控制环境 (推流与主控 · 门槛 >=4核/16GB)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${isLocalReady ? '#34d399' : '#fbbf24'};">
+                                ${isLocalReady ? '✓ 达标' : '⚠️ 建议升级'}：${cpuCores} 核心 · ${ramTotal} GB 内存
                             </div>
                         </div>
 
                         <!-- 云端 GPU 配合实况 -->
                         <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">② 云端 GPU 渲染连通状态</div>
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">② 云端 GPU 渲染连通状态 (运营要求 GPU >= 8GB)</div>
                             <div id="gpu-cloud-ping-inline-status" style="font-size: 13px; font-weight: 600; color: ${isCloudPingSuccess ? '#34d399' : (currentBaseUrl ? '#38bdf8' : '#fbbf24')};">
                                 ${isCloudPingSuccess ? `✓ 已连通 (延迟 ${lastCloudPingResult.latency_ms}ms${lastCloudPingResult.device ? ' · ' + escapeHtml(lastCloudPingResult.device) : ''})` : (currentBaseUrl ? 'ℹ️ 待测试 (点击下方探测)' : '✗ 待填写云端地址')}
                             </div>
@@ -526,22 +948,6 @@ function renderGpuConfigDetailPanel(modeId) {
                                     onclick="document.getElementById('gpu-input-base-url').value='ws://<云主机公网IP>:8010/ws/render-v3'">
                                 🌐 云机公网 IP 直连样例
                             </button>
-                        </div>
-
-                        <!-- 针对 Google Colab 免费 T4 显卡的一键部署引导卡片 -->
-                        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 6px; padding: 10px 12px; margin-top: 10px; font-size: 11.5px; color: #cbd5e1; line-height: 1.65;">
-                            <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
-                                <span>💡 谷歌 Google Colab (免费 T4 GPU) 一键极速启动指引：</span>
-                            </div>
-                            <div style="color: #e2e8f0;">
-                                如使用 Colab 算力作为<strong>数字人画面渲染节点</strong>，请在 Colab 单元格执行官方引导脚本（会自动安装依赖、识别 T4 显卡并穿透出 wss:// 地址）：
-                            </div>
-                            <div style="background: rgba(0,0,0,0.45); border: 1px dashed rgba(56,189,248,0.3); padding: 6px 9px; border-radius: 4px; font-family: monospace; color: #34d399; margin: 6px 0; user-select: all; word-break: break-all;">
-                                !git clone https://github.com/winclubs/AI-LiveStream-Agent.git /content/agent 2>/dev/null || true &amp;&amp; cd /content/agent &amp;&amp; python scripts/cloud_sidecar_bootstrap.py
-                            </div>
-                            <div style="color: #94a3b8; font-size: 11px;">
-                                ⚠️ 提示：若在 Colab 运行的是 Ollama (端口 11434)，那是用于大语言模型的，请配置在左侧「LLM配置」中；此处「GPU配置」专用于数字人画面渲染。
-                            </div>
                         </div>
                     </div>
 
@@ -613,7 +1019,6 @@ function renderGpuConfigDetailPanel(modeId) {
             `;
         }
 
-        if (copyCmdBtn) copyCmdBtn.style.display = "inline-flex";
         if (testConnBtn) testConnBtn.style.display = "inline-flex";
         if (saveBtn) {
             saveBtn.style.background = "#38bdf8";
@@ -634,6 +1039,11 @@ async function handleSaveGpuAvatarConfig() {
     const origHtml = saveBtn ? saveBtn.innerHTML : "";
 
     if (currentSelectedGpuMode === "local_procedural") {
+        const localCheck = isLocalHardwareFullyQualified();
+        if (!localCheck.isQualified) {
+            showToast("本地硬件未满足运营要求 (需CPU>=4核, GPU独显>=8G, 内存>=16G)，禁止保存并启用本地模式！请选择【端云协同】。", "error");
+            return;
+        }
         // 模式 1：启用本机完全满足模式（将所有活跃云端节点设为非 active）
         try {
             if (saveBtn) {
@@ -654,7 +1064,7 @@ async function handleSaveGpuAvatarConfig() {
                 });
             }
 
-            showToast("✅ 已成功切换为【本机完全满足 (本地运行)】模式！", "success");
+            showToast("已成功切换为【本机完全满足 (本地运行)】模式！", "success");
             // 同步持久化算力执行偏好 (auto: 交由系统按硬件与云端实况自动研判)
             try {
                 await fetch(`${API_BASE}/settings/gpu-target`, {
@@ -705,6 +1115,9 @@ async function handleSaveGpuAvatarConfig() {
     const streamProtocol = protocolInput ? (protocolInput.value.trim() || "websocket") : "websocket";
     const avatarId = avatarIdInput ? (avatarIdInput.value.trim() || "default") : "default";
     const customOfficialUrl = customUrlInput ? customUrlInput.value.trim() : "";
+    const cloudInfo = getDetectedCloudGpuInfo(cachedHardwareData);
+    const cloudGpuModel = (cloudInfo && cloudInfo.gpuName && !cloudInfo.gpuName.includes("节点")) ? cloudInfo.gpuName : "";
+    const cloudGpuVram = (cloudInfo && cloudInfo.vramGb !== undefined) ? cloudInfo.vramGb : 0;
 
     const payload = {
         config_group: "neural_renderer",
@@ -743,7 +1156,7 @@ async function handleSaveGpuAvatarConfig() {
         });
         const json = await res.json();
         if (res.ok && (json.code === 0 || json.code === undefined)) {
-            showToast("✅ 已成功保存并启用【本地硬件 + 租赁云端GPU】模式！", "success");
+            showToast("已成功保存并启用【本地硬件 + 租赁云端GPU】模式！", "success");
             // 同步持久化算力执行偏好 (cloud: 用户显式指定优先调度云端显卡)
             try {
                 await fetch(`${API_BASE}/settings/gpu-target`, {
@@ -833,19 +1246,6 @@ async function checkCloudGpuConnection(options = {}) {
                 api_key: apiKeyToSend
             })
         });
-        function parseDeviceVramGb(deviceStr) {
-            if (!deviceStr || typeof deviceStr !== "string") return 0;
-            const mMiB = deviceStr.match(/(\d+)\s*(?:MiB|MB)/i);
-            if (mMiB) {
-                return Math.round(parseInt(mMiB[1], 10) / 1024);
-            }
-            const mGB = deviceStr.match(/(\d+(?:\.\d+)?)\s*GB/i);
-            if (mGB) {
-                return Math.round(parseFloat(mGB[1]));
-            }
-            return 0;
-        }
-        window.parseDeviceVramGb = parseDeviceVramGb;
 
         const json = await res.json();
         const isOk = (json.code === 0 && Boolean(json.success));
@@ -944,7 +1344,7 @@ async function testCurrentGpuAvatarConnection(isSilent = false) {
                 resultBox.innerHTML = `🟢 配合达标！云端握手成功，延迟: ${pingRes.latency_ms}ms ${pingRes.device ? '(远端识别硬件: <b>' + escapeHtml(pingRes.device) + '</b>)' : ''}，本地主控与云端 GPU 协同就绪！`;
             }
             if (!isSilent) {
-                showToast(`✅ 端云协同达标！${pingRes.device ? '云端硬件: ' + pingRes.device : ''}（延迟: ${pingRes.latency_ms}ms）`, "success");
+                showToast(`端云协同达标！${pingRes.device ? '云端硬件: ' + pingRes.device : ''}（延迟: ${pingRes.latency_ms}ms）`, "success");
             }
         } else {
             const err = pingRes.error || "通信握手未成功";
@@ -960,9 +1360,12 @@ async function testCurrentGpuAvatarConnection(isSilent = false) {
                 resultBox.innerHTML = `🔴 协同未达标: ${formattedErr}`;
             }
             if (!isSilent) {
-                showToast(`❌ 连通失败: ${err.split('\n')[0]}`, "error");
+                showToast(`连通失败: ${err.split('\n')[0]}`, "error");
             }
         }
+
+        // 动态刷新顶部独立显卡卡片中的云端标识
+        renderCloudGpuCardInfo(cachedHardwareData);
 
         // 同步刷新向导卡片（若向导卡片在 DOM 中）
         renderWizardGpuStatusCard(false);
@@ -972,22 +1375,6 @@ async function testCurrentGpuAvatarConnection(isSilent = false) {
             testBtn.disabled = false;
             testBtn.innerHTML = origHtml;
         }
-    }
-}
-
-// ------------------------------------------------------------------------------
-// 6. 辅助工具与一键拉起命令复制
-// ------------------------------------------------------------------------------
-function copyCloudBootstrapCommand() {
-    const cmd = `git clone https://github.com/winclubs/AI-LiveStream-Agent.git && cd AI-LiveStream-Agent && pip3 install fastapi uvicorn websockets requests && python3 scripts/cloud_sidecar_bootstrap.py --port 8010`;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(cmd).then(() => {
-            showToast("📋 已复制云端节点一键启动命令！在云主机终端粘贴回车，自动检测 GPU、穿透隧道并启动 /ws/render-v3 对接端点。", "success");
-        }).catch(() => {
-            prompt("请手动复制下方命令并在云主机终端执行：", cmd);
-        });
-    } else {
-        prompt("请手动复制下方命令并在云主机终端执行：", cmd);
     }
 }
 
@@ -1056,6 +1443,11 @@ async function autoCheckCloudGpuConnection(cloudCfg) {
 // 8. 开播向导第二步专用：一键切换本地模式（开播防黑屏避险）
 // ------------------------------------------------------------------------------
 async function quickSwitchToLocalModeFromWizard() {
+    const localCheck = isLocalHardwareFullyQualified();
+    if (!localCheck.isQualified) {
+        showToast("本地硬件未达到运营要求 (需CPU>=4核, GPU独显>=8G, 内存>=16G)，不可切换为本地模式！请选用端云协同。", "error");
+        return;
+    }
     try {
         const activeCloudConfigs = (cachedAvatarConfigs || []).filter(c => c.is_active && c.config_group === "neural_renderer");
         for (const cfg of activeCloudConfigs) {
@@ -1081,7 +1473,7 @@ async function quickSwitchToLocalModeFromWizard() {
             });
         } catch (e) { }
 
-        showToast("✅ 已一键切换为【本地运行模式】！开播将优先保障流畅稳定防黑屏", "success");
+        showToast("已一键切换为【本地运行模式】！开播将优先保障流畅稳定防黑屏", "success");
         currentSelectedGpuMode = "local_procedural";
         await renderWizardGpuStatusCard(false);
     } catch (e) {
@@ -1131,12 +1523,10 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
     // 提取硬件指标动态计算 X (CPU核数), Y (本地显存), Z (云端显存)
     const hw = window.cachedHardwareData || {};
     const localGpu = hw.gpu || {};
-    // 真实 CPU 核心数：实测是多少就是多少，绝不默认 6
     const cpuCores = hw.cpu_cores || 0;
-    // 本地显存：实测数值
     const localVram = (localGpu.vram_total_gb !== undefined && localGpu.vram_total_gb !== null) ? Math.round(localGpu.vram_total_gb) : 0;
 
-    // 云端配置与实测显存获取（实事求是：严禁任何写死/虚标，没有就是 0）
+    // 云端配置与实测显存获取
     const activeCloud = (cachedAvatarConfigs || []).find(c => c.is_active && c.provider_name === "sidecar_v3");
     const anyConfiguredCloud = (cachedAvatarConfigs || []).find(c => c.provider_name === "sidecar_v3" && c.base_url);
     const targetCloud = activeCloud || anyConfiguredCloud;
@@ -1145,7 +1535,6 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
 
     let cloudVram = 0;
     const lastPing = window.lastCloudPingResult;
-    // 关键准则：只有在云端真实连通并成功探测到显存时才显示具体数值；离线、关机、未配置或未探通一律严格为 0
     if (isCloudActive && lastPing && lastPing.success) {
         if (lastPing.vram_gb) {
             cloudVram = Math.round(lastPing.vram_gb);
@@ -1195,24 +1584,35 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
         });
     }
 
-    // 选项 1：本机完全满足 (本地运行)
-    const card1Selected = !isCloudActive;
-    const card1Border = card1Selected ? "2px solid #10B981" : "1.5px solid rgba(148, 163, 184, 0.2)";
-    const card1Bg = card1Selected ? "rgba(15, 23, 42, 0.75)" : "rgba(15, 23, 42, 0.45)";
-    const card1Badge = card1Selected
-        ? `<span class="brand-badge green" style="font-weight: 700;">🟢 当前生效模式</span>`
-        : `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25);">未启用 (备选)</span>`;
-    const card1Action = card1Selected
-        ? `<div style="font-size: 12px; color: #34d399; margin-top: 10px; display: flex; align-items: center; gap: 6px;">✓ 0 租赁成本 · 本地闭环，断网亦可流畅直播</div>`
-        : `<div style="margin-top: 10px;"><button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #34d399; border: 1px solid rgba(16,185,129,0.3);">前往「GPU配置(2)」启用此模式 ↗</button></div>`;
+    const localCheck = isLocalHardwareFullyQualified(hw);
+    const isLocalAllQualified = localCheck.isQualified;
+
+    // 选项 1：本机完全满足 (本地运行) - 若硬件不达标则强制标记不可选
+    const card1Selected = (!isCloudActive) && isLocalAllQualified;
+    const card1Border = !isLocalAllQualified
+        ? "1.5px dashed rgba(239, 68, 68, 0.35)"
+        : (card1Selected ? "2px solid #10B981" : "1.5px solid rgba(148, 163, 184, 0.2)");
+    const card1Bg = !isLocalAllQualified
+        ? "rgba(15, 23, 42, 0.35)"
+        : (card1Selected ? "rgba(15, 23, 42, 0.75)" : "rgba(15, 23, 42, 0.45)");
+    const card1Badge = !isLocalAllQualified
+        ? `<span class="brand-badge red" style="font-weight: 700;">🚫 硬件不足 · 不可选</span>`
+        : (card1Selected
+            ? `<span class="brand-badge green" style="font-weight: 700;">🟢 当前生效模式</span>`
+            : `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25);">未启用 (备选)</span>`);
+    const card1Action = !isLocalAllQualified
+        ? `<div style="margin-top: 10px; font-size: 11.5px; color: #f87171;">⚠️ 本地硬件不满足运营要求，不可选用此模式</div>`
+        : (card1Selected
+            ? `<div style="font-size: 12px; color: #34d399; margin-top: 10px; display: flex; align-items: center; gap: 6px;">✓ 0 租赁成本 · 本地闭环，断网亦可流畅直播</div>`
+            : `<div style="margin-top: 10px;"><button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #34d399; border: 1px solid rgba(16,185,129,0.3);">前往「GPU配置(2)」启用此模式 ↗</button></div>`);
 
     let card1SubText = "";
-    if (localVram >= 6) {
+    if (localVram >= 8) {
         card1SubText = `本地 CPU ${cpuCores}核 · 本地独显 ${localVram}G · 0 租赁支出`;
     } else if (localVram > 0) {
-        card1SubText = `本地 CPU ${cpuCores}核 · 本地显存 ${localVram}G (自适应加速/轻量渲染) · 0 租赁支出`;
+        card1SubText = `本地 CPU ${cpuCores}核 · 本地显存 ${localVram}G (低于8G门槛) · 0 租赁支出`;
     } else {
-        card1SubText = `本地 CPU ${cpuCores}核 · 纯 CPU 程序化渲染 · 0 显存门槛 · 0 租赁支出`;
+        card1SubText = `本地 CPU ${cpuCores}核 · 纯 CPU 无独显 · 低于8G门槛 · 0 租赁支出`;
     }
 
     // 选项 2：本地硬件 + 租赁云端GPU
@@ -1280,6 +1680,8 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
         }
     }
 
+    const isCloudOperational = Boolean(lastPing && lastPing.success && (cpuCores >= 4));
+
     container.innerHTML = `
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
             <!-- 选项 1：本机完全满足 (本地运行) -->
@@ -1302,7 +1704,12 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
                 <div style="font-size: 12.5px; color: #94a3b8; line-height: 1.6; margin-top: 8px;">
                     全链路在当前电脑单机闭环运行。本地独显直跑或选用系统免显卡程序化形象，0 算力支出，断网亦可推流。
                 </div>
-                ${card1Action}
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+                    ${card1Action}
+                    <span class="brand-badge ${isLocalAllQualified ? 'green' : 'amber'}" style="font-size: 11px;">
+                        ${isLocalAllQualified ? '✓ 满足运营要求 (全单机达标)' : '⚠️ 未达单机运营要求 (要求GPU>=8G)'}
+                    </span>
+                </div>
             </div>
 
             <!-- 选项 2：本地硬件 + 租赁云端GPU -->
@@ -1326,6 +1733,11 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
                     本地仅负责交互调度，数字人 1080P 超写实真人渲染外包给云端 GPU，本地 0 显存开销。
                 </div>
                 ${card2StatusBody}
+                <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                    <span class="brand-badge ${isCloudOperational ? 'green' : 'sky'}" style="font-size: 11px;">
+                        ${isCloudOperational ? '✓ 满足运营要求 (端云协同达标)' : '☁️ 运营待就绪 (需接入云端GPU>=8G)'}
+                    </span>
+                </div>
             </div>
         </div>
     `;
@@ -1349,6 +1761,12 @@ async function loadGpuAvatarProviders() {
 
         // 刷新硬件实况看板并执行双模式达标诊断
         await refreshGpuHardwareOverview();
+
+        // 强规则：若本地硬件未达到运营底线 (CPU>=4核, GPU>=8G, 内存>=16G)，不可选择 local_procedural，强制重定向至 sidecar_v3 端云协同
+        const localCheck = isLocalHardwareFullyQualified();
+        if (!localCheck.isQualified) {
+            currentSelectedGpuMode = "sidecar_v3";
+        }
 
         // 呈现选中模式
         selectGpuMode(currentSelectedGpuMode);

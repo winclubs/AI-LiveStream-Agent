@@ -962,6 +962,8 @@ function renderSliceSelector(samples) {
 }
 
 function renderSliceFrame(index) {
+    // 试播期间禁止样本帧覆盖真实驱动帧（loadAvatarSampleFrames 异步完成时可能正在试播）
+    if (_previewPlaying) return;
     if (!_currentSampleFrames || !_currentSampleFrames[index]) return;
     _currentSampleIndex = index;
     const s = _currentSampleFrames[index];
@@ -1096,8 +1098,15 @@ async function loadAvatarGpuRuntimeStatus() {
 // -----------------------------------------------------------------------------
 // 25 FPS 连续切片动态播放器与平滑追踪动效
 // -----------------------------------------------------------------------------
+// 试播台词驱动期间，rAF 音频时钟帧循环独占主/副监视画面。资产轮播定时器与样本帧
+// 渲染均以 _previewPlaying 为闸门：试播进行时一律不写 slice-face-img / slice-full-img，
+// 避免异步完成的 loadAvatarSampleFrames 把已渲染的真实口型帧覆盖回静态资产帧。
+let _previewPlaying = false;
+
 function startSliceAnimationPlay() {
     if (_sliceAnimationTimer) clearInterval(_sliceAnimationTimer);
+    // 试播进行中不启动资产轮播，交由 testAnchorSpeechDemo 的 rAF 帧循环独占画面
+    if (_previewPlaying) return;
 
     const btnText = document.getElementById("slice-play-text");
     const btnIcon = document.getElementById("slice-play-icon");
@@ -1134,6 +1143,8 @@ function toggleSliceAnimationPlay() {
 
 function renderStreamFrameAt(idx) {
     if (!_sliceStreamFrames || !_sliceStreamFrames[idx]) return;
+    // 试播期间由 rAF 帧循环独占主副监视画面，轮播绝不覆盖渲染出的口型帧
+    if (_previewPlaying) return;
     const s = _sliceStreamFrames[idx];
 
     const fullImg = document.getElementById("slice-full-img");
@@ -1159,8 +1170,6 @@ function renderStreamFrameAt(idx) {
 // -----------------------------------------------------------------------------
 // 试播主播台词驱动演示 · 真实算力闭环 (后端神经推理 → 前端播放真实帧)
 // -----------------------------------------------------------------------------
-let _previewPlaying = false;
-
 async function testAnchorSpeechDemo() {
     const textEl = document.getElementById("preview-speech-text");
     const statusEl = document.getElementById("preview-speech-status");
@@ -1174,6 +1183,7 @@ async function testAnchorSpeechDemo() {
     }
 
     const d = _currentPreviewDetail || {};
+    const driveAnchorId = d.anchor_id || d.id;
     let voiceId = d.voice_id || "";
     let providerName = d.voice_provider || "";
 
@@ -1196,6 +1206,9 @@ async function testAnchorSpeechDemo() {
     }
 
     switchPreviewSubTab('slices');
+    // 试播期间由 rAF 音频时钟帧循环独占主监视舱画面：必须停掉切片轮播定时器，
+    // 否则 40ms 定时器会不断把 slice-face-img 覆盖回静态资产帧，把渲染出的口型帧抹掉。
+    stopSliceAnimationPlay();
 
     if (statusEl) {
         statusEl.style.color = "#38bdf8";
@@ -1203,8 +1216,19 @@ async function testAnchorSpeechDemo() {
     }
     if (btnEl) btnEl.disabled = true;
 
+    if (!driveAnchorId) {
+        // 主播档案缺少 ID 时直接如实告知，绝不用 "undefined" 冒充请求导致后端误报“主播不存在”
+        _previewPlaying = false;
+        if (statusEl) {
+            statusEl.style.color = "#fbbf24";
+            statusEl.innerHTML = `⚠️ <strong>试听驱动失败：</strong>当前主播档案缺少 ID，请关闭预览后重新打开`;
+        }
+        if (btnEl) btnEl.disabled = false;
+        return;
+    }
+
     try {
-        const res = await fetch(`${API_BASE}/anchors/${d.id}/avatar/preview-speech-drive`, {
+        const res = await fetch(`${API_BASE}/anchors/${driveAnchorId}/avatar/preview-speech-drive`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1225,14 +1249,20 @@ async function testAnchorSpeechDemo() {
 
             let conciseMsg = "主播绑定的音色有误，请检查";
             const detailLower = (errorDetail || "").toLowerCase();
-            if (res.status === 404 || detailLower.includes("不存在") || detailLower.includes("未找到")) {
+            if (res.status === 424) {
+                // 硬件门禁：试播需要真实神经渲染 (本地CUDA显存>=8G 或 云端GPU显存>=8G)，不达标直接禁止
+                conciseMsg = errorDetail || "硬件不足，无法试听：需要本地显存>=8GB显卡或显存>=8GB云端GPU节点";
+                alert(`🚫 试听已禁止\n\n${conciseMsg}`);
+            } else if (res.status === 404 || detailLower.includes("不存在") || detailLower.includes("未找到")) {
                 conciseMsg = "主播不存在，请刷新页面重试";
             } else if (res.status === 409 || detailLower.includes("资产")) {
                 conciseMsg = "该主播尚未完成数字人资产训练，请先完成切片生成";
             } else if (res.status === 422) {
                 conciseMsg = "台词长度必须为 1 到 500 字符";
             } else if (res.status === 503 || detailLower.includes("音色")) {
-                conciseMsg = "主播绑定的音色有误，请检查";
+                // TTS 合成失败时优先透传后端真实原因 (如百炼瞬时故障)，而非笼统的"音色有误"
+                conciseMsg = (errorDetail && (errorDetail.includes("语音合成") || errorDetail.includes("百炼")))
+                    ? errorDetail : "主播绑定的音色有误，请检查";
             } else if (detailLower.includes("网络") || detailLower.includes("timeout") || detailLower.includes("failed to fetch")) {
                 conciseMsg = "网络连接超时，无法连接语音服务";
             } else if (errorDetail && errorDetail.length <= 25) {
@@ -1276,6 +1306,8 @@ async function testAnchorSpeechDemo() {
             }
             if (bboxBox) bboxBox.style.boxShadow = "none";
             if (btnEl) btnEl.disabled = false;
+            // 试播结束，恢复切片闲置轮播
+            startSliceAnimationPlay();
         };
 
         _demoAudioPlayer.onerror = () => {
@@ -1285,6 +1317,7 @@ async function testAnchorSpeechDemo() {
                 statusEl.innerHTML = "⚠️ 音频播放异常，请重试";
             }
             if (btnEl) btnEl.disabled = false;
+            startSliceAnimationPlay();
         };
 
         // 真实遥测徽章 (引擎/设备/帧耗时，全部来自后端实测)
@@ -1580,8 +1613,19 @@ async function loadLiveStats() {
         if (json.code !== 0) return;
         const d = json.data;
 
-        const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
-        set("stat-mode", d.mode ? `${d.mode} 档 · ${d.platform || ""}` : "未配置 (请先完成开播向导)");
+        const formatLiveModeDisplay = (modeVal, platformVal) => {
+            if (!modeVal) return "未配置 (请先完成开播向导)";
+            let cleanMode = String(modeVal).trim();
+            if (cleanMode === "local" || cleanMode === "A" || cleanMode.includes("纯本地")) {
+                cleanMode = "纯本地硬件";
+            } else if (cleanMode === "hybrid" || cleanMode === "B" || cleanMode === "C" || cleanMode === "D" || cleanMode.includes("云端")) {
+                cleanMode = "本地云端混合";
+            } else {
+                cleanMode = cleanMode.replace(/\s*档\s*$/, "");
+            }
+            return platformVal ? `${cleanMode} · ${platformVal}` : cleanMode;
+        };
+        set("stat-mode", formatLiveModeDisplay(d.mode, d.platform));
         set("stat-anchor", d.anchor_name || "—");
         set("stat-duration", formatDuration(d.duration_sec));
         set("stat-network", d.network && d.network.status === "connected"

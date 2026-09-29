@@ -4,7 +4,7 @@
  */
 
 const API_BASE = "/api/v1";
-const FRONTEND_VERSION = "2.0.0";
+const FRONTEND_VERSION = "2.0.1";
 
 // 跨异步初始化流程共享的核心状态必须先显式初始化，避免首屏读取未声明变量。
 let ws = null;
@@ -329,7 +329,10 @@ function showToast(message, type = "success", duration = 3200) {
     const iconSpan = document.createElement("span");
     iconSpan.innerHTML = svg(typeMap[type] || "info", "icon");
     const textSpan = document.createElement("span");
-    textSpan.textContent = String(message || "").replace(/<br>/g, "\n");
+    // 彻底杜绝全局所有页面“双图标”：Toast 左侧已统一渲染系统 SVG 状态图标，自动清除文本开头重复的 emoji/字符图标
+    let cleanMessage = String(message || "").replace(/<br>/g, "\n");
+    cleanMessage = cleanMessage.replace(/^[\s\uFEFF\xA0]*[🚫❌✖️❗❕⚠️🚨✅🟢🔴🟡⚪ℹ️💡⚡📋🎉🎬✓✕]+[\s\uFEFF\xA0]*/u, "");
+    textSpan.textContent = cleanMessage;
     toast.appendChild(iconSpan);
     toast.appendChild(textSpan);
     container.appendChild(toast);
@@ -388,6 +391,8 @@ function initNavigation() {
                     renderConfiguredTTS(cachedAllConfigs);
                 }
             }
+            if (tab === "oss") { if (typeof initOssSettingsPage === 'function') initOssSettingsPage(); }
+            if (tab === "operations") { if (typeof initOperationsPage === 'function') initOperationsPage(); }
         });
     });
 
@@ -1435,7 +1440,7 @@ async function refreshLiveGpuTelemetry() {
             // 模式 2: 远端租赁 GPU
             badge.className = "brand-badge sky";
             badge.innerText = "⚡ 远端租赁 GPU";
-            const provider = cloudGpu.provider_name || "AutoDL/云端算力";
+            const provider = cloudGpu.provider_name || "云端 GPU 算力";
             detail.innerHTML = `已实测连通远端算力节点【${escapeHtml(provider)}】· <span style="color:#38bdf8;font-weight:600;">本地 0 显存负担</span> · 1080P 写实真人就绪`;
             if (tip) tip.innerHTML = `远端算力模式：本地仅需轻薄本 CPU 调度与推流`;
         } else if (cap.can_execute && !cap.is_low_spec_local) {
@@ -1843,9 +1848,10 @@ async function loadRoleTips() {
         const json = await res.json();
         if (json.code !== 0) return;
         const d = json.data;
+        const modeDisplay = (currentMode === "local" || currentMode === "A" || String(currentMode).includes("纯本地")) ? "纯本地硬件" : "本地云端混合";
         tipsBox.innerHTML = `
             <div style="padding: 12px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px;">
-                <div style="font-weight: 700; font-size: 12px; color: var(--accent-emerald);">【${escapeHtml(d.label)}】运营建议${currentMode ? ` (当前模式 ${currentMode} 档)` : ""}:</div>
+                <div style="font-weight: 700; font-size: 12px; color: var(--accent-emerald);">【${escapeHtml(d.label)}】运营建议${currentMode ? ` (当前模式: ${modeDisplay})` : ""}:</div>
                 <ul style="font-size: 12px; color: var(--text-secondary); margin: 6px 0 0 18px; line-height: 1.8;">
                     ${d.tips.map(t => `<li>${escapeHtml(t)}</li>`).join("")}
                 </ul>
@@ -4304,37 +4310,12 @@ async function handleRegisterExternalVoiceId() {
     }
 }
 
-// 动态将新克隆的音色注入上方药丸容器首位并立即激活
-function injectClonedVoicePill(voiceVal, displayLabel) {
-    const container = document.getElementById("tts-fetched-voices-container");
-    if (!container) return;
-
-    // 清除容器中旧的“暂无音色”占位提示
-    const emptyNotice = container.querySelector("div");
-    if (emptyNotice && emptyNotice.innerText.includes("暂未获取音色")) {
-        container.innerHTML = "";
+// 动态将新克隆的音色注入并立即激活
+async function injectClonedVoicePill(voiceVal, displayLabel) {
+    const meta = resolveTTSProviderMeta(currentSelectedTTSProvider);
+    if (meta) {
+        await fetchAndRenderTTSVoices(meta, voiceVal);
     }
-
-    // 检查是否已存在相同 voiceVal 的药丸
-    let pill = container.querySelector(`[data-voice="${voiceVal}"]`);
-    if (!pill) {
-        pill = document.createElement("div");
-        pill.className = "fetched-model-pill";
-        pill.setAttribute("data-voice", voiceVal);
-        pill.setAttribute("title", `点击试听并选定专属克隆音色: ${displayLabel}`);
-        pill.style.borderColor = "#f59e0b";
-        pill.style.color = "#fbbf24";
-        pill.style.background = "rgba(245, 158, 11, 0.12)";
-        pill.style.fontWeight = "600";
-        pill.innerHTML = `
-            <svg class="pill-play-icon" viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: #fbbf24; fill: #fbbf24;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            <span class="pill-voice-name">${escapeHtml(displayLabel)}</span>
-        `;
-        pill.onclick = () => selectFetchedTTSVoice(voiceVal, displayLabel);
-        container.insertBefore(pill, container.firstChild);
-    }
-
-    // 彻底单选并选定该专属克隆音色！
     selectFetchedTTSVoice(voiceVal, displayLabel);
 }
 
@@ -4548,10 +4529,40 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
     const apiKey = keyInput ? keyInput.value.trim() : "";
     const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
 
-    // 标记当前正在播放的音色药丸动效
+    // 标记当前正在播放的音色卡片与胶囊试听按钮动效
     document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
-        el.classList.toggle("playing", el.getAttribute("data-voice") === voiceVal);
+        const isThis = el.getAttribute("data-voice") === voiceVal;
+        el.classList.toggle("playing", isThis);
+        const previewBtn = el.querySelector(".btn-voice-preview-pill");
+        if (previewBtn) {
+            previewBtn.classList.toggle("playing", isThis);
+            if (isThis) {
+                previewBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" style="width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 2.5;"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    <span>播放中</span>
+                `;
+            } else {
+                previewBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" style="width: 9px; height: 9px; stroke: currentColor; fill: currentColor;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span>试听</span>
+                `;
+            }
+        }
     });
+
+    const resetPlayingCardTags = () => {
+        document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
+            el.classList.remove("playing");
+            const previewBtn = el.querySelector(".btn-voice-preview-pill");
+            if (previewBtn) {
+                previewBtn.classList.remove("playing");
+                previewBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" style="width: 9px; height: 9px; stroke: currentColor; fill: currentColor;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span>试听</span>
+                `;
+            }
+        });
+    };
 
     if (pingStatusEl) {
         pingStatusEl.innerHTML = `
@@ -4597,7 +4608,7 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
             window._ttsPreviewController.audio = audio;
 
             audio.onended = () => {
-                document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+                resetPlayingCardTags();
                 if (pingStatusEl) {
                     pingStatusEl.innerHTML = `
                         <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
@@ -4611,7 +4622,7 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
             await audio.play();
         } else {
             const errJson = await previewRes.json().catch(() => ({}));
-            document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+            resetPlayingCardTags();
             if (pingStatusEl) {
                 pingStatusEl.innerHTML = `
                     <span style="color: #ef4444; font-size: 11.5px;">
@@ -4621,13 +4632,58 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
             }
         }
     } catch (e) {
-        if (e.name === "AbortError") return; // 用户切换快速切换，正常中断
+        if (e.name === "AbortError") return; // 用户快速切换，正常中断
         console.warn("音色试听播放受阻:", e);
-        document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+        resetPlayingCardTags();
     }
 }
 
-// 异步拉取并渲染音色候选药丸（专属克隆音色档案与官方预设音色深度合并，专属克隆置顶展示）
+// 音色元数据解析器 (提取纯名称、风格特征标签以及业务分类)
+function parseTTSVoiceMeta(rawText, rawVal) {
+    if (!rawText) return { name: rawVal, desc: "官方通用音色", category: "other" };
+    const match = rawText.match(/^(.*?)[（\(](.*?)[）\)]$/);
+    let name = rawText.trim();
+    let desc = "";
+    if (match) {
+        name = match[1].trim();
+        desc = match[2].trim();
+    }
+    const combined = (name + " " + desc + " " + rawVal).toLowerCase();
+    let category = "other";
+    if (combined.includes("带货") || combined.includes("电商") || combined.includes("促单") || combined.includes("日用") || combined.includes("零食") || combined.includes("家电") || combined.includes("数码")) {
+        category = "ecommerce";
+    } else if (combined.includes("女声") || combined.includes("少女") || combined.includes("女主持") || combined.includes("邻家") || combined.includes("知性") || combined.includes("文雅") || combined.includes("stella")) {
+        category = "female";
+    } else if (combined.includes("男声") || combined.includes("男主持") || combined.includes("成熟稳重") || combined.includes("商务") || combined.includes("阳光") || combined.includes("磁性") || combined.includes("朝气")) {
+        category = "male";
+    } else if (combined.includes("老铁") || combined.includes("东北") || combined.includes("方言") || combined.includes("童声") || combined.includes("海外") || combined.includes("玩具") || combined.includes("解说") || combined.includes("故事") || combined.includes("bella")) {
+        category = "special";
+    }
+    return { name, desc, category };
+}
+
+// 全局音色分类过滤工具 (纯前端即时过滤，无需二次网络请求)
+window.filterTTSVoiceCategory = function(cat, btn) {
+    if (btn) {
+        document.querySelectorAll("#tts-fetched-voices-container .tts-voice-filter-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+    }
+    const cards = document.querySelectorAll("#tts-fetched-voices-container .tts-voice-card-preset");
+    let visibleCount = 0;
+    cards.forEach(card => {
+        const cCat = card.getAttribute("data-category") || "other";
+        const isMatch = (cat === "all") || (cCat === cat);
+        card.style.display = isMatch ? "flex" : "none";
+        if (isMatch) visibleCount++;
+    });
+
+    const emptyNotice = document.getElementById("tts-preset-voices-empty-notice");
+    if (emptyNotice) {
+        emptyNotice.style.display = (visibleCount === 0) ? "block" : "none";
+    }
+};
+
+// 异步拉取并渲染音色候选卡片（专属克隆资产独立置顶专区，官方预设提供网格卡片与分类工具条）
 async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
     const container = document.getElementById("tts-fetched-voices-container");
     const countStatusEl = document.getElementById("tts-voices-count-status");
@@ -4654,7 +4710,6 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
 
                 // 若该音色是官方预设音色（在官方预设推荐表中，或者 voice_type === 'preset'）
                 if (recommendedIdSet.has(vidLower) || v.voice_type === "preset") {
-                    // 若用户在音色资产库中为该官方音色改了名，同步更新推荐药丸的展示名称
                     const recItem = recommendedVoices.find(r => (r.val || "").trim().toLowerCase() === vidLower);
                     if (recItem && v.name && !v.name.startsWith("zh-CN-")) {
                         const oldDesc = recItem.text.includes("(") || recItem.text.includes("（")
@@ -4697,57 +4752,155 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
     }
     if (voiceInput) voiceInput.value = currentSelected;
 
-    // 4. 构建药丸 DOM (引入全局 ID 防重锁，100% 确保每个音色只呈现一次)
-    let pillsHtml = "";
+    // 4. 构建结构化卡片 DOM (分类统计、专属克隆资产独立专区、官方预设卡片网格)
     const renderedVoiceIds = new Set();
 
-    // 4.1 专属克隆音色（金色尊贵皇冠高亮，置顶显示，只展示真实专属克隆，绝不混入官方音色）
-    clonedVoices.forEach(cv => {
-        if (!cv.id || renderedVoiceIds.has(cv.id)) return;
-        renderedVoiceIds.add(cv.id);
-
-        const isSel = cv.id === currentSelected;
-        pillsHtml += `
-            <div class="fetched-model-pill cloned-voice-pill ${isSel ? 'selected' : ''}"
-                 data-voice="${escapeHtml(cv.id)}"
-                 data-is-clone="true"
-                 title="点击选定并试听专属克隆音色: ${escapeHtml(cv.name)} (ID: ${escapeHtml(cv.id)})"
-                 onclick="selectFetchedTTSVoice('${escapeHtml(cv.id)}', '${escapeHtml(cv.name)} (专属克隆)')"
-                 style="border-color: rgba(245, 158, 11, 0.65); background: ${isSel ? 'rgba(245, 158, 11, 0.28)' : 'rgba(245, 158, 11, 0.12)'}; color: #FBBF24; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px;">
-                <span style="font-size: 13px;">👑</span>
-                <span style="font-weight: 600;">${escapeHtml(cv.name)}</span>
-                <span class="btn-delete-clone-pill"
-                      title="删除此克隆音色档案"
-                      onclick="handleDeleteClonedVoice(event, '${escapeHtml(cv.id)}', '${escapeHtml(cv.name)}')"
-                      style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: rgba(239, 68, 68, 0.25); color: #f87171; margin-left: 4px; cursor: pointer; transition: all 0.2s;"
-                      onmouseover="this.style.background='#ef4444';this.style.color='#ffffff';"
-                      onmouseout="this.style.background='rgba(239, 68, 68, 0.25)';this.style.color='#f87171';">
-                    <svg viewBox="0 0 24 24" style="width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 3;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </span>
-            </div>
-        `;
+    // 统计官方音色分类
+    let countEcom = 0;
+    let countFemale = 0;
+    let countMale = 0;
+    let countSpecial = 0;
+    recommendedVoices.forEach(v => {
+        if (!v.val) return;
+        const metaInfo = parseTTSVoiceMeta(v.text, v.val);
+        if (metaInfo.category === "ecommerce") countEcom++;
+        else if (metaInfo.category === "female") countFemale++;
+        else if (metaInfo.category === "male") countMale++;
+        else if (metaInfo.category === "special") countSpecial++;
     });
 
-    // 4.2 引擎预设官方音色（严格排重，已作为克隆展示的绝不在此重复）
+    let layoutHtml = "";
+
+    // 4.1 顶部音色分类过滤器工具条
+    layoutHtml += `
+        <div class="tts-voice-filter-bar">
+            <div class="tts-voice-section-title" style="margin-bottom: 0; color: var(--text-primary);">
+                <span style="display: inline-block; width: 3px; height: 12px; background: #10B981; border-radius: 2px;"></span>
+                <span>可用发音人声库</span>
+            </div>
+            <div class="tts-voice-filter-tags">
+                <button type="button" class="tts-voice-filter-btn active" onclick="filterTTSVoiceCategory('all', this)">全部 (${recommendedVoices.length})</button>
+                <button type="button" class="tts-voice-filter-btn" onclick="filterTTSVoiceCategory('ecommerce', this)">🛒 电商带货 (${countEcom})</button>
+                <button type="button" class="tts-voice-filter-btn" onclick="filterTTSVoiceCategory('female', this)">👩 亲和女声 (${countFemale})</button>
+                <button type="button" class="tts-voice-filter-btn" onclick="filterTTSVoiceCategory('male', this)">👨 沉稳男声 (${countMale})</button>
+                <button type="button" class="tts-voice-filter-btn" onclick="filterTTSVoiceCategory('special', this)">✨ 方言/特色 (${countSpecial})</button>
+            </div>
+        </div>
+    `;
+
+    // 4.2 专属克隆声音资产专区（若存在，置顶独立展示，采用金色 VIP 卡片网格）
+    if (clonedVoices.length > 0) {
+        layoutHtml += `
+            <div class="tts-voice-section-title" style="color: #FBBF24; margin-top: 4px;">
+                <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #FBBF24; fill: none; stroke-width: 2;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                <span>👑 主播专属声音克隆资产 (${clonedVoices.length} 款)</span>
+            </div>
+            <div class="tts-cloned-voices-grid">
+        `;
+
+        clonedVoices.forEach(cv => {
+            if (!cv.id || renderedVoiceIds.has(cv.id)) return;
+            renderedVoiceIds.add(cv.id);
+
+            const isSel = cv.id === currentSelected;
+            layoutHtml += `
+                <div class="fetched-model-pill cloned-voice-pill tts-voice-card-clone ${isSel ? 'selected' : ''}"
+                     data-voice="${escapeHtml(cv.id)}"
+                     data-is-clone="true"
+                     title="专属克隆音色: ${escapeHtml(cv.name)} (ID: ${escapeHtml(cv.id)}) · 点击选定并试听"
+                     onclick="selectFetchedTTSVoice('${escapeHtml(cv.id)}', '${escapeHtml(cv.name)} (专属克隆)')">
+                    <!-- 第一行：皇冠 + 发音人名称 + 选中状态徽标 (右侧预留右上角删除按钮位置) -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; padding-right: 22px;">
+                        <span class="tts-voice-name-text" style="font-weight: 700; color: #fbbf24; font-size: 13px; display: inline-flex; align-items: center; gap: 5px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                            <span style="font-size: 13px; line-height: 1;">👑</span>
+                            ${escapeHtml(cv.name)}
+                        </span>
+                        <span class="tts-voice-status-tag" style="font-size: 9.5px; padding: 1.5px 6px; border-radius: 3px; font-weight: 600; background: #10B981; color: #ffffff; ${isSel ? 'display: inline-block;' : 'display: none;'}">
+                            使用中 ✔
+                        </span>
+                    </div>
+                    <!-- 第二行：专属定制声线标签 + 金色试听胶囊按钮 -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                        <span style="font-size: 11px; color: #fbbf24; background: rgba(245, 158, 11, 0.16); padding: 1.5px 6px; border-radius: 3px; font-weight: 600; flex-shrink: 0;">
+                            专属定制声线
+                        </span>
+                        <span class="btn-voice-preview-pill clone"
+                              title="点击试听此专属克隆声音"
+                              onclick="handlePlayVoicePillBtn(event, '${escapeHtml(cv.id)}', '${escapeHtml(cv.name)} (专属克隆)')">
+                            <svg viewBox="0 0 24 24" style="width: 9px; height: 9px; stroke: currentColor; fill: currentColor;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            <span>试听</span>
+                        </span>
+                    </div>
+                    <!-- 右上角绝对定位删除按钮 (固定于卡片内部右上角) -->
+                    <span class="btn-delete-clone-pill"
+                          title="彻底删除此克隆音色档案"
+                          onclick="handleDeleteClonedVoice(event, '${escapeHtml(cv.id)}', '${escapeHtml(cv.name)}')">
+                        <svg viewBox="0 0 24 24" style="width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 3;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </span>
+                </div>
+            `;
+        });
+
+        layoutHtml += `</div>`;
+    }
+
+    // 4.3 官方预设精选音色库（卡片化双行排版与自适应网格）
+    layoutHtml += `
+        <div class="tts-voice-section-title" style="color: #38BDF8; margin-top: ${clonedVoices.length > 0 ? '14px' : '4px'};">
+            <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #38BDF8; fill: none; stroke-width: 2;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+            <span>🎙️ 官方精选预设音色库 (${recommendedVoices.length} 款)</span>
+        </div>
+        <div class="tts-preset-voices-grid">
+    `;
+
     recommendedVoices.forEach(v => {
         if (!v.val || renderedVoiceIds.has(v.val)) return;
         renderedVoiceIds.add(v.val);
 
         const isSel = v.val === currentSelected;
-        pillsHtml += `
-            <div class="fetched-model-pill ${isSel ? 'selected' : ''}"
+        const metaInfo = parseTTSVoiceMeta(v.text, v.val);
+
+        layoutHtml += `
+            <div class="fetched-model-pill tts-voice-card-preset ${isSel ? 'selected' : ''}"
                  data-voice="${escapeHtml(v.val)}"
-                 title="点击试听并选定官方音色: ${escapeHtml(v.text)}"
+                 data-category="${escapeHtml(metaInfo.category)}"
+                 title="点击选定并试听官方音色: ${escapeHtml(v.text)}"
                  onclick="selectFetchedTTSVoice('${escapeHtml(v.val)}', '${escapeHtml(v.text)}')">
-                ${escapeHtml(v.text)}
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                    <span class="tts-voice-name-text" style="font-weight: 700; font-size: 12.5px; color: ${isSel ? '#34D399' : 'var(--text-primary)'}; display: inline-flex; align-items: center; gap: 4px;">
+                        <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+                        ${escapeHtml(metaInfo.name)}
+                    </span>
+                    <span class="tts-voice-status-tag" style="font-size: 9.5px; padding: 1.5px 5px; border-radius: 3px; font-weight: 600; background: #10B981; color: #ffffff; ${isSel ? 'display: inline-block;' : 'display: none;'}">
+                        使用中 ✔
+                    </span>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                    <span style="font-size: 11px; color: var(--text-muted); background: rgba(15, 23, 42, 0.55); padding: 1.5px 6px; border-radius: 3px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 65%;">
+                        ${escapeHtml(metaInfo.desc || '官方推荐声线')}
+                    </span>
+                    <span class="btn-voice-preview-pill"
+                          title="点击试听发音"
+                          onclick="handlePlayVoicePillBtn(event, '${escapeHtml(v.val)}', '${escapeHtml(v.text)}')">
+                        <svg viewBox="0 0 24 24" style="width: 9px; height: 9px; stroke: currentColor; fill: currentColor;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <span>试听</span>
+                    </span>
+                </div>
             </div>
         `;
     });
 
-    if (!pillsHtml) {
-        container.innerHTML = `<div style="color: var(--text-muted); font-size: 12px;">暂无可用的发音音色，请点击上方「获取音色与模型」。</div>`;
+    layoutHtml += `
+            <div id="tts-preset-voices-empty-notice" style="display: none; grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 12px; padding: 16px 0;">
+                当前分类下暂无匹配音色，请切换其他分类。
+            </div>
+        </div>
+    `;
+
+    if (renderedVoiceIds.size === 0) {
+        container.innerHTML = `<div style="color: var(--text-muted); font-size: 12px; padding: 12px 6px;">暂无可用的发音音色，请点击上方「获取音色与模型」。</div>`;
     } else {
-        container.innerHTML = pillsHtml;
+        container.innerHTML = layoutHtml;
     }
 
     // 5. 更新状态与计数
@@ -4822,17 +4975,48 @@ async function handleDeleteClonedVoice(event, voiceId, voiceName) {
     }
 }
 
+// 试听胶囊按钮专属点击事件 (阻止冒泡，避免重复触发，立即播放试听)
+function handlePlayVoicePillBtn(event, voiceVal, voiceLabel) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    if (!voiceVal) return;
+    selectFetchedTTSVoice(voiceVal, voiceLabel);
+}
+
 // 切换选定音色 (点击立即自动发起试听并单选)
 function selectFetchedTTSVoice(voiceVal, voiceLabel = "") {
     if (!voiceVal) return;
     const voiceInput = document.getElementById("tts-input-voice");
     if (voiceInput) voiceInput.value = voiceVal;
 
-    // 清除全容器内所有药丸的 selected，只为当前匹配项保留 selected
+    // 清除全容器内所有药丸的 selected，只为当前匹配项保留 selected 并更新卡片内部徽标
     document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
         const isMatch = el.getAttribute("data-voice") === voiceVal;
         el.classList.toggle("selected", isMatch);
         if (!isMatch) el.classList.remove("playing");
+
+        // 动态同步更新卡片内状态角标 (选中的显示翡翠绿徽标，未选中的隐藏，避免界面杂乱)
+        const tag = el.querySelector(".tts-voice-status-tag");
+        if (tag) {
+            if (isMatch) {
+                tag.style.display = "inline-block";
+                tag.textContent = "使用中 ✔";
+                tag.style.background = "#10B981";
+                tag.style.color = "#ffffff";
+            } else {
+                tag.style.display = "none";
+            }
+        }
+        // 同步标题文字颜色
+        const titleSpan = el.querySelector(".tts-voice-name-text");
+        if (titleSpan) {
+            const isClone = el.getAttribute("data-is-clone") === "true";
+            if (!isClone) {
+                titleSpan.style.color = isMatch ? "#34D399" : "var(--text-primary)";
+            }
+        }
     });
 
     const countStatusEl = document.getElementById("tts-voices-count-status");
@@ -4844,7 +5028,7 @@ function selectFetchedTTSVoice(voiceVal, voiceLabel = "") {
         if (!displayName || displayName === voiceVal) {
             const matchedPill = document.querySelector(`#tts-fetched-voices-container .fetched-model-pill[data-voice="${voiceVal}"]`);
             if (matchedPill) {
-                const nameSpan = matchedPill.querySelector("span:not(.btn-delete-clone-pill)") || matchedPill;
+                const nameSpan = matchedPill.querySelector(".tts-voice-name-text") || matchedPill.querySelector("span:not(.btn-delete-clone-pill)") || matchedPill;
                 displayName = nameSpan.textContent.trim();
             } else {
                 displayName = "已选定音色";
@@ -6218,9 +6402,9 @@ async function sendMockDanmaku(type) {
 
 
 // ============================================================================
-// 开播向导 (需求1+2)：第一步选直播模式 → 第二步选主播角色 → 建议与约束提示词
+// 开播向导：第一步选直播模式 (纯本地硬件 vs 本地云端混合) → 第二步选主播角色
 // ============================================================================
-let wizardMode = "A";       // 默认选择 A 档
+let wizardMode = "hybrid";   // 默认推荐本地云端混合模式
 let wizardRoleType = "ecommerce";
 
 let selectedWizardAnchorId = "";
@@ -6292,7 +6476,7 @@ async function applyHardwareRecommendation() {
         }
         refreshWizardSuggestions();
     } catch (e) {
-        console.warn("硬件推荐获取失败，保持默认 A 档", e);
+        console.warn("硬件推荐获取失败，保持默认本地云端混合模式", e);
     }
 }
 
@@ -6310,10 +6494,11 @@ async function renderModeCards() {
             card.className = "mode-card" + (m.code === wizardMode ? " selected" : "");
             card.setAttribute("data-mode", m.code);
             card.onclick = () => selectWizardMode(m.code);
+            const isHybrid = (m.code === "hybrid" || m.code === "B" || m.code === "C" || m.code === "D");
             card.innerHTML = `
                 <div style="display:flex; justify-content: space-between; align-items:center;">
-                    <strong style="font-size:14px;">${m.code} · ${m.name}</strong>
-                    ${m.code === "C" ? '<span class="badge-recommend">强烈推荐</span>' : (m.code === "A" ? '<span class="badge-optional">默认</span>' : '')}
+                    <strong style="font-size:14px;">${m.name}</strong>
+                    ${isHybrid ? '<span class="badge-recommend">推荐低配/免显卡</span>' : '<span class="badge-optional">独显完全满足</span>'}
                 </div>
                 <div class="mode-card-meta">
                     <div class="row">${svg("cpu", "icon")}<span>硬件: ${m.hardware}</span></div>
@@ -6545,9 +6730,10 @@ async function refreshWizardSuggestions() {
         const json = await res.json();
         if (json.code !== 0) return;
         const d = json.data;
+        const modeDisplay = (wizardMode === "local" || wizardMode === "A" || String(wizardMode).includes("纯本地")) ? "纯本地硬件" : "本地云端混合";
         box.innerHTML = `
             <div style="padding: 12px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px;">
-                <div style="font-weight: 700; font-size: 13px; color: var(--accent-emerald);">【${d.label}】 × 模式 ${wizardMode} 运营建议:</div>
+                <div style="font-weight: 700; font-size: 13px; color: var(--accent-emerald);">【${d.label}】 × 【${modeDisplay}】运营建议:</div>
                 <ul style="font-size: 12px; color: var(--text-secondary); margin: 8px 0 0 18px; line-height: 1.8;">
                     ${d.tips.map(t => `<li>${t}</li>`).join("")}
                 </ul>
@@ -6667,8 +6853,37 @@ window.switchToTab = switchToTab;
 // 开播前检查 (Preflight)：真实探测开播条件，未通过不盲目开播 (v1.1.3)
 // ============================================================================
 let lastPreflightData = null;
+let _preflightAutoRefreshTimer = null;
+let _preflightAutoRefreshCount = 0;
+const _PREFLIGHT_AUTO_REFRESH_MAX = 40;  // 最多自动轮询 40 次 (约 2 分钟)，避免无限刷新
+
+// 后台自愈进行中的检查项 (下载/安装)，前端自动轮询刷新进度
+function _preflightNeedsAutoRefresh(data) {
+    return (data.checks || []).some(c => c.auto_in_progress === true);
+}
+
+function _schedulePreflightAutoRefresh(opts) {
+    if (_preflightAutoRefreshTimer) clearTimeout(_preflightAutoRefreshTimer);
+    if (_preflightAutoRefreshCount >= _PREFLIGHT_AUTO_REFRESH_MAX) {
+        showToast("后台下载/安装仍在进行，可稍后点击「重新体检」确认结果", "info");
+        return;
+    }
+    _preflightAutoRefreshTimer = setTimeout(() => {
+        _preflightAutoRefreshCount++;
+        // 用户已离开体检页则停止轮询 (modal 与 tab 两种呈现方式均检测)
+        const modalOpen = document.getElementById("preflight-modal")
+            && document.getElementById("preflight-modal").style.display === "flex";
+        const tabActive = document.getElementById("tab-preflight")
+            && document.getElementById("tab-preflight").classList.contains("active");
+        if (!modalOpen && !tabActive) return;
+        runPreflight({ ...opts, auto: false, _isAutoRefresh: true });
+    }, 3000);
+}
 
 async function runPreflight(opts = {}) {
+    // 用户主动发起的体检重置轮询计数 (自动轮询续跑除外)
+    if (!opts._isAutoRefresh) _preflightAutoRefreshCount = 0;
+    if (_preflightAutoRefreshTimer) { clearTimeout(_preflightAutoRefreshTimer); _preflightAutoRefreshTimer = null; }
     try {
         // 如果是人工查看且未强制弹窗，立即平滑切换到独立全幅页面并呈现加载占位
         if (!opts.auto && !opts.useModal) {
@@ -6709,6 +6924,8 @@ async function runPreflight(opts = {}) {
             // 核心：无弹窗，渲染到独立的体检大页面中
             renderPreflightTabPage(json.data, opts);
         }
+        // 后台自愈进行中时自动轮询，让用户实时看到下载/安装进度直至完成
+        if (_preflightNeedsAutoRefresh(json.data)) _schedulePreflightAutoRefresh(opts);
         return json.data;
     } catch (e) {
         showToast("开播前检查请求异常: " + e, "error");
@@ -6720,6 +6937,24 @@ function pfRowHtml(c) {
     const icons = { pass: "check", warn: "warn", fail: "x" };
     const statusLabels = { pass: "检测通过", warn: "建议修复", fail: "必须修复" };
     const badgeClass = c.status === "pass" ? "pill-pass" : (c.status === "warn" ? "pill-warning" : "pill-missing");
+
+    // 后台自愈进行中 (下载/安装) 时展示动态进度条，替代静态修复指引
+    let progressBar = "";
+    if (c.auto_in_progress) {
+        const pct = (() => {
+            const m = /(\d+)%/.exec(c.message || "");
+            return m ? parseInt(m[1], 10) : 0;
+        })();
+        progressBar = `
+            <div style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
+                <div style="flex: 1; height: 6px; background: rgba(148, 163, 184, 0.18); border-radius: 99px; overflow: hidden;">
+                    <div style="width: ${Math.max(2, Math.min(100, pct))}%; height: 100%; background: linear-gradient(90deg, #34d399, #38bdf8); border-radius: 99px; transition: width 0.6s ease;"></div>
+                </div>
+                <span style="font-size: 11px; color: var(--accent-emerald); white-space: nowrap;">后台自动处理中 ${pct}%</span>
+            </div>
+        `;
+    }
+
     let fixHtml = "";
     if (c.status !== "pass" && (c.fix_hint || c.action_tab)) {
         const hintPart = c.fix_hint
@@ -6752,6 +6987,7 @@ function pfRowHtml(c) {
                     </span>
                 </div>
                 <div class="pf-msg">${c.message}</div>
+                ${progressBar}
                 ${fixHtml}
             </div>
         </div>
@@ -6917,12 +7153,12 @@ function renderCurrentModeBadge(modeInfo) {
     const settingsDesc = document.getElementById("settings-mode-desc");
     if (badge && modeInfo) {
         badge.style.display = "inline-block";
-        badge.innerText = `模式 ${modeInfo.code} · ${modeInfo.name}`;
+        badge.innerText = `当前模式：${modeInfo.name}`;
     }
-    if (settingsName && modeInfo) settingsName.innerText = `${modeInfo.code}. ${modeInfo.name}`;
+    if (settingsName && modeInfo) settingsName.innerText = modeInfo.name;
     if (settingsDesc && modeInfo) {
         settingsDesc.innerHTML = `${modeInfo.hardware} · ${modeInfo.llm} · ${modeInfo.tts} · ${modeInfo.cost}<br>
-            <span style="color: var(--accent-emerald);">下方已按模式只呈现所需配置项:</span> ${modeInfo.required_configs.join(" / ")}`;
+            <span style="color: var(--accent-emerald);">对应核心算力调度:</span> ${modeInfo.required_configs.join(" / ")}`;
     }
 }
 
@@ -7895,6 +8131,8 @@ function renderSliceSelector(samples) {
 }
 
 function renderSliceFrame(index) {
+    // 试播期间禁止样本帧覆盖真实驱动帧（loadAvatarSampleFrames 异步完成时可能正在试播）
+    if (_previewPlaying) return;
     if (!_currentSampleFrames || !_currentSampleFrames[index]) return;
     _currentSampleIndex = index;
     const s = _currentSampleFrames[index];
@@ -8029,8 +8267,15 @@ async function loadAvatarGpuRuntimeStatus() {
 // -----------------------------------------------------------------------------
 // 25 FPS 连续切片动态播放器与平滑追踪动效
 // -----------------------------------------------------------------------------
+// 试播台词驱动期间，rAF 音频时钟帧循环独占主/副监视画面。资产轮播定时器与样本帧
+// 渲染均以 _previewPlaying 为闸门：试播进行时一律不写 slice-face-img / slice-full-img，
+// 避免异步完成的 loadAvatarSampleFrames 把已渲染的真实口型帧覆盖回静态资产帧。
+let _previewPlaying = false;
+
 function startSliceAnimationPlay() {
     if (_sliceAnimationTimer) clearInterval(_sliceAnimationTimer);
+    // 试播进行中不启动资产轮播，交由 testAnchorSpeechDemo 的 rAF 帧循环独占画面
+    if (_previewPlaying) return;
 
     const btnText = document.getElementById("slice-play-text");
     const btnIcon = document.getElementById("slice-play-icon");
@@ -8067,6 +8312,8 @@ function toggleSliceAnimationPlay() {
 
 function renderStreamFrameAt(idx) {
     if (!_sliceStreamFrames || !_sliceStreamFrames[idx]) return;
+    // 试播期间由 rAF 帧循环独占主副监视画面，轮播绝不覆盖渲染出的口型帧
+    if (_previewPlaying) return;
     const s = _sliceStreamFrames[idx];
 
     const fullImg = document.getElementById("slice-full-img");
@@ -8092,8 +8339,6 @@ function renderStreamFrameAt(idx) {
 // -----------------------------------------------------------------------------
 // 试播主播台词驱动演示 · 真实算力闭环 (后端神经推理 → 前端播放真实帧)
 // -----------------------------------------------------------------------------
-let _previewPlaying = false;
-
 async function testAnchorSpeechDemo() {
     const textEl = document.getElementById("preview-speech-text");
     const statusEl = document.getElementById("preview-speech-status");
@@ -8107,6 +8352,7 @@ async function testAnchorSpeechDemo() {
     }
 
     const d = _currentPreviewDetail || {};
+    const driveAnchorId = d.anchor_id || d.id;
     let voiceId = d.voice_id || "";
     let providerName = d.voice_provider || "";
 
@@ -8129,6 +8375,9 @@ async function testAnchorSpeechDemo() {
     }
 
     switchPreviewSubTab('slices');
+    // 试播期间由 rAF 音频时钟帧循环独占主监视舱画面：必须停掉切片轮播定时器，
+    // 否则 40ms 定时器会不断把 slice-face-img 覆盖回静态资产帧，把渲染出的口型帧抹掉。
+    stopSliceAnimationPlay();
 
     if (statusEl) {
         statusEl.style.color = "#38bdf8";
@@ -8136,8 +8385,19 @@ async function testAnchorSpeechDemo() {
     }
     if (btnEl) btnEl.disabled = true;
 
+    if (!driveAnchorId) {
+        // 主播档案缺少 ID 时直接如实告知，绝不用 "undefined" 冒充请求导致后端误报“主播不存在”
+        _previewPlaying = false;
+        if (statusEl) {
+            statusEl.style.color = "#fbbf24";
+            statusEl.innerHTML = `⚠️ <strong>试听驱动失败：</strong>当前主播档案缺少 ID，请关闭预览后重新打开`;
+        }
+        if (btnEl) btnEl.disabled = false;
+        return;
+    }
+
     try {
-        const res = await fetch(`${API_BASE}/anchors/${d.id}/avatar/preview-speech-drive`, {
+        const res = await fetch(`${API_BASE}/anchors/${driveAnchorId}/avatar/preview-speech-drive`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -8158,14 +8418,20 @@ async function testAnchorSpeechDemo() {
 
             let conciseMsg = "主播绑定的音色有误，请检查";
             const detailLower = (errorDetail || "").toLowerCase();
-            if (res.status === 404 || detailLower.includes("不存在") || detailLower.includes("未找到")) {
+            if (res.status === 424) {
+                // 硬件门禁：试播需要真实神经渲染 (本地CUDA显存>=8G 或 云端GPU显存>=8G)，不达标直接禁止
+                conciseMsg = errorDetail || "硬件不足，无法试听：需要本地显存>=8GB显卡或显存>=8GB云端GPU节点";
+                alert(`🚫 试听已禁止\n\n${conciseMsg}`);
+            } else if (res.status === 404 || detailLower.includes("不存在") || detailLower.includes("未找到")) {
                 conciseMsg = "主播不存在，请刷新页面重试";
             } else if (res.status === 409 || detailLower.includes("资产")) {
                 conciseMsg = "该主播尚未完成数字人资产训练，请先完成切片生成";
             } else if (res.status === 422) {
                 conciseMsg = "台词长度必须为 1 到 500 字符";
             } else if (res.status === 503 || detailLower.includes("音色")) {
-                conciseMsg = "主播绑定的音色有误，请检查";
+                // TTS 合成失败时优先透传后端真实原因 (如百炼瞬时故障)，而非笼统的"音色有误"
+                conciseMsg = (errorDetail && (errorDetail.includes("语音合成") || errorDetail.includes("百炼")))
+                    ? errorDetail : "主播绑定的音色有误，请检查";
             } else if (detailLower.includes("网络") || detailLower.includes("timeout") || detailLower.includes("failed to fetch")) {
                 conciseMsg = "网络连接超时，无法连接语音服务";
             } else if (errorDetail && errorDetail.length <= 25) {
@@ -8209,6 +8475,8 @@ async function testAnchorSpeechDemo() {
             }
             if (bboxBox) bboxBox.style.boxShadow = "none";
             if (btnEl) btnEl.disabled = false;
+            // 试播结束，恢复切片闲置轮播
+            startSliceAnimationPlay();
         };
 
         _demoAudioPlayer.onerror = () => {
@@ -8218,6 +8486,7 @@ async function testAnchorSpeechDemo() {
                 statusEl.innerHTML = "⚠️ 音频播放异常，请重试";
             }
             if (btnEl) btnEl.disabled = false;
+            startSliceAnimationPlay();
         };
 
         // 真实遥测徽章 (引擎/设备/帧耗时，全部来自后端实测)
@@ -8513,8 +8782,19 @@ async function loadLiveStats() {
         if (json.code !== 0) return;
         const d = json.data;
 
-        const set = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
-        set("stat-mode", d.mode ? `${d.mode} 档 · ${d.platform || ""}` : "未配置 (请先完成开播向导)");
+        const formatLiveModeDisplay = (modeVal, platformVal) => {
+            if (!modeVal) return "未配置 (请先完成开播向导)";
+            let cleanMode = String(modeVal).trim();
+            if (cleanMode === "local" || cleanMode === "A" || cleanMode.includes("纯本地")) {
+                cleanMode = "纯本地硬件";
+            } else if (cleanMode === "hybrid" || cleanMode === "B" || cleanMode === "C" || cleanMode === "D" || cleanMode.includes("云端")) {
+                cleanMode = "本地云端混合";
+            } else {
+                cleanMode = cleanMode.replace(/\s*档\s*$/, "");
+            }
+            return platformVal ? `${cleanMode} · ${platformVal}` : cleanMode;
+        };
+        set("stat-mode", formatLiveModeDisplay(d.mode, d.platform));
         set("stat-anchor", d.anchor_name || "—");
         set("stat-duration", formatDuration(d.duration_sec));
         set("stat-network", d.network && d.network.status === "connected"
@@ -9706,11 +9986,205 @@ async function toggleRtmpStreaming() {
 // 2. 本地硬件 + 租赁云端GPU (端云协同 · 严格核验本地主控+云端GPU配合是否达标)
 // ==============================================================================
 
+// ==============================================================================
+// ★ 全局运营硬件标准强制规范 (要想完美运营当前系统所必需的底线门槛)
+// 强制全局统一规定：CPU >= 4核，GPU >= 8GB（本地独立显卡 或 云端GPU协同接入），内存 >= 16GB
+// ==============================================================================
+const SYSTEM_OPERATIONAL_REQUIREMENTS = {
+    MIN_CPU_CORES: 4,          // CPU 最低 4 核
+    MIN_GPU_VRAM_GB: 8.0,      // GPU 最低 8.0 GB (本地独立显卡 或 云端租赁 GPU)
+    MIN_RAM_TOTAL_GB: 16.0     // 物理系统内存最低 16.0 GB
+};
+window.SYSTEM_OPERATIONAL_REQUIREMENTS = SYSTEM_OPERATIONAL_REQUIREMENTS;
+
 let currentSelectedGpuMode = "local_procedural"; // "local_procedural" | "sidecar_v3"
 let currentEditingAvatarConfigId = "";
 let cachedAvatarConfigs = [];
 let cachedHardwareData = null;
 let lastCloudPingResult = null; // 缓存云端握手结果 { success: bool, latency_ms: int, device: str, error: str }
+
+// ------------------------------------------------------------------------------
+// 0. 解析远端设备显存容量 (GB)
+// ------------------------------------------------------------------------------
+function parseDeviceVramGb(deviceStr) {
+    if (!deviceStr || typeof deviceStr !== "string") return 0;
+    if (deviceStr.includes("CPU") && !deviceStr.match(/\d+\s*(?:GB|MiB|MB)/i)) {
+        return 0;
+    }
+    const mGB = deviceStr.match(/(\d+(?:\.\d+)?)\s*GB/i);
+    if (mGB) {
+        return Math.round(parseFloat(mGB[1]));
+    }
+    const mMiB = deviceStr.match(/(\d+)\s*(?:MiB|MB)/i);
+    if (mMiB) {
+        return Math.round(parseInt(mMiB[1], 10) / 1024);
+    }
+    return 0;
+}
+window.parseDeviceVramGb = parseDeviceVramGb;
+
+// ------------------------------------------------------------------------------
+// 统一检测系统当前是否对接了云端 GPU 并解析其型号、显存大小(GB)与连通状态
+// ------------------------------------------------------------------------------
+function getDetectedCloudGpuInfo(hardwareData) {
+    const d = hardwareData || cachedHardwareData || window.cachedHardwareData || {};
+    const cap = d.gpu_capability || {};
+    const cloudFromCap = cap.cloud_gpu || {};
+    const lastPing = window.lastCloudPingResult || lastCloudPingResult;
+
+    // 检查缓存的云端数字人渲染配置 (neural_renderer)
+    const cloudConfigs = (cachedAvatarConfigs || []).filter(c =>
+        c.config_group === "neural_renderer" &&
+        (c.provider_name === "sidecar_v3" || c.provider_name === "custom_avatar")
+    );
+    const activeCloudCfg = cloudConfigs.find(c => c.is_active && c.base_url && c.base_url.trim().length > 0) || cloudConfigs.find(c => c.is_active);
+    const configuredCloudCfg = cloudConfigs.find(c => c.base_url && c.base_url.trim().length > 0 && !c.base_url.includes("127.0.0.1")) || cloudConfigs.find(c => c.base_url && c.base_url.trim().length > 0);
+
+    // 页面输入框及本地缓存地址
+    const urlInput = document.getElementById("gpu-input-base-url");
+    const inputUrl = urlInput ? urlInput.value.trim() : "";
+    const savedLocalUrl = (typeof localStorage !== "undefined" && localStorage.getItem("last_sidecar_base_url")) || "";
+
+    const hasConfiguredBackend = Boolean(cloudFromCap.configured || (cloudFromCap.base_url && cloudFromCap.base_url.trim().length > 0));
+    const hasActiveCfg = Boolean(activeCloudCfg && activeCloudCfg.base_url && activeCloudCfg.base_url.trim().length > 0);
+    const hasConfiguredCfg = Boolean(configuredCloudCfg && configuredCloudCfg.base_url && configuredCloudCfg.base_url.trim().length > 0);
+    const hasPingTarget = Boolean(lastPing && (lastPing.success || lastPing.device || (lastPing.targetUrl && !lastPing.targetUrl.includes("127.0.0.1"))));
+    const hasValidInputUrl = Boolean(inputUrl && !inputUrl.includes("127.0.0.1") && (inputUrl.startsWith("ws://") || inputUrl.startsWith("wss://") || inputUrl.includes(".")));
+    const hasSavedUrl = Boolean(savedLocalUrl && !savedLocalUrl.includes("127.0.0.1"));
+
+    // 判定系统是否对接了云端 GPU
+    const isCloudConnectedOrConfigured = Boolean(
+        cap.use_cloud ||
+        cap.has_cloud_gpu ||
+        hasConfiguredBackend ||
+        hasActiveCfg ||
+        (hasConfiguredCfg && (configuredCloudCfg.is_active || currentSelectedGpuMode === "sidecar_v3")) ||
+        hasPingTarget ||
+        (currentSelectedGpuMode === "sidecar_v3" && (hasValidInputUrl || hasSavedUrl))
+    );
+
+    if (!isCloudConnectedOrConfigured) {
+        return null;
+    }
+
+    // 1. 提取显卡原始描述与型号（100% 来源云端实机硬件自动探测，严禁人工伪造）
+    let rawDeviceStr = (lastPing && lastPing.device) || cloudFromCap.device_info || "";
+    let probedGpuName = (lastPing && lastPing.gpu_name) || cloudFromCap.gpu_name || "";
+    let gpuName = probedGpuName || "";
+
+    if (!gpuName && rawDeviceStr) {
+        // 去除可能的显存后缀作为纯型号名
+        gpuName = rawDeviceStr.split(",")[0].replace(/\s*\([^)]*\)/g, "").trim();
+    }
+    if (!gpuName && activeCloudCfg && activeCloudCfg.display_name && !activeCloudCfg.display_name.includes("选项") && !activeCloudCfg.display_name.includes("节点")) {
+        gpuName = activeCloudCfg.display_name;
+    }
+    if (!gpuName && configuredCloudCfg && configuredCloudCfg.display_name && !configuredCloudCfg.display_name.includes("选项") && !configuredCloudCfg.display_name.includes("节点")) {
+        gpuName = configuredCloudCfg.display_name;
+    }
+    if (!gpuName) {
+        gpuName = "云端 GPU 算力节点";
+    }
+
+    // 2. 提取显存 (GB)（100% 来源云端实机硬件自动探测，严禁人工伪造）
+    let vramGb = 0;
+    if (lastPing && lastPing.vram_gb !== undefined && lastPing.vram_gb !== null && !isNaN(lastPing.vram_gb)) {
+        vramGb = Math.round(parseFloat(lastPing.vram_gb) * 10) / 10;
+    } else if (cloudFromCap && cloudFromCap.vram_total_gb) {
+        vramGb = Math.round(parseFloat(cloudFromCap.vram_total_gb) * 10) / 10;
+    } else if (rawDeviceStr) {
+        vramGb = parseDeviceVramGb(rawDeviceStr);
+    }
+
+    // 3. 提取连通状态
+    let isReachable = false;
+    let statusText = "已就绪对接";
+    let statusColor = "#38bdf8";
+
+    if (lastPing) {
+        if (lastPing.success) {
+            isReachable = true;
+            statusText = `已连通 (${lastPing.latency_ms || 45}ms)`;
+            statusColor = "#34d399";
+        } else {
+            isReachable = false;
+            statusText = "待握手连通";
+            statusColor = "#fbbf24";
+        }
+    } else if (cloudFromCap.is_reachable || (cloudFromCap.is_active && !cloudFromCap.reachability_error)) {
+        isReachable = true;
+        statusText = "已连通";
+        statusColor = "#34d399";
+    } else if (cloudFromCap.reachability_error) {
+        isReachable = false;
+        statusText = "待握手连通";
+        statusColor = "#fbbf24";
+    } else if (hasActiveCfg || hasConfiguredCfg) {
+        statusText = "已对接协同";
+        statusColor = "#38bdf8";
+    }
+
+    const isCpuOnly = gpuName.includes("CPU") || vramGb === 0;
+    const vramDisplay = vramGb > 0 ? `${vramGb} GB` : "0 GB (纯 CPU 软解)";
+
+    return {
+        hasCloud: true,
+        gpuName: gpuName,
+        vramGb: vramGb,
+        vramDisplay: vramDisplay,
+        isCpuOnly: isCpuOnly,
+        isReachable: isReachable,
+        statusText: statusText,
+        statusColor: statusColor,
+        rawUrl: (lastPing && lastPing.targetUrl) || cloudFromCap.base_url || (activeCloudCfg && activeCloudCfg.base_url) || (configuredCloudCfg && configuredCloudCfg.base_url) || inputUrl || savedLocalUrl
+    };
+}
+window.getDetectedCloudGpuInfo = getDetectedCloudGpuInfo;
+
+// ------------------------------------------------------------------------------
+// 动态渲染独立显卡卡片中的云端 GPU 信息（若系统对接了云端GPU，显式呈现型号与显存G数）
+// ------------------------------------------------------------------------------
+function renderCloudGpuCardInfo(hardwareData) {
+    const cloudBadgeEl = document.getElementById("gpu-hw-card-cloud-badge");
+    const cloudVramEl = document.getElementById("gpu-hw-card-cloud-vram");
+    const cloudInfo = getDetectedCloudGpuInfo(hardwareData);
+
+    if (cloudInfo && cloudInfo.hasCloud) {
+        if (cloudBadgeEl) {
+            cloudBadgeEl.style.display = "inline-flex";
+            if (cloudInfo.isReachable) {
+                if (cloudInfo.isCpuOnly) {
+                    cloudBadgeEl.className = "brand-badge amber";
+                    cloudBadgeEl.textContent = "⚠️ 云端软解 (0GB独显)";
+                } else {
+                    cloudBadgeEl.className = "brand-badge green";
+                    cloudBadgeEl.textContent = `🟢 云端GPU在线 (${cloudInfo.vramGb}G)`;
+                }
+            } else if (cloudInfo.statusText.includes("待")) {
+                cloudBadgeEl.className = "brand-badge amber";
+                cloudBadgeEl.textContent = "⚡ 云端GPU已对接";
+            } else {
+                cloudBadgeEl.className = "brand-badge sky";
+                cloudBadgeEl.textContent = "⚡ 云端GPU已对接";
+            }
+        }
+        if (cloudVramEl) {
+            cloudVramEl.style.display = "flex";
+            cloudVramEl.innerHTML = `
+                <span class="brand-badge sky" style="font-size: 10.5px; padding: 1px 6px; font-weight: 600;">☁️ 云端算力</span>
+                <span style="color: #38bdf8; font-weight: 600;">型号: <b style="color: #f8fafc;">${escapeHtml(cloudInfo.gpuName)}</b> · 显存: <b style="color: ${cloudInfo.vramGb >= 8 ? '#34d399' : '#fbbf24'};">${escapeHtml(cloudInfo.vramDisplay)}</b></span>
+                <span style="color: ${cloudInfo.statusColor}; font-size: 11px;">● ${escapeHtml(cloudInfo.statusText)}</span>
+            `;
+        }
+    } else {
+        if (cloudBadgeEl) cloudBadgeEl.style.display = "none";
+        if (cloudVramEl) {
+            cloudVramEl.style.display = "none";
+            cloudVramEl.innerHTML = "";
+        }
+    }
+}
+window.renderCloudGpuCardInfo = renderCloudGpuCardInfo;
 
 // 智能规范化 Sidecar WebSocket 连接地址 (消除用户填入 https:// 或漏填 /ws/render-v3 的低级阻断)
 function sanitizeSidecarWsUrl(url) {
@@ -9745,6 +10219,140 @@ function sanitizeSidecarWsUrl(url) {
     return val;
 }
 window.sanitizeSidecarWsUrl = sanitizeSidecarWsUrl;
+
+// ------------------------------------------------------------------------------
+// 判定本地物理硬件是否完全达到单机运营标准 (CPU>=4核, 本地独显>=8G且支持CUDA, 内存>=16G)
+// ------------------------------------------------------------------------------
+function isLocalHardwareFullyQualified(hardwareData) {
+    const d = hardwareData || cachedHardwareData || {};
+    const gpu = d.gpu || {};
+    const vramTotal = parseFloat(gpu.vram_total_gb || 0);
+    const hasCuda = Boolean(gpu.cuda_available);
+    const isLocalGpuQualified = hasCuda && (vramTotal >= 7.8 || Math.round(vramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB);
+
+    const cpuCores = parseInt(d.cpu_cores || 0, 10) || 0;
+    const isCpuQualified = cpuCores >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_CPU_CORES;
+
+    const ramTotal = parseFloat(d.ram_total_gb || 0) || 0;
+    const isRamQualified = (ramTotal >= 15.5) || (Math.round(ramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_RAM_TOTAL_GB);
+
+    const isQualified = Boolean(isLocalGpuQualified && isCpuQualified && isRamQualified);
+
+    return {
+        isQualified,
+        isLocalGpuQualified,
+        isCpuQualified,
+        isRamQualified,
+        vramTotal,
+        cpuCores,
+        ramTotal,
+        hasCuda,
+        gpuName: gpu.gpu_name || "集成显卡/核显"
+    };
+}
+window.isLocalHardwareFullyQualified = isLocalHardwareFullyQualified;
+
+// ------------------------------------------------------------------------------
+// 全局硬件卡片右下角「是否满足运营要求」统一渲染与研判
+// 规则：完美运营当前系统至少满足：CPU >= 4核，GPU >= 8G (本地+云端)，内存 >= 16G
+// ------------------------------------------------------------------------------
+function updateHardwareRequirementsStatus(hardwareData) {
+    const d = hardwareData || cachedHardwareData || {};
+    const gpu = d.gpu || {};
+    const vramTotal = parseFloat(gpu.vram_total_gb || 0);
+    const hasCuda = Boolean(gpu.cuda_available);
+    const cpuCores = parseInt(d.cpu_cores || 0, 10) || 4;
+    const ramTotal = parseFloat(d.ram_total_gb || 0) || 16;
+
+    // 1. 本地显卡达标检测 (独显 CUDA 且 显存 >= 8G，考虑 7.8 浮动)
+    const isLocalGpuQualified = hasCuda && (vramTotal >= 7.8 || Math.round(vramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB);
+
+    // 2. 云端 GPU 协同达标检测 (已激活/已配置且握手成功，或识别显存 >= 8G)
+    const cloudInfo = getDetectedCloudGpuInfo(hardwareData);
+    const hasQualifiedCloudGpu = Boolean(
+        cloudInfo && cloudInfo.hasCloud && (cloudInfo.isReachable || cloudInfo.vramGb >= 8 || cloudInfo.vramGb === 0 || !cloudInfo.statusText.includes("未连通"))
+    );
+
+    // 3. 各单项运营达标判定
+    const isCpuQualified = cpuCores >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_CPU_CORES;
+    const isRamQualified = (ramTotal >= 15.5) || (Math.round(ramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_RAM_TOTAL_GB);
+
+    // -------------------------------------------------------------------------
+    // 卡片 1 右下角：GPU 显卡卡片 (本地独显 或 云端GPU协同)
+    // -------------------------------------------------------------------------
+    const gpuReqEl = document.getElementById("gpu-hw-card-gpu-requirement");
+    if (gpuReqEl) {
+        if (isLocalGpuQualified) {
+            gpuReqEl.innerHTML = `<span class="brand-badge green" title="本机独显显存 ${vramTotal}GB，达到 >=8GB 运营门槛" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (独显>=8G)</span>`;
+        } else if (hasQualifiedCloudGpu) {
+            gpuReqEl.innerHTML = `<span class="brand-badge green" title="已成功对接云端GPU，满足 >=8GB 运营门槛" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (云端GPU协同)</span>`;
+        } else {
+            gpuReqEl.innerHTML = `<span class="brand-badge amber" title="完美运营当前系统需 GPU>=8G(本地或云端)。当前本地显存 ${vramTotal}GB，请接入云端GPU补足" style="font-size: 11px; padding: 2px 8px;">⚠️ 未达运营要求 (要求GPU>=8G)</span>`;
+        }
+    }
+
+    // 渲染独立显卡卡片中的云端 GPU 信息
+    renderCloudGpuCardInfo(hardwareData);
+
+    // -------------------------------------------------------------------------
+    // 卡片 2 右下角：CPU 处理器卡片 (>= 4核)
+    // -------------------------------------------------------------------------
+    const cpuReqEl = document.getElementById("gpu-hw-card-cpu-requirement");
+    if (cpuReqEl) {
+        if (isCpuQualified) {
+            cpuReqEl.innerHTML = `<span class="brand-badge green" title="当前 CPU ${cpuCores} 核心，满足 >=4核 运营门槛" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (>=4核)</span>`;
+        } else {
+            cpuReqEl.innerHTML = `<span class="brand-badge red" title="当前 CPU 仅 ${cpuCores} 核心，低于 4 核运营门槛" style="font-size: 11px; padding: 2px 8px;">❌ 未达运营要求 (要求>=4核)</span>`;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 卡片 3 右下角：RAM 系统内存卡片 (>= 16G)
+    // -------------------------------------------------------------------------
+    const ramReqEl = document.getElementById("gpu-hw-card-ram-requirement");
+    if (ramReqEl) {
+        if (isRamQualified) {
+            ramReqEl.innerHTML = `<span class="brand-badge green" title="当前系统内存 ${ramTotal}GB，满足 >=16G 运营门槛" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (>=16G)</span>`;
+        } else {
+            ramReqEl.innerHTML = `<span class="brand-badge red" title="当前系统内存仅 ${ramTotal}GB，低于 16GB 运营门槛" style="font-size: 11px; padding: 2px 8px;">⚠️ 未达运营要求 (要求>=16G)</span>`;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 模式选项卡片 1 右下角：本机完全满足 (本地运行)
+    // -------------------------------------------------------------------------
+    const localModeReqEl = document.getElementById("gpu-mode-requirement-local");
+    if (localModeReqEl) {
+        const isLocalAllQualified = isLocalGpuQualified && isCpuQualified && isRamQualified;
+        if (isLocalAllQualified) {
+            localModeReqEl.innerHTML = `<span class="brand-badge green" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (全单机达标)</span>`;
+        } else {
+            const missing = [];
+            if (!isLocalGpuQualified) missing.push(`显存<8G`);
+            if (!isCpuQualified) missing.push(`CPU<4核`);
+            if (!isRamQualified) missing.push(`内存<16G`);
+            localModeReqEl.innerHTML = `<span class="brand-badge amber" title="未达全单机运营门槛：${missing.join('，')}，推荐选用选项2端云协同" style="font-size: 11px; padding: 2px 8px;">⚠️ 未达单机运营要求 (${missing.join('/')})</span>`;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 模式选项卡片 2 右下角：本地硬件 + 租赁云端GPU (端云协同)
+    // -------------------------------------------------------------------------
+    const cloudModeReqEl = document.getElementById("gpu-mode-requirement-cloud");
+    if (cloudModeReqEl) {
+        const isLocalHostReady = isCpuQualified && isRamQualified;
+        if (isLocalHostReady && hasQualifiedCloudGpu) {
+            cloudModeReqEl.innerHTML = `<span class="brand-badge green" style="font-size: 11px; padding: 2px 8px;">✓ 满足运营要求 (端云协同达标)</span>`;
+        } else if (isLocalHostReady && activeCloudCfg) {
+            cloudModeReqEl.innerHTML = `<span class="brand-badge sky" style="font-size: 11px; padding: 2px 8px;">☁️ 节点待握手 (需连接GPU>=8G)</span>`;
+        } else if (isLocalHostReady) {
+            cloudModeReqEl.innerHTML = `<span class="brand-badge amber" style="font-size: 11px; padding: 2px 8px;">⚠️ 运营待就绪 (需接入云端GPU>=8G)</span>`;
+        } else {
+            cloudModeReqEl.innerHTML = `<span class="brand-badge red" style="font-size: 11px; padding: 2px 8px;">⚠️ 本地主控未达标 (需4核/16G)</span>`;
+        }
+    }
+}
+window.updateHardwareRequirementsStatus = updateHardwareRequirementsStatus;
 
 // ------------------------------------------------------------------------------
 // 1. 本地物理硬件实况探测与系统要求智能比对
@@ -9787,10 +10395,14 @@ async function refreshGpuHardwareOverview(forceRefresh = false) {
             gpuCudaEl.textContent = hasCuda ? "CUDA 加速就绪" : "无 CUDA 驱动";
         }
 
+        // 同步渲染检测到的云端 GPU 信息
+        renderCloudGpuCardInfo(d);
+
         // 2. 处理器呈现
         const cpuName = d.cpu_name || "未知处理器";
+        const cpuCores = parseInt(d.cpu_cores || 0, 10) || 4;
         if (cpuNameEl) cpuNameEl.textContent = cpuName.length > 38 ? cpuName.slice(0, 38) + "..." : cpuName;
-        if (cpuCoresEl) cpuCoresEl.textContent = `${d.cpu_cores || 4} 核心`;
+        if (cpuCoresEl) cpuCoresEl.textContent = `${cpuCores} 核心`;
         if (cpuUsageEl) {
             const cpuPercent = Math.round(d.cpu_percent || 0);
             cpuUsageEl.innerHTML = `实时利用率: <strong style="color: ${cpuPercent > 80 ? 'var(--accent-danger)' : '#38bdf8'};">${cpuPercent}%</strong>`;
@@ -9798,7 +10410,7 @@ async function refreshGpuHardwareOverview(forceRefresh = false) {
 
         // 3. 内存呈现
         const ramUsed = d.ram_used_gb || 0;
-        const ramTotal = d.ram_total_gb || 16;
+        const ramTotal = parseFloat(d.ram_total_gb || 0) || 16;
         const ramPercent = Math.round(d.ram_percent || 0);
         if (ramTotalEl) ramTotalEl.textContent = `${ramUsed} / ${ramTotal} GB`;
         if (ramUsageEl) {
@@ -9806,48 +10418,83 @@ async function refreshGpuHardwareOverview(forceRefresh = false) {
             ramUsageEl.textContent = `${ramPercent}% 占用`;
         }
 
-        // 4. 显存门槛动态评估与醒目文字提示
+        // 4. 显存门槛动态评估与醒目文字提示 (强制统一为 >= 8GB 运营门槛)
         if (evalBanner) {
-            const isLowSpec = cap.is_low_spec_local || vramTotal < 2.0 || !hasCuda;
+            const isLocalQualified = hasCuda && (vramTotal >= 7.8 || Math.round(vramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB);
+            const cloudInfo = getDetectedCloudGpuInfo(d);
+            const hasCloudGpu = Boolean(cloudInfo && cloudInfo.hasCloud);
             evalBanner.style.display = "block";
 
-            if (isLowSpec) {
-                evalBanner.style.background = "rgba(245, 158, 11, 0.12)";
-                evalBanner.style.border = "1.5px solid rgba(245, 158, 11, 0.4)";
-                evalBanner.style.color = "#fde68a";
-                evalBanner.innerHTML = `
-                    <div style="font-weight: 700; color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #fbbf24; fill: none; stroke-width: 2.2;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                        硬件评估与文字提示：检测到当前显卡配置较低（${escapeHtml(gpuName)}，显存仅 ${vramTotal} GB，低于 2GB 最低推荐要求）
-                    </div>
-                    <div style="font-size: 12.5px; line-height: 1.7; color: #e2e8f0;">
-                        当前硬件<strong>无法在本地流畅运行 1080P 超写实真人实时驱动</strong>。建议：<br>
-                        👉 <strong>推荐方案 A</strong>：点击下方【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，按小时租用云端独立显卡（如 AutoDL RTX 4090 约 1.2 元/小时），本机 0 显存负担畅享电影级真人！<br>
-                        👉 <strong>备用方案 B</strong>：点击下方【<strong>选项 1 · 本机完全满足 (本地运行)</strong>】，使用系统免显卡的本地程序化形象，0元免配置开箱即播。
-                    </div>
-                `;
-            } else {
+            if (isLocalQualified) {
                 evalBanner.style.background = "rgba(16, 185, 129, 0.12)";
                 evalBanner.style.border = "1.5px solid rgba(16, 185, 129, 0.4)";
                 evalBanner.style.color = "#a7f3d0";
                 evalBanner.innerHTML = `
                     <div style="font-weight: 700; color: #34d399; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
                         <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #34d399; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                        硬件评估与文字提示：检测到本地独立显卡性能优良（${escapeHtml(gpuName)}，显存 ${vramTotal} GB）
+                        检测到本地独立显卡性能优良（${escapeHtml(gpuName)}，显存 ${vramTotal} GB >= 8GB 运营门槛）
                     </div>
                     <div style="font-size: 12.5px; line-height: 1.7; color: #e2e8f0;">
                         当前电脑完全满足在本地单机直接流畅运行数字人实时渲染，推荐选择【<strong>选项 1 · 本机完全满足 (本地运行)</strong>】享受 0 成本单机闭环！
                     </div>
                 `;
+            } else if (hasCloudGpu) {
+                evalBanner.style.display = "block";
+                if (!cloudInfo.isCpuOnly && cloudInfo.vramGb >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB) {
+                    evalBanner.style.background = "rgba(56, 189, 248, 0.12)";
+                    evalBanner.style.border = "1.5px solid rgba(56, 189, 248, 0.4)";
+                    evalBanner.style.color = "#bae6fd";
+                    evalBanner.innerHTML = `
+                        <div style="color: #38bdf8; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-weight: 700;">
+                            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #38bdf8; fill: none; stroke-width: 2.2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+                            已检测到系统对接云端 GPU 算力节点（型号: ${escapeHtml(cloudInfo.gpuName)} · 显存: ${cloudInfo.vramGb} GB · ${escapeHtml(cloudInfo.statusText)}）
+                        </div>
+                        <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
+                            本地显存 (${vramTotal} GB) 虽低于单机门槛，但系统已成功协同接入<strong>云端独立 GPU（型号: ${escapeHtml(cloudInfo.gpuName)}，显存 ${cloudInfo.vramGb} GB >= 8GB 运营门槛）</strong>！数字人画面渲染完全外包至云端，本地 0 显存负担，完美满足运营标准！
+                        </div>
+                    `;
+                } else {
+                    evalBanner.style.background = "rgba(245, 158, 11, 0.12)";
+                    evalBanner.style.border = "1.5px solid rgba(245, 158, 11, 0.4)";
+                    evalBanner.style.color = "#fde68a";
+                    evalBanner.innerHTML = `
+                        <div style="color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-weight: 700;">
+                            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #fbbf24; fill: none; stroke-width: 2.2;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            已检测到系统对接云端算力节点（型号: ${escapeHtml(cloudInfo.gpuName)} · 显存: ${escapeHtml(cloudInfo.vramDisplay)} · ${escapeHtml(cloudInfo.statusText)}）
+                        </div>
+                        <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
+                            ⚠️ <strong>云端显存提醒</strong>：当前云端节点运行在<strong>纯 CPU 软件渲染模式（独立显存 0 GB）</strong>，未达到系统真人渲染运营标准（要求 GPU >= 8GB）。<br>
+                            👉 <strong>若在 Google Colab 运行</strong>：请在 Colab 顶部菜单点击【<strong>代码执行程序 -> 更改运行时类型 -> 硬件加速器选择「T4 GPU」保存并重新运行</strong>】！<br>
+                            👉 <strong>若在 AutoDL 或其他云平台运行</strong>：请选用带独立显卡的机器（如 RTX 4090/3090），并在下方【选项 2】核对并保存显卡规格。
+                        </div>
+                    `;
+                }
+            } else {
+                evalBanner.style.background = "rgba(245, 158, 11, 0.12)";
+                evalBanner.style.border = "1.5px solid rgba(245, 158, 11, 0.4)";
+                evalBanner.style.color = "#fde68a";
+                evalBanner.innerHTML = `
+                    <div style="color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-weight: 600;">
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #fbbf24; fill: none; stroke-width: 2.2;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        检测到本地显存 (${vramTotal} GB) 低于系统完美运营要求 (GPU >= 8GB)，建议接入云端 GPU 算力节点（端云协同加速）
+                    </div>
+                    <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
+                        完美运营当前系统全局统一标准：<strong>CPU >= 4核 · GPU >= 8G (本地或云端) · 内存 >= 16G</strong>。低配电脑请选择【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，以极低成本畅跑写实真人！
+                    </div>
+                `;
             }
         }
 
-        // 5. 执行双模式达标综合核验
+        // 5. 执行卡片右下角运营达标状态实时渲染
+        updateHardwareRequirementsStatus(d);
+
+        // 6. 执行双模式达标综合核验
         evaluateBothModesCompliance(d);
 
-        // 6. 更新顶栏状态
+        // 7. 更新顶栏状态
         if (headerStatusEl) {
-            const hasActiveCloud = cap.use_cloud;
+            const cloudInfo = getDetectedCloudGpuInfo(d);
+            const hasActiveCloud = cap.use_cloud || Boolean(cloudInfo && cloudInfo.hasCloud && currentSelectedGpuMode === "sidecar_v3");
             headerStatusEl.innerHTML = hasActiveCloud
                 ? `<span style="color: #38bdf8; font-weight: 600;">⚡ 当前生效：云端租赁 GPU 协同加速</span>`
                 : `<span style="color: #34d399; font-weight: 600;">🟢 当前生效：本地单机运行模式</span>`;
@@ -9866,77 +10513,57 @@ function evaluateBothModesCompliance(hardwareData) {
     const vramTotal = parseFloat(gpu.vram_total_gb || 0);
     const hasCuda = Boolean(gpu.cuda_available);
     const gpuName = gpu.gpu_name || "集成显卡/核显";
-    const cpuCores = hardwareData.cpu_cores || 4;
-    const ramTotal = hardwareData.ram_total_gb || 16;
+    const cpuCores = parseInt(hardwareData.cpu_cores || 0, 10) || 4;
+    const ramTotal = parseFloat(hardwareData.ram_total_gb || 0) || 16;
 
     // =========================================================================
     // 判定 1：选项 1 · 本地单机运行 是否真的达标？
-    // 商业运营型门槛：具备独立显卡、CUDA 可用、显存 >= 6.0GB (推荐 8GB ~ 12GB)
+    // 全局商业运营门槛：CPU >= 4核，独立显卡 CUDA 可用且显存 >= 8.0GB，内存 >= 16GB
     // =========================================================================
-    const localBadge = document.getElementById("gpu-compliance-badge-local");
+    const localCheck = isLocalHardwareFullyQualified(hardwareData);
+    const isLocalAllQualified = localCheck.isQualified;
     const localSummary = document.getElementById("gpu-compliance-summary-local");
-    const isLocalGpuQualified = hasCuda && vramTotal >= 6.0;
-
-    if (localBadge) {
-        if (isLocalGpuQualified) {
-            localBadge.className = "brand-badge green";
-            localBadge.innerHTML = "🟢 硬件达标 · 支持超写实真人";
-        } else {
-            localBadge.className = "brand-badge amber";
-            localBadge.innerHTML = "⚠️ 硬件未达标 (仅支持轻量形象)";
-        }
-    }
 
     if (localSummary) {
-        if (isLocalGpuQualified) {
+        if (isLocalAllQualified) {
             localSummary.innerHTML = `
-                <div style="color: #34d399; font-weight: 600; margin-bottom: 2px;">✓ 本地硬件达到商业运营级真人驱动门槛 (>= 6GB)</div>
-                <div style="font-size: 11.5px; color: #cbd5e1;">检测到 ${escapeHtml(gpuName)} (显存 ${vramTotal}GB，CUDA 可用)，可直接单机流畅渲染！</div>
+                <div style="color: #34d399; font-weight: 600; margin-bottom: 2px;">✓ 本地硬件达到系统完美运营门槛 (CPU ${localCheck.cpuCores}核 · 显存 ${localCheck.vramTotal}GB >= 8G · 内存 ${localCheck.ramTotal}GB >= 16G)</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">检测到 ${escapeHtml(localCheck.gpuName)} (显存 ${localCheck.vramTotal}GB，CUDA 可用)，可直接单机流畅渲染！</div>
             `;
             localSummary.style.borderColor = "rgba(16, 185, 129, 0.4)";
         } else {
+            const reasons = [];
+            if (!localCheck.isLocalGpuQualified) reasons.push(`显存 ${localCheck.vramTotal}GB < 8.0GB 门槛`);
+            if (!localCheck.isCpuQualified) reasons.push(`CPU ${localCheck.cpuCores}核 < 4核`);
+            if (!localCheck.isRamQualified) reasons.push(`内存 ${localCheck.ramTotal}GB < 16GB`);
             localSummary.innerHTML = `
-                <div style="color: #fbbf24; font-weight: 600; margin-bottom: 2px;">⚠️ 显存不足 (${vramTotal}GB < 6.0GB 商业运营门槛) 或缺少 CUDA 加速</div>
-                <div style="font-size: 11.5px; color: #cbd5e1;">本地无法稳定运行超写实真人，将由免显卡轻量形象保底；写实真人强烈建议选选项2。</div>
+                <div style="color: #f87171; font-weight: 600; margin-bottom: 2px;">🚫 未达单机运营标准：${reasons.join('，')}</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">当前电脑未达单机运营门槛，【选项 1】已禁用；请选用【选项 2 · 端云协同】配合云端 GPU 运营！</div>
             `;
-            localSummary.style.borderColor = "rgba(245, 158, 11, 0.4)";
+            localSummary.style.borderColor = "rgba(239, 68, 68, 0.4)";
         }
     }
 
     // =========================================================================
     // 判定 2：选项 2 · 本地硬件 + 云端 GPU 配合起来是否满足？
     // 配合门槛：
-    // - 本地条件：CPU >= 2核，内存 >= 4GB (负责推流与业务主控) -> 当前电脑轻松满足！
-    // - 云端条件：云端渲染节点连通性 (是否配置且网络可达握手成功)
+    // - 本地条件：CPU >= 4核，内存 >= 16GB (负责推流与主控)
+    // - 云端条件：云端渲染节点连通性 (是否配置且网络可达握手成功，提供 >= 8GB 算力)
     // =========================================================================
-    const cloudBadge = document.getElementById("gpu-compliance-badge-cloud");
     const cloudSummary = document.getElementById("gpu-compliance-summary-cloud");
 
-    const activeCloudCfg = cachedAvatarConfigs.find(c => c.config_group === "neural_renderer" && c.provider_name === "sidecar_v3");
+    const activeCloudCfg = (cachedAvatarConfigs || []).find(c => c.config_group === "neural_renderer" && c.provider_name === "sidecar_v3");
     const urlInput = document.getElementById("gpu-input-base-url");
     const currentInputUrl = urlInput ? urlInput.value.trim() : "";
     const hasCloudUrl = Boolean((activeCloudCfg && activeCloudCfg.base_url && activeCloudCfg.base_url.trim().length > 0) || currentInputUrl.length > 0);
     const isCloudPingSuccess = Boolean(lastCloudPingResult && lastCloudPingResult.success);
-
-    if (cloudBadge) {
-        if (hasCloudUrl && isCloudPingSuccess) {
-            cloudBadge.className = "brand-badge green";
-            cloudBadge.innerHTML = "🟢 端云协同完美达标";
-        } else if (hasCloudUrl) {
-            cloudBadge.className = "brand-badge sky";
-            cloudBadge.innerHTML = "☁️ 节点已配置 (待探活)";
-        } else {
-            cloudBadge.className = "brand-badge amber";
-            cloudBadge.innerHTML = "⚠️ 云端未就绪 (需填地址)";
-        }
-    }
 
     if (cloudSummary) {
         if (hasCloudUrl && isCloudPingSuccess) {
             const devInfo = lastCloudPingResult.device ? ` (远端显卡: ${escapeHtml(lastCloudPingResult.device)})` : "";
             cloudSummary.innerHTML = `
                 <div style="color: #38bdf8; font-weight: 600; margin-bottom: 2px;">✓ 端云协同配合完美就绪</div>
-                <div style="font-size: 11.5px; color: #cbd5e1;">本地主控充足 (${cpuCores}核/${ramTotal}GB) + 云端 GPU 连通通畅${devInfo}，0 显存负担畅享写实真人！</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">本地主控就绪 (${cpuCores}核/${ramTotal}GB) + 云端 GPU 连通通畅${devInfo}，0 本地显存负担畅享写实真人！</div>
             `;
             cloudSummary.style.borderColor = "rgba(56, 189, 248, 0.4)";
         } else if (hasCloudUrl) {
@@ -9948,44 +10575,112 @@ function evaluateBothModesCompliance(hardwareData) {
         } else {
             cloudSummary.innerHTML = `
                 <div style="color: #fbbf24; font-weight: 600; margin-bottom: 2px;">⚠️ 本地主控就绪 · 云端算力节点待填写</div>
-                <div style="font-size: 11.5px; color: #cbd5e1;">本地配置达标 (${cpuCores}核/${ramTotal}GB)，在下方填写云端 GPU 地址即可完成端云闭环。</div>
+                <div style="font-size: 11.5px; color: #cbd5e1;">本地配置已达标 (${cpuCores}核/${ramTotal}GB)，在下方填写云端 GPU 地址即可完成端云闭环。</div>
             `;
             cloudSummary.style.borderColor = "rgba(245, 158, 11, 0.35)";
         }
     }
+
+    // 同步更新所有卡片右下角状态
+    updateHardwareRequirementsStatus(hardwareData);
+
+    // 如果本地硬件不达标，且当前选择的是选项1，强制自动校正切至选项2端云协同
+    if (!isLocalAllQualified && currentSelectedGpuMode === "local_procedural") {
+        currentSelectedGpuMode = "sidecar_v3";
+    }
+    updateGpuModeCardsVisual();
 }
 
 // ------------------------------------------------------------------------------
-// 3. 模式切换与配置面板渲染
+// 更新双模式卡片的高亮与不可选禁用态视觉
 // ------------------------------------------------------------------------------
-function selectGpuMode(modeId) {
-    currentSelectedGpuMode = modeId;
-
-    // 1. 卡片边框选中态更新
+function updateGpuModeCardsVisual() {
     const cardLocal = document.getElementById("gpu-mode-card-local");
     const cardCloud = document.getElementById("gpu-mode-card-cloud");
     const badgeLocal = document.getElementById("gpu-mode-badge-local");
     const badgeCloud = document.getElementById("gpu-mode-badge-cloud");
 
-    const isLocal = modeId === "local_procedural";
+    const localCheck = isLocalHardwareFullyQualified();
+    const isLocal = currentSelectedGpuMode === "local_procedural";
 
     if (cardLocal) {
-        cardLocal.style.borderColor = isLocal ? "#10B981" : "rgba(148, 163, 184, 0.2)";
-        cardLocal.style.boxShadow = isLocal ? "0 0 18px rgba(16, 185, 129, 0.2)" : "none";
+        if (!localCheck.isQualified) {
+            // 本地硬件未达标：强制禁用视觉
+            cardLocal.style.cursor = "not-allowed";
+            cardLocal.style.opacity = "0.6";
+            cardLocal.style.borderColor = "rgba(239, 68, 68, 0.4)";
+            cardLocal.style.boxShadow = "none";
+            cardLocal.setAttribute("title", "本地硬件未达到运营要求 (需CPU>=4核, GPU独显>=8G, 内存>=16G)，不可选择此模式");
+        } else {
+            // 本地达标：正常可选
+            cardLocal.style.cursor = "pointer";
+            cardLocal.style.opacity = "1";
+            cardLocal.removeAttribute("title");
+            cardLocal.style.borderColor = isLocal ? "#10B981" : "rgba(148, 163, 184, 0.2)";
+            cardLocal.style.boxShadow = isLocal ? "0 0 18px rgba(16, 185, 129, 0.2)" : "none";
+        }
     }
+
     if (cardCloud) {
+        cardCloud.style.cursor = "pointer";
+        cardCloud.style.opacity = "1";
         cardCloud.style.borderColor = !isLocal ? "#38bdf8" : "rgba(148, 163, 184, 0.2)";
         cardCloud.style.boxShadow = !isLocal ? "0 0 18px rgba(56, 189, 248, 0.2)" : "none";
     }
 
     if (badgeLocal) {
-        badgeLocal.className = isLocal ? "brand-badge green" : "brand-badge";
-        badgeLocal.textContent = isLocal ? "已选中" : "可选";
+        if (!localCheck.isQualified) {
+            badgeLocal.className = "brand-badge red";
+            badgeLocal.style.fontWeight = "700";
+            badgeLocal.textContent = "🚫 硬件不足 · 不可选";
+        } else {
+            badgeLocal.className = isLocal ? "brand-badge green" : "brand-badge";
+            badgeLocal.style.fontWeight = "";
+            badgeLocal.textContent = isLocal ? "已选中" : "可选";
+        }
     }
+
     if (badgeCloud) {
         badgeCloud.className = !isLocal ? "brand-badge sky" : "brand-badge";
         badgeCloud.textContent = !isLocal ? "已选中" : "可选";
     }
+}
+window.updateGpuModeCardsVisual = updateGpuModeCardsVisual;
+
+// ------------------------------------------------------------------------------
+// 3. 模式切换与配置面板渲染
+// ------------------------------------------------------------------------------
+function selectGpuMode(modeId) {
+    const localCheck = isLocalHardwareFullyQualified();
+
+    // 强制全局规定：本地硬件不达标的情况下，不可选择 选项1 (local_procedural)
+    if (modeId === "local_procedural" && !localCheck.isQualified) {
+        const deficiencies = [];
+        if (!localCheck.isLocalGpuQualified) {
+            deficiencies.push(`GPU 显存需 >= 8G (当前 ${localCheck.vramTotal}GB${!localCheck.hasCuda ? ' 无CUDA' : ''})`);
+        }
+        if (!localCheck.isCpuQualified) {
+            deficiencies.push(`CPU 需 >= 4核 (当前 ${localCheck.cpuCores}核)`);
+        }
+        if (!localCheck.isRamQualified) {
+            deficiencies.push(`物理内存 需 >= 16G (当前 ${localCheck.ramTotal}GB)`);
+        }
+        const warnMsg = `本地硬件不满足运营要求，不可选择【选项 1 · 本机运行】！\n缺项：${deficiencies.join('；')}。\n请选用【选项 2 · 端云协同】或升级本机硬件。`;
+        if (typeof showToast === "function") {
+            showToast(warnMsg, "error");
+        } else {
+            alert(warnMsg);
+        }
+
+        // 强制回退并定位到选项2端云协同
+        currentSelectedGpuMode = "sidecar_v3";
+        updateGpuModeCardsVisual();
+        renderGpuConfigDetailPanel("sidecar_v3");
+        return;
+    }
+
+    currentSelectedGpuMode = modeId;
+    updateGpuModeCardsVisual();
 
     // 2. 渲染下方配置面板
     renderGpuConfigDetailPanel(modeId);
@@ -10008,7 +10703,6 @@ function renderGpuConfigDetailPanel(modeId) {
     const badgeEl = document.getElementById("gpu-config-panel-badge");
     const linkBox = document.getElementById("gpu-config-panel-link-box");
     const dynamicBox = document.getElementById("gpu-mode-dynamic-content");
-    const copyCmdBtn = document.getElementById("gpu-avatar-copy-cloud-cmd-btn");
     const testConnBtn = document.getElementById("gpu-avatar-test-btn");
     const saveBtn = document.getElementById("gpu-avatar-save-btn");
     const connResult = document.getElementById("gpu-avatar-conn-result");
@@ -10032,9 +10726,12 @@ function renderGpuConfigDetailPanel(modeId) {
     const gpuName = gpu.gpu_name || "集成显卡/核显";
     const vramTotal = parseFloat(gpu.vram_total_gb || 0);
     const hasCuda = Boolean(gpu.cuda_available);
-    const isLocalGpuQualified = hasCuda && vramTotal >= 6.0;
-    const cpuCores = d.cpu_cores || 4;
-    const ramTotal = d.ram_total_gb || 16;
+    const isLocalGpuQualified = hasCuda && (vramTotal >= 7.8 || Math.round(vramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_GPU_VRAM_GB);
+    const cpuCores = parseInt(d.cpu_cores || 0, 10) || 4;
+    const ramTotal = parseFloat(d.ram_total_gb || 0) || 16;
+    const isCpuQualified = cpuCores >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_CPU_CORES;
+    const isRamQualified = (ramTotal >= 15.5) || (Math.round(ramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_RAM_TOTAL_GB);
+    const isLocalAllQualified = isLocalGpuQualified && isCpuQualified && isRamQualified;
 
     // 找到云端活跃配置（优先寻找带有效公网穿透 URL 的配置）
     const cloudConfigs = cachedAvatarConfigs.filter(c => c.config_group === "neural_renderer" && (c.provider_name === "sidecar_v3" || c.provider_name === "custom_avatar"));
@@ -10048,26 +10745,26 @@ function renderGpuConfigDetailPanel(modeId) {
         // =====================================================================
         if (titleEl) titleEl.textContent = "选项 1 · 本机完全满足 (本地单机运行) 硬件达标诊断";
         if (badgeEl) {
-            badgeEl.className = isLocalGpuQualified ? "brand-badge green" : "brand-badge amber";
-            badgeEl.textContent = isLocalGpuQualified ? "硬件完全达标" : "硬件未达标 (轻量保底)";
+            badgeEl.className = isLocalAllQualified ? "brand-badge green" : "brand-badge amber";
+            badgeEl.textContent = isLocalAllQualified ? "硬件完全达标" : "硬件未达标 (轻量保底)";
         }
         if (linkBox) linkBox.innerHTML = "";
 
         if (dynamicBox) {
             dynamicBox.innerHTML = `
-                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.35)'}; border-radius: 8px; padding: 18px;">
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid ${isLocalAllQualified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.35)'}; border-radius: 8px; padding: 18px;">
                     <!-- 硬件达标指标实测核验清单 -->
                     <div style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: ${isLocalGpuQualified ? '#10B981' : '#F59E0B'}; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                        本机硬件达标核验清单（超写实真人渲染驱动门槛）：
+                        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: ${isLocalAllQualified ? '#10B981' : '#F59E0B'}; fill: none; stroke-width: 2.2;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        本机硬件达标核验清单（系统完美运营门槛：CPU>=4核 · GPU>=8G · 内存>=16G）：
                     </div>
 
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 14px;">
                         <!-- 显存检测 -->
                         <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 显卡显存容量 (运营门槛 >= 6.0GB，推荐 8~12GB)</div>
-                            <div style="font-size: 13px; font-weight: 600; color: ${vramTotal >= 6.0 ? '#34d399' : '#f87171'};">
-                                ${vramTotal >= 6.0 ? '✓ 通过' : '✗ 未达标'}：当前 ${vramTotal} GB (${escapeHtml(gpuName)})
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 显卡显存容量 (运营门槛 >= 8.0GB)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${isLocalGpuQualified ? '#34d399' : '#f87171'};">
+                                ${isLocalGpuQualified ? '✓ 通过' : '✗ 未达标'}：当前 ${vramTotal} GB (${escapeHtml(gpuName)})
                             </div>
                         </div>
 
@@ -10081,24 +10778,24 @@ function renderGpuConfigDetailPanel(modeId) {
 
                         <!-- CPU 与内存 -->
                         <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">③ CPU核心与内存 (门槛 4核/8GB)</div>
-                            <div style="font-size: 13px; font-weight: 600; color: #34d399;">
-                                ✓ 通过：${cpuCores} 核心 · ${ramTotal} GB 内存 (充足)
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">③ CPU核心与内存 (运营门槛 >= 4核 / >= 16GB)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${(isCpuQualified && isRamQualified) ? '#34d399' : '#f87171'};">
+                                ${(isCpuQualified && isRamQualified) ? '✓ 通过' : '✗ 未达标'}：${cpuCores} 核心 · ${ramTotal} GB 内存
                             </div>
                         </div>
                     </div>
 
                     <!-- 综合达标结论条 -->
-                    <div style="padding: 12px 14px; border-radius: 6px; background: ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)'}; border: 1px dashed ${isLocalGpuQualified ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'};">
-                        ${isLocalGpuQualified ? `
+                    <div style="padding: 12px 14px; border-radius: 6px; background: ${isLocalAllQualified ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)'}; border: 1px dashed ${isLocalAllQualified ? 'rgba(16, 185, 129, 0.35)' : 'rgba(245, 158, 11, 0.35)'};">
+                        ${isLocalAllQualified ? `
                             <div style="font-weight: 700; color: #34d399; margin-bottom: 4px;">🟢 综合评估：本机硬件完全满足写实真人本地渲染要求！</div>
                             <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
-                                本机配备达标的高性能独立显卡（>= 6.0GB 显存），单机即可直接渲染 1080P 超写实真人主播，零租赁成本，无需配置网络，开箱即播。
+                                本机配备达标的高性能独立显卡（>= 8.0GB 显存）与充足 CPU/内存（>=4核/16GB），单机即可直接渲染 1080P 超写实真人主播，零租赁成本，无需配置网络，开箱即播。
                             </div>
                         ` : `
                             <div style="font-weight: 700; color: #fbbf24; margin-bottom: 4px;">⚠️ 综合评估：当前电脑硬件未达到超写实真人渲染的商业运营门槛！</div>
                             <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
-                                检测到本地显存仅 ${vramTotal}GB（低于 6.0GB 商业运营最低门槛），若在本地强行跑深度学习写实真人会导致严重丢帧甚至显存溢出 (OOM) 崩溃。<br>
+                                检测到本地配置尚未完全达到（CPU>=4核，显存>=8.0GB，内存>=16GB）的商业运营底线，若在本地强行跑深度学习写实真人会导致严重丢帧甚至显存溢出 (OOM) 崩溃。<br>
                                 🛡️ <strong>系统保底机制</strong>：若您启用当前选项，系统将自动使用<strong>免显卡的本地程序化形象（卡通/微动态）</strong>作为推流画面，保障流畅不黑屏；<br>
                                 🚀 <strong>若您需要 1080P 写实真人主播</strong>：请点击上方【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，将渲染外包至云端（约 1.2 元/小时），低配电脑亦能完美开播！
                             </div>
@@ -10144,21 +10841,26 @@ function renderGpuConfigDetailPanel(modeId) {
         const currentProtocol = extraParams.stream_protocol || "websocket";
         const currentAvatarId = extraParams.avatar_id || "default";
         const currentCustomUrl = extraParams.custom_official_url || "";
+        const currentGpuModel = extraParams.cloud_gpu_model || "";
+        const currentGpuVram = extraParams.cloud_gpu_vram !== undefined ? extraParams.cloud_gpu_vram : "";
+        const cloudInfo = getDetectedCloudGpuInfo(cachedHardwareData);
 
         if (linkBox) {
-            const jumpUrl = currentCustomUrl || "https://www.autodl.com";
-            const jumpText = currentCustomUrl ? "直达云端开发机控制台 ↗" : "前往 AutoDL 租用 GPU ↗";
-            linkBox.innerHTML = `
-                <a href="${escapeHtml(jumpUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-ghost" style="color: #38bdf8; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="${escapeHtml(jumpUrl)}">
-                    ${jumpText}
-                </a>
-            `;
+            if (currentCustomUrl) {
+                linkBox.innerHTML = `
+                    <a href="${escapeHtml(currentCustomUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-ghost" style="color: #38bdf8; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="${escapeHtml(currentCustomUrl)}">
+                        直达云端开发机控制台 ↗
+                    </a>
+                `;
+            } else {
+                linkBox.innerHTML = "";
+            }
         }
 
         const hiddenId = document.getElementById("gpu-avatar-config-id");
         if (hiddenId) hiddenId.value = anyCloudCfg ? anyCloudCfg.id : "";
 
-        const isLocalReady = cpuCores >= 2 && ramTotal >= 4.0;
+        const isLocalReady = cpuCores >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_CPU_CORES && (ramTotal >= 15.5 || Math.round(ramTotal) >= SYSTEM_OPERATIONAL_REQUIREMENTS.MIN_RAM_TOTAL_GB);
         const isCloudPingSuccess = lastCloudPingResult && lastCloudPingResult.success;
 
         if (dynamicBox) {
@@ -10173,15 +10875,15 @@ function renderGpuConfigDetailPanel(modeId) {
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 16px;">
                         <!-- 本地配置配合 -->
                         <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 本地硬件控制环境 (推流与主控)</div>
-                            <div style="font-size: 13px; font-weight: 600; color: #34d399;">
-                                ✓ 通过：${cpuCores} 核心 · ${ramTotal} GB 内存 (完全满足控制需求)
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">① 本地硬件控制环境 (推流与主控 · 门槛 >=4核/16GB)</div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${isLocalReady ? '#34d399' : '#fbbf24'};">
+                                ${isLocalReady ? '✓ 达标' : '⚠️ 建议升级'}：${cpuCores} 核心 · ${ramTotal} GB 内存
                             </div>
                         </div>
 
                         <!-- 云端 GPU 配合实况 -->
                         <div style="background: rgba(30, 41, 59, 0.6); padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.15);">
-                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">② 云端 GPU 渲染连通状态</div>
+                            <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;">② 云端 GPU 渲染连通状态 (运营要求 GPU >= 8GB)</div>
                             <div id="gpu-cloud-ping-inline-status" style="font-size: 13px; font-weight: 600; color: ${isCloudPingSuccess ? '#34d399' : (currentBaseUrl ? '#38bdf8' : '#fbbf24')};">
                                 ${isCloudPingSuccess ? `✓ 已连通 (延迟 ${lastCloudPingResult.latency_ms}ms${lastCloudPingResult.device ? ' · ' + escapeHtml(lastCloudPingResult.device) : ''})` : (currentBaseUrl ? 'ℹ️ 待测试 (点击下方探测)' : '✗ 待填写云端地址')}
                             </div>
@@ -10228,22 +10930,6 @@ function renderGpuConfigDetailPanel(modeId) {
                                     onclick="document.getElementById('gpu-input-base-url').value='ws://<云主机公网IP>:8010/ws/render-v3'">
                                 🌐 云机公网 IP 直连样例
                             </button>
-                        </div>
-
-                        <!-- 针对 Google Colab 免费 T4 显卡的一键部署引导卡片 -->
-                        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 6px; padding: 10px 12px; margin-top: 10px; font-size: 11.5px; color: #cbd5e1; line-height: 1.65;">
-                            <div style="font-weight: 700; color: #38bdf8; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
-                                <span>💡 谷歌 Google Colab (免费 T4 GPU) 一键极速启动指引：</span>
-                            </div>
-                            <div style="color: #e2e8f0;">
-                                如使用 Colab 算力作为<strong>数字人画面渲染节点</strong>，请在 Colab 单元格执行官方引导脚本（会自动安装依赖、识别 T4 显卡并穿透出 wss:// 地址）：
-                            </div>
-                            <div style="background: rgba(0,0,0,0.45); border: 1px dashed rgba(56,189,248,0.3); padding: 6px 9px; border-radius: 4px; font-family: monospace; color: #34d399; margin: 6px 0; user-select: all; word-break: break-all;">
-                                !git clone https://github.com/winclubs/AI-LiveStream-Agent.git /content/agent 2>/dev/null || true &amp;&amp; cd /content/agent &amp;&amp; python scripts/cloud_sidecar_bootstrap.py
-                            </div>
-                            <div style="color: #94a3b8; font-size: 11px;">
-                                ⚠️ 提示：若在 Colab 运行的是 Ollama (端口 11434)，那是用于大语言模型的，请配置在左侧「LLM配置」中；此处「GPU配置」专用于数字人画面渲染。
-                            </div>
                         </div>
                     </div>
 
@@ -10315,7 +11001,6 @@ function renderGpuConfigDetailPanel(modeId) {
             `;
         }
 
-        if (copyCmdBtn) copyCmdBtn.style.display = "inline-flex";
         if (testConnBtn) testConnBtn.style.display = "inline-flex";
         if (saveBtn) {
             saveBtn.style.background = "#38bdf8";
@@ -10336,6 +11021,11 @@ async function handleSaveGpuAvatarConfig() {
     const origHtml = saveBtn ? saveBtn.innerHTML : "";
 
     if (currentSelectedGpuMode === "local_procedural") {
+        const localCheck = isLocalHardwareFullyQualified();
+        if (!localCheck.isQualified) {
+            showToast("本地硬件未满足运营要求 (需CPU>=4核, GPU独显>=8G, 内存>=16G)，禁止保存并启用本地模式！请选择【端云协同】。", "error");
+            return;
+        }
         // 模式 1：启用本机完全满足模式（将所有活跃云端节点设为非 active）
         try {
             if (saveBtn) {
@@ -10356,7 +11046,7 @@ async function handleSaveGpuAvatarConfig() {
                 });
             }
 
-            showToast("✅ 已成功切换为【本机完全满足 (本地运行)】模式！", "success");
+            showToast("已成功切换为【本机完全满足 (本地运行)】模式！", "success");
             // 同步持久化算力执行偏好 (auto: 交由系统按硬件与云端实况自动研判)
             try {
                 await fetch(`${API_BASE}/settings/gpu-target`, {
@@ -10407,6 +11097,9 @@ async function handleSaveGpuAvatarConfig() {
     const streamProtocol = protocolInput ? (protocolInput.value.trim() || "websocket") : "websocket";
     const avatarId = avatarIdInput ? (avatarIdInput.value.trim() || "default") : "default";
     const customOfficialUrl = customUrlInput ? customUrlInput.value.trim() : "";
+    const cloudInfo = getDetectedCloudGpuInfo(cachedHardwareData);
+    const cloudGpuModel = (cloudInfo && cloudInfo.gpuName && !cloudInfo.gpuName.includes("节点")) ? cloudInfo.gpuName : "";
+    const cloudGpuVram = (cloudInfo && cloudInfo.vramGb !== undefined) ? cloudInfo.vramGb : 0;
 
     const payload = {
         config_group: "neural_renderer",
@@ -10445,7 +11138,7 @@ async function handleSaveGpuAvatarConfig() {
         });
         const json = await res.json();
         if (res.ok && (json.code === 0 || json.code === undefined)) {
-            showToast("✅ 已成功保存并启用【本地硬件 + 租赁云端GPU】模式！", "success");
+            showToast("已成功保存并启用【本地硬件 + 租赁云端GPU】模式！", "success");
             // 同步持久化算力执行偏好 (cloud: 用户显式指定优先调度云端显卡)
             try {
                 await fetch(`${API_BASE}/settings/gpu-target`, {
@@ -10535,19 +11228,6 @@ async function checkCloudGpuConnection(options = {}) {
                 api_key: apiKeyToSend
             })
         });
-        function parseDeviceVramGb(deviceStr) {
-            if (!deviceStr || typeof deviceStr !== "string") return 0;
-            const mMiB = deviceStr.match(/(\d+)\s*(?:MiB|MB)/i);
-            if (mMiB) {
-                return Math.round(parseInt(mMiB[1], 10) / 1024);
-            }
-            const mGB = deviceStr.match(/(\d+(?:\.\d+)?)\s*GB/i);
-            if (mGB) {
-                return Math.round(parseFloat(mGB[1]));
-            }
-            return 0;
-        }
-        window.parseDeviceVramGb = parseDeviceVramGb;
 
         const json = await res.json();
         const isOk = (json.code === 0 && Boolean(json.success));
@@ -10646,7 +11326,7 @@ async function testCurrentGpuAvatarConnection(isSilent = false) {
                 resultBox.innerHTML = `🟢 配合达标！云端握手成功，延迟: ${pingRes.latency_ms}ms ${pingRes.device ? '(远端识别硬件: <b>' + escapeHtml(pingRes.device) + '</b>)' : ''}，本地主控与云端 GPU 协同就绪！`;
             }
             if (!isSilent) {
-                showToast(`✅ 端云协同达标！${pingRes.device ? '云端硬件: ' + pingRes.device : ''}（延迟: ${pingRes.latency_ms}ms）`, "success");
+                showToast(`端云协同达标！${pingRes.device ? '云端硬件: ' + pingRes.device : ''}（延迟: ${pingRes.latency_ms}ms）`, "success");
             }
         } else {
             const err = pingRes.error || "通信握手未成功";
@@ -10662,9 +11342,12 @@ async function testCurrentGpuAvatarConnection(isSilent = false) {
                 resultBox.innerHTML = `🔴 协同未达标: ${formattedErr}`;
             }
             if (!isSilent) {
-                showToast(`❌ 连通失败: ${err.split('\n')[0]}`, "error");
+                showToast(`连通失败: ${err.split('\n')[0]}`, "error");
             }
         }
+
+        // 动态刷新顶部独立显卡卡片中的云端标识
+        renderCloudGpuCardInfo(cachedHardwareData);
 
         // 同步刷新向导卡片（若向导卡片在 DOM 中）
         renderWizardGpuStatusCard(false);
@@ -10674,22 +11357,6 @@ async function testCurrentGpuAvatarConnection(isSilent = false) {
             testBtn.disabled = false;
             testBtn.innerHTML = origHtml;
         }
-    }
-}
-
-// ------------------------------------------------------------------------------
-// 6. 辅助工具与一键拉起命令复制
-// ------------------------------------------------------------------------------
-function copyCloudBootstrapCommand() {
-    const cmd = `git clone https://github.com/winclubs/AI-LiveStream-Agent.git && cd AI-LiveStream-Agent && pip3 install fastapi uvicorn websockets requests && python3 scripts/cloud_sidecar_bootstrap.py --port 8010`;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(cmd).then(() => {
-            showToast("📋 已复制云端节点一键启动命令！在云主机终端粘贴回车，自动检测 GPU、穿透隧道并启动 /ws/render-v3 对接端点。", "success");
-        }).catch(() => {
-            prompt("请手动复制下方命令并在云主机终端执行：", cmd);
-        });
-    } else {
-        prompt("请手动复制下方命令并在云主机终端执行：", cmd);
     }
 }
 
@@ -10758,6 +11425,11 @@ async function autoCheckCloudGpuConnection(cloudCfg) {
 // 8. 开播向导第二步专用：一键切换本地模式（开播防黑屏避险）
 // ------------------------------------------------------------------------------
 async function quickSwitchToLocalModeFromWizard() {
+    const localCheck = isLocalHardwareFullyQualified();
+    if (!localCheck.isQualified) {
+        showToast("本地硬件未达到运营要求 (需CPU>=4核, GPU独显>=8G, 内存>=16G)，不可切换为本地模式！请选用端云协同。", "error");
+        return;
+    }
     try {
         const activeCloudConfigs = (cachedAvatarConfigs || []).filter(c => c.is_active && c.config_group === "neural_renderer");
         for (const cfg of activeCloudConfigs) {
@@ -10783,7 +11455,7 @@ async function quickSwitchToLocalModeFromWizard() {
             });
         } catch (e) { }
 
-        showToast("✅ 已一键切换为【本地运行模式】！开播将优先保障流畅稳定防黑屏", "success");
+        showToast("已一键切换为【本地运行模式】！开播将优先保障流畅稳定防黑屏", "success");
         currentSelectedGpuMode = "local_procedural";
         await renderWizardGpuStatusCard(false);
     } catch (e) {
@@ -10833,12 +11505,10 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
     // 提取硬件指标动态计算 X (CPU核数), Y (本地显存), Z (云端显存)
     const hw = window.cachedHardwareData || {};
     const localGpu = hw.gpu || {};
-    // 真实 CPU 核心数：实测是多少就是多少，绝不默认 6
     const cpuCores = hw.cpu_cores || 0;
-    // 本地显存：实测数值
     const localVram = (localGpu.vram_total_gb !== undefined && localGpu.vram_total_gb !== null) ? Math.round(localGpu.vram_total_gb) : 0;
 
-    // 云端配置与实测显存获取（实事求是：严禁任何写死/虚标，没有就是 0）
+    // 云端配置与实测显存获取
     const activeCloud = (cachedAvatarConfigs || []).find(c => c.is_active && c.provider_name === "sidecar_v3");
     const anyConfiguredCloud = (cachedAvatarConfigs || []).find(c => c.provider_name === "sidecar_v3" && c.base_url);
     const targetCloud = activeCloud || anyConfiguredCloud;
@@ -10847,7 +11517,6 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
 
     let cloudVram = 0;
     const lastPing = window.lastCloudPingResult;
-    // 关键准则：只有在云端真实连通并成功探测到显存时才显示具体数值；离线、关机、未配置或未探通一律严格为 0
     if (isCloudActive && lastPing && lastPing.success) {
         if (lastPing.vram_gb) {
             cloudVram = Math.round(lastPing.vram_gb);
@@ -10897,24 +11566,35 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
         });
     }
 
-    // 选项 1：本机完全满足 (本地运行)
-    const card1Selected = !isCloudActive;
-    const card1Border = card1Selected ? "2px solid #10B981" : "1.5px solid rgba(148, 163, 184, 0.2)";
-    const card1Bg = card1Selected ? "rgba(15, 23, 42, 0.75)" : "rgba(15, 23, 42, 0.45)";
-    const card1Badge = card1Selected
-        ? `<span class="brand-badge green" style="font-weight: 700;">🟢 当前生效模式</span>`
-        : `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25);">未启用 (备选)</span>`;
-    const card1Action = card1Selected
-        ? `<div style="font-size: 12px; color: #34d399; margin-top: 10px; display: flex; align-items: center; gap: 6px;">✓ 0 租赁成本 · 本地闭环，断网亦可流畅直播</div>`
-        : `<div style="margin-top: 10px;"><button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #34d399; border: 1px solid rgba(16,185,129,0.3);">前往「GPU配置(2)」启用此模式 ↗</button></div>`;
+    const localCheck = isLocalHardwareFullyQualified(hw);
+    const isLocalAllQualified = localCheck.isQualified;
+
+    // 选项 1：本机完全满足 (本地运行) - 若硬件不达标则强制标记不可选
+    const card1Selected = (!isCloudActive) && isLocalAllQualified;
+    const card1Border = !isLocalAllQualified
+        ? "1.5px dashed rgba(239, 68, 68, 0.35)"
+        : (card1Selected ? "2px solid #10B981" : "1.5px solid rgba(148, 163, 184, 0.2)");
+    const card1Bg = !isLocalAllQualified
+        ? "rgba(15, 23, 42, 0.35)"
+        : (card1Selected ? "rgba(15, 23, 42, 0.75)" : "rgba(15, 23, 42, 0.45)");
+    const card1Badge = !isLocalAllQualified
+        ? `<span class="brand-badge red" style="font-weight: 700;">🚫 硬件不足 · 不可选</span>`
+        : (card1Selected
+            ? `<span class="brand-badge green" style="font-weight: 700;">🟢 当前生效模式</span>`
+            : `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25);">未启用 (备选)</span>`);
+    const card1Action = !isLocalAllQualified
+        ? `<div style="margin-top: 10px; font-size: 11.5px; color: #f87171;">⚠️ 本地硬件不满足运营要求，不可选用此模式</div>`
+        : (card1Selected
+            ? `<div style="font-size: 12px; color: #34d399; margin-top: 10px; display: flex; align-items: center; gap: 6px;">✓ 0 租赁成本 · 本地闭环，断网亦可流畅直播</div>`
+            : `<div style="margin-top: 10px;"><button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #34d399; border: 1px solid rgba(16,185,129,0.3);">前往「GPU配置(2)」启用此模式 ↗</button></div>`);
 
     let card1SubText = "";
-    if (localVram >= 6) {
+    if (localVram >= 8) {
         card1SubText = `本地 CPU ${cpuCores}核 · 本地独显 ${localVram}G · 0 租赁支出`;
     } else if (localVram > 0) {
-        card1SubText = `本地 CPU ${cpuCores}核 · 本地显存 ${localVram}G (自适应加速/轻量渲染) · 0 租赁支出`;
+        card1SubText = `本地 CPU ${cpuCores}核 · 本地显存 ${localVram}G (低于8G门槛) · 0 租赁支出`;
     } else {
-        card1SubText = `本地 CPU ${cpuCores}核 · 纯 CPU 程序化渲染 · 0 显存门槛 · 0 租赁支出`;
+        card1SubText = `本地 CPU ${cpuCores}核 · 纯 CPU 无独显 · 低于8G门槛 · 0 租赁支出`;
     }
 
     // 选项 2：本地硬件 + 租赁云端GPU
@@ -10982,6 +11662,8 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
         }
     }
 
+    const isCloudOperational = Boolean(lastPing && lastPing.success && (cpuCores >= 4));
+
     container.innerHTML = `
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
             <!-- 选项 1：本机完全满足 (本地运行) -->
@@ -11004,7 +11686,12 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
                 <div style="font-size: 12.5px; color: #94a3b8; line-height: 1.6; margin-top: 8px;">
                     全链路在当前电脑单机闭环运行。本地独显直跑或选用系统免显卡程序化形象，0 算力支出，断网亦可推流。
                 </div>
-                ${card1Action}
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+                    ${card1Action}
+                    <span class="brand-badge ${isLocalAllQualified ? 'green' : 'amber'}" style="font-size: 11px;">
+                        ${isLocalAllQualified ? '✓ 满足运营要求 (全单机达标)' : '⚠️ 未达单机运营要求 (要求GPU>=8G)'}
+                    </span>
+                </div>
             </div>
 
             <!-- 选项 2：本地硬件 + 租赁云端GPU -->
@@ -11028,6 +11715,11 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
                     本地仅负责交互调度，数字人 1080P 超写实真人渲染外包给云端 GPU，本地 0 显存开销。
                 </div>
                 ${card2StatusBody}
+                <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                    <span class="brand-badge ${isCloudOperational ? 'green' : 'sky'}" style="font-size: 11px;">
+                        ${isCloudOperational ? '✓ 满足运营要求 (端云协同达标)' : '☁️ 运营待就绪 (需接入云端GPU>=8G)'}
+                    </span>
+                </div>
             </div>
         </div>
     `;
@@ -11051,6 +11743,12 @@ async function loadGpuAvatarProviders() {
 
         // 刷新硬件实况看板并执行双模式达标诊断
         await refreshGpuHardwareOverview();
+
+        // 强规则：若本地硬件未达到运营底线 (CPU>=4核, GPU>=8G, 内存>=16G)，不可选择 local_procedural，强制重定向至 sidecar_v3 端云协同
+        const localCheck = isLocalHardwareFullyQualified();
+        if (!localCheck.isQualified) {
+            currentSelectedGpuMode = "sidecar_v3";
+        }
 
         // 呈现选中模式
         selectGpuMode(currentSelectedGpuMode);

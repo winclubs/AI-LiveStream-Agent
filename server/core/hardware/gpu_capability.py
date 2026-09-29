@@ -215,40 +215,53 @@ _PROBE_TTL_SEC = 30.0
 
 
 def parse_device_string(device_str: str) -> tuple[str, float]:
-    """解析远端显卡设备字符串，如 'Tesla T4, 15360 MiB' -> ('Tesla T4', 15.0)"""
+    """解析远端显卡设备字符串，如 'NVIDIA A100-SXM4-80GB (80.0 GB 显存)' -> ('NVIDIA A100-SXM4-80GB', 80.0)"""
     if not device_str or not device_str.strip():
         return "", 0.0
     import re
     device_str = device_str.strip()
-    parts = [p.strip() for p in device_str.split(",")]
-    gpu_name = parts[0] if parts else device_str
+    
+    # 1. 提取显存 (GB)
     vram_gb = 0.0
-    for p in parts[1:]:
-        m = re.search(r"(\d+)\s*(?:MiB|MB)", p, re.IGNORECASE)
-        if m:
-            vram_gb = round(int(m.group(1)) / 1024, 1)
-            break
-        m_gb = re.search(r"(\d+(?:\.\d+)?)\s*GB", p, re.IGNORECASE)
+    if "CPU" in device_str.upper() or "无独显" in device_str:
+        vram_gb = 0.0
+    else:
+        # 优先提取带 GB 显存标识的数值
+        m_gb = re.search(r"(\d+(?:\.\d+)?)\s*GB", device_str, re.IGNORECASE)
         if m_gb:
             vram_gb = float(m_gb.group(1))
-            break
+        else:
+            # 其次提取 MiB/MB
+            m_mb = re.search(r"(\d+)\s*(?:MiB|MB)", device_str, re.IGNORECASE)
+            if m_mb:
+                total_mb = int(m_mb.group(1))
+                vram_gb = round(total_mb / 1024, 1)
+
+    # 2. 提取显卡型号纯净名称 (去除括号描述和逗号后缀)
+    gpu_name = device_str.split(",")[0].strip()
+    gpu_name = re.sub(r"\s*\([^)]*\)", "", gpu_name).strip()
+    if not gpu_name:
+        gpu_name = device_str
+
     return gpu_name, vram_gb
 
 
-def record_cloud_probe_success(url: str, latency_ms: int = 0, device: str = ""):
+def record_cloud_probe_success(url: str, latency_ms: int = 0, device: str = "", gpu_name: str = "", vram_gb: float = 0.0):
     """在外部握手成功 (例如系统设置页点击测试通过) 时，实时同步写入探活缓存"""
     if not url:
         return
     clean_url = url.strip()
-    gpu_name, vram_gb = parse_device_string(device)
+    parsed_name, parsed_vram = parse_device_string(device)
+    final_gpu_name = gpu_name or parsed_name
+    final_vram = vram_gb if vram_gb > 0 else parsed_vram
     _CLOUD_PROBE_CACHE[clean_url] = {
         "ts": time.time(),
         "reachable": True,
         "error": "",
         "latency_ms": latency_ms,
-        "device": device,
-        "gpu_name": gpu_name,
-        "vram_gb": vram_gb,
+        "device": device or final_gpu_name,
+        "gpu_name": final_gpu_name,
+        "vram_gb": final_vram,
     }
 
 
@@ -331,9 +344,16 @@ async def verify_cloud_endpoint_reachability(url: str, timeout_sec: float = 3.5,
                         data = json.loads(raw)
                         if isinstance(data, dict):
                             dev = str(data.get("device") or "")
+                            if data.get("gpu_name"):
+                                gpu_name = str(data.get("gpu_name"))
+                            if data.get("vram_gb") is not None:
+                                try:
+                                    vram_gb = float(data.get("vram_gb"))
+                                except Exception:
+                                    pass
                 except Exception:
                     pass
-            if dev:
+            if dev and not gpu_name:
                 gpu_name, vram_gb = parse_device_string(dev)
         except Exception:
             pass

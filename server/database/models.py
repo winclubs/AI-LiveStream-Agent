@@ -256,4 +256,11 @@ class LiveSessionRecord(Base):
     danmaku_count = Column(Integer, default=0)
     peak_viewers = Column(Integer, default=0)
     gift_income = Column(Float, default=0.0)
+    video_path = Column(String(512), default="")
+    oss_url = Column(String(1024), default="")
+    preview_image_url = Column(String(1024), default="")
+    video_duration_sec = Column(Float, default=0.0)
+    video_size_bytes = Column(Integer, default=0)
+    oss_upload_status = Column(String(32), default="none")  # none | recording | uploading | uploaded | failed
+    oss_error_msg = Column(Text, default="")
 

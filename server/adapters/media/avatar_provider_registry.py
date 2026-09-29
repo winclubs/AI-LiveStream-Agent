@@ -77,6 +77,8 @@ class SidecarV3Config(_StrictModel):
     model_version: str = Field(default="", max_length=128)
     require_neural_lipsync: bool = True
     custom_official_url: str = Field(default="", max_length=1024)
+    cloud_gpu_model: str = Field(default="", max_length=128)
+    cloud_gpu_vram: float = Field(default=0.0, ge=0.0, le=1024.0)
 
 
 class LiveAvatarLiteConfig(_StrictModel):

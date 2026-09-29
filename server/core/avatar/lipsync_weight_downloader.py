@@ -17,6 +17,9 @@ logger = logging.getLogger("LiveAgent.LipSyncWeightDownloader")
 
 _MODEL_KEY = "onnx_lipsync"
 
+# 失败后自动重试冷却秒数 (避免体检轮询高频触发下载)
+_RETRY_COOLDOWN_SEC = 60.0
+
 
 class LipSyncWeightDownloader:
     def __init__(self) -> None:
@@ -53,12 +56,22 @@ class LipSyncWeightDownloader:
             logger.debug(f"检测神经唇形权重可用性异常: {e}")
             return False
 
+    def can_auto_retry(self) -> bool:
+        """失败后是否已过冷却期，可再次自动触发下载"""
+        if self._state != "failed":
+            return True
+        if self._finished_at == 0.0:
+            return True
+        return (time.time() - self._finished_at) >= _RETRY_COOLDOWN_SEC
+
     # ------------------------------------------------------------------
     # 下载触发
     # ------------------------------------------------------------------
-    def start_download(self, source: str = "modelscope", task_id: str = "") -> Dict[str, Any]:
+    def start_download(self, source: str = "modelscope", task_id: str = "", force: bool = False) -> Dict[str, Any]:
         """
         触发后台下载 (已在则直接返回就绪)。返回操作结果与当前状态。
+
+        - force=True 时跳过失败冷却期检查 (供用户手动重试接口使用)。
         """
         with self._lock:
             if self._state in ("pending", "downloading"):
@@ -66,6 +79,8 @@ class LipSyncWeightDownloader:
             if self.is_weight_ready():
                 self._set_state("installed", 100, "神经唇形权重已就绪，无需下载")
                 return {"ok": True, "reason": "already_installed", "status": self.get_status()}
+            if not force and not self.can_auto_retry():
+                return {"ok": False, "reason": "retry_cooldown", "status": self.get_status()}
 
             self._set_state("pending", 0, "已加入下载队列", task_id=task_id)
 

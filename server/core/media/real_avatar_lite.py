@@ -24,6 +24,96 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger("LiveAgent.RealAvatarLite")
 
 
+def blend_lip_warp(
+    frame: "np.ndarray",
+    cx: int,
+    cy: int,
+    roi_w: int,
+    roi_h: int,
+    mouth_open: float,
+    mouth_form: float = 0.0,
+    drop_px: float = 4.5,
+) -> "np.ndarray":
+    """
+    在嘴部局部 ROI 内进行精细的真实下唇形变与无缝融合 (直播级口型算法，单一真相源)
+    保留原底模真实毛孔与唇纹，杜绝色块涂抹。
+
+    - drop_px: 下唇最大下沉像素 (直播原始分辨率默认 4.5px；
+      256x256 对齐人脸切片等小尺寸画面可按 ROI 等比放大，确保口型开合清晰可见)。
+    """
+    fh, fw = frame.shape[:2]
+    x1 = max(0, cx - roi_w // 2)
+    x2 = min(fw, cx + roi_w // 2)
+    y1 = max(0, cy - roi_h // 2)
+    y2 = min(fh, cy + roi_h // 2)
+
+    rw = x2 - x1
+    rh = y2 - y1
+    if rw < 10 or rh < 10:
+        return frame
+
+    roi = frame[y1:y2, x1:x2].copy()
+    rel_cy = float(cy - y1)
+    rel_cx = float(cx - x1)
+
+    # 真实仿射微位移：下半唇依音频能量下沉，上半唇微抬 (下唇的 1/4)
+    drop_y = float(mouth_open * max(1.0, drop_px))
+    rx = float(max(10, rw * 0.32))
+    ry_down = float(max(8, rh * 0.35))
+    ry_up = float(max(6, rh * 0.16))
+    stretch = float(mouth_form * 0.08 * mouth_open)
+
+    # 构建局部网格重映射
+    map_x = np.tile(np.arange(rw, dtype=np.float32), (rh, 1))
+    map_y = np.tile(np.arange(rh, dtype=np.float32)[:, np.newaxis], (1, rw))
+
+    dx = map_x - rel_cx
+    dy = map_y - rel_cy
+
+    weight_x = np.exp(-(dx**2) / (2.0 * (rx**2)))
+    mask_down = (dy > 0).astype(np.float32)
+    dist_y_down = np.clip(dy / ry_down, 0.0, 1.0)
+    weight_down = np.sin(dist_y_down * np.pi) * mask_down * weight_x
+
+    mask_up = (dy < 0).astype(np.float32)
+    dist_y_up = np.clip(-dy / ry_up, 0.0, 1.0)
+    weight_up = np.sin(dist_y_up * np.pi) * mask_up * weight_x
+
+    map_y_shifted = map_y - weight_down * drop_y + weight_up * (drop_y * 0.25)
+    map_x_shifted = map_x - weight_x * (dx * stretch)
+
+    warped_roi = cv2.remap(
+        roi,
+        map_x_shifted.astype(np.float32),
+        map_y_shifted.astype(np.float32),
+        cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT,
+    )
+
+    # 唇缝闭合微影 (极微弱自然深红肉色，非黑斑涂抹)
+    if mouth_open > 0.18:
+        seam_h = max(1.0, mouth_open * 2.2)
+        seam_w = max(5.0, float(rw * 0.22) * (1.0 + stretch))
+        dist_seam = ((dx / seam_w)**2 + (dy / seam_h)**2)
+        alpha = np.clip(1.0 - dist_seam, 0.0, 1.0) ** 2 * float(mouth_open * 0.35)
+        alpha_3 = alpha[:, :, np.newaxis]
+        # 自适应提取原唇缝色调微调
+        lip_dark = np.array([45, 30, 85], dtype=np.float32)  # BGR 深红肉暗影
+        warped_roi = (warped_roi.astype(np.float32) * (1.0 - alpha_3) + lip_dark * alpha_3).astype(np.uint8)
+
+    # 外围高斯羽化融入原画面
+    mask = np.zeros((rh, rw), dtype=np.float32)
+    cv2.ellipse(mask, (int(rel_cx), int(rel_cy)), (int(rw * 0.44), int(rh * 0.42)), 0, 0, 360, 1.0, -1)
+    ksize = (max(3, (rw // 8) * 2 + 1), max(3, (rh // 8) * 2 + 1))
+    mask = cv2.GaussianBlur(mask, ksize, 0)
+    mask_3c = np.repeat(mask[:, :, np.newaxis], 3, axis=2)
+
+    orig_roi = frame[y1:y2, x1:x2].astype(np.float32)
+    blended = warped_roi.astype(np.float32) * mask_3c + orig_roi * (1.0 - mask_3c)
+    frame[y1:y2, x1:x2] = np.clip(blended, 0, 255).astype(np.uint8)
+    return frame
+
+
 class RealAvatarLiteRenderer:
     """
     轻量级真人微动态与口型融合引擎
@@ -216,95 +306,17 @@ class RealAvatarLiteRenderer:
         mouth_open: float,
         mouth_form: float,
     ) -> "np.ndarray":
-        """
-        在嘴部局部 ROI 内进行精细的真实下唇形变与无缝融合
-        保留原底模真实毛孔与唇纹，杜绝色块涂抹
-        """
-        fh, fw = frame.shape[:2]
-        x1 = max(0, cx - roi_w // 2)
-        x2 = min(fw, cx + roi_w // 2)
-        y1 = max(0, cy - roi_h // 2)
-        y2 = min(fh, cy + roi_h // 2)
-
-        rw = x2 - x1
-        rh = y2 - y1
-        if rw < 10 or rh < 10:
-            return frame
-
-        roi = frame[y1:y2, x1:x2].copy()
-        rel_cy = cy - y1
-
-        # 下唇向下开合位移 (像素) 与下唇自然下拉伸缩
-        drop_pixels = int(rh * 0.28 * mouth_open)
-        stretch_x = 1.0 + 0.18 * mouth_form
-
-        # 将下半唇区 (y >= rel_cy) 实施沿垂直轴非线性拉伸仿射
-        lower_lip_y = rel_cy - int(rh * 0.06)
-        if 0 < lower_lip_y < rh:
-            lower_part = roi[lower_lip_y:rh, 0:rw]
-            lph, lpw = lower_part.shape[:2]
-            if lph > 4 and lpw > 4:
-                new_lph = min(rh - lower_lip_y, lph + drop_pixels)
-                new_lpw = int(lpw * stretch_x)
-                stretched = cv2.resize(lower_part, (new_lpw, new_lph), interpolation=cv2.INTER_LINEAR)
-                # 重新裁切居中
-                if new_lpw > lpw:
-                    sx0 = (new_lpw - lpw) // 2
-                    stretched = stretched[:, sx0 : sx0 + lpw]
-                elif new_lpw < lpw:
-                    pad = (lpw - new_lpw) // 2
-                    stretched = cv2.copyMakeBorder(
-                        stretched, 0, 0, pad, lpw - new_lpw - pad, cv2.BORDER_REPLICATE
-                    )
-                # 填回下半部分
-                target_bottom = min(rh, lower_lip_y + new_lph)
-                valid_h = target_bottom - lower_lip_y
-                roi[lower_lip_y:target_bottom, :] = stretched[:valid_h, :rw]
-
-        # 自然腔内暗部投影 (模拟微张嘴时的内口阴影与牙影)
-        inner_h = max(2, int(rh * 0.16 * mouth_open))
-        inner_w = max(6, int(rw * 0.42 * (1.0 + 0.15 * mouth_form)))
-        icx = rw // 2
-        icy = rel_cy + int(drop_pixels * 0.25)
-        # 绘制半透明自然口腔微影
-        overlay = roi.copy()
-        cv2.ellipse(overlay, (icx, icy), (inner_w, inner_h), 0, 0, 360, (28, 12, 14), -1)
-        if inner_h >= 4:
-            # 牙弓微光
-            cv2.ellipse(
-                overlay,
-                (icx, icy - max(1, inner_h // 3)),
-                (max(3, inner_w - 4), max(1, inner_h // 4)),
-                0,
-                0,
-                360,
-                (210, 205, 208),
-                -1,
-            )
-        cv2.addWeighted(overlay, 0.75, roi, 0.25, 0, roi)
-
-        # 4. 高斯羽化蒙版：使局部 ROI 与原图边缘实现 100% Seamless Blend
-        mask = np.zeros((rh, rw), dtype=np.float32)
-        cv2.ellipse(
-            mask,
-            (rw // 2, rel_cy),
-            (int(rw * 0.44), int(rh * 0.42)),
-            0,
-            0,
-            360,
-            1.0,
-            -1,
+        """直播口型形变：委托模块级 blend_lip_warp 单一真相源实现"""
+        return blend_lip_warp(
+            frame,
+            cx=cx,
+            cy=cy,
+            roi_w=roi_w,
+            roi_h=roi_h,
+            mouth_open=min(1.0, mouth_open),
+            mouth_form=max(-1.0, min(1.0, mouth_form)),
+            drop_px=4.5,
         )
-        # 高斯模糊羽化边界
-        ksize = (max(3, (rw // 6) * 2 + 1), max(3, (rh // 6) * 2 + 1))
-        mask = cv2.GaussianBlur(mask, ksize, 0)
-        mask_3c = np.repeat(mask[:, :, np.newaxis], 3, axis=2)
-
-        # 混合写回
-        orig_roi = frame[y1:y2, x1:x2].astype(np.float32)
-        blended = roi.astype(np.float32) * mask_3c + orig_roi * (1.0 - mask_3c)
-        frame[y1:y2, x1:x2] = np.clip(blended, 0, 255).astype(np.uint8)
-        return frame
 
 
 # 全局单例

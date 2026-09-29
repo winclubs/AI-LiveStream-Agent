@@ -20,14 +20,73 @@ os.system("pip install -q fastapi uvicorn websockets opencv-python-headless requ
 
 print("⚡ 2. 正在初始化自包含数字人渲染服务 (端口: 8010)...")
 
-# 检测 Colab 的 GPU 硬件型号
-gpu_device_name = "CPU 软件渲染"
-try:
-    smi = subprocess.check_output(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], stderr=subprocess.DEVNULL).decode().strip()
-    if smi:
-        gpu_device_name = smi
-except Exception:
-    pass
+# 检测 Colab 的真实物理 GPU 硬件型号与显存
+def probe_colab_gpu():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            dev_name = torch.cuda.get_device_name(0)
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+            total_mb = int(total_bytes / (1024 * 1024))
+            total_gb = round(total_bytes / (1024 ** 3), 1)
+            vram_int = round(total_gb)
+            vram_final = vram_int if abs(total_gb - vram_int) < 0.3 else total_gb
+            return {
+                "device": f"{dev_name} ({vram_final} GB 显存 · {total_mb} MiB)",
+                "gpu_name": dev_name,
+                "vram_gb": vram_final,
+                "vram_mb": total_mb,
+                "cuda_available": True
+            }
+    except Exception:
+        pass
+
+    import shutil
+    smi_candidates = [shutil.which("nvidia-smi"), "nvidia-smi", "/usr/bin/nvidia-smi", "/usr/local/cuda/bin/nvidia-smi"]
+    for bin_path in smi_candidates:
+        if not bin_path:
+            continue
+        try:
+            smi_out = subprocess.check_output(
+                [bin_path, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                stderr=subprocess.DEVNULL, timeout=2.5
+            ).decode().strip()
+            if smi_out:
+                lines = smi_out.splitlines()
+                parts = [p.strip() for p in lines[0].split(",")]
+                name = parts[0]
+                total_mb = int(float(parts[1])) if len(parts) > 1 else 0
+                total_gb = round(total_mb / 1024, 1)
+                vram_int = round(total_gb)
+                vram_final = vram_int if abs(total_gb - vram_int) < 0.3 else total_gb
+                return {
+                    "device": f"{name} ({vram_final} GB 显存 · {total_mb} MiB)" if total_mb > 0 else name,
+                    "gpu_name": name,
+                    "vram_gb": vram_final,
+                    "vram_mb": total_mb,
+                    "cuda_available": True
+                }
+        except Exception:
+            continue
+
+    return {
+        "device": "CPU 软件渲染 (0 GB 显存 · 未检测到独立显卡)",
+        "gpu_name": "CPU 软件渲染 (未检测到独显)",
+        "vram_gb": 0.0,
+        "vram_mb": 0,
+        "cuda_available": False
+    }
+
+gpu_detected = probe_colab_gpu()
+if not gpu_detected["cuda_available"]:
+    print("\n" + "=" * 68)
+    print("⚠️ 【重要提示】当前 Colab 实例为 CPU 模式，未检测到物理 GPU 独显！")
+    print("👉 请在 Colab 顶部菜单依次点击：")
+    print("   【代码执行程序】->【更改运行时类型】->【硬件加速器】选择【T4 GPU】或【A100 GPU】并保存")
+    print("   然后重新运行本单元格即可全自动识别真实 GPU！")
+    print("=" * 68 + "\n")
+else:
+    print(f"🎉 成功实机识别到 Colab 显卡：{gpu_detected['gpu_name']} (显存: {gpu_detected['vram_gb']} GB)\n")
 
 # 写入自包含的渲染服务端代码
 sidecar_server_code = f'''# -*- coding: utf-8 -*-
@@ -46,7 +105,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("CloudSidecar")
 
 app = FastAPI(title="AI-LiveStream Cloud GPU Sidecar", version="3.0.0")
-GPU_DEVICE = {repr(gpu_device_name)}
 START_TIME = time.time()
 
 PROTOCOL_VERSION = 3
@@ -113,14 +171,74 @@ class RealtimeAvatarRenderer:
         _, jpeg = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
         return jpeg.tobytes()
 
+def probe_runtime_gpu() -> dict:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            dev_name = torch.cuda.get_device_name(0)
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+            total_mb = int(total_bytes / (1024 * 1024))
+            total_gb = round(total_bytes / (1024 ** 3), 1)
+            vram_int = round(total_gb)
+            vram_final = vram_int if abs(total_gb - vram_int) < 0.3 else total_gb
+            return {{
+                "device": f"{{dev_name}} ({{vram_final}} GB 显存 · {{total_mb}} MiB)",
+                "gpu_name": dev_name,
+                "vram_gb": vram_final,
+                "vram_mb": total_mb,
+                "cuda_available": True
+            }}
+    except Exception:
+        pass
+
+    import shutil, subprocess
+    smi_candidates = [shutil.which("nvidia-smi"), "nvidia-smi", "/usr/bin/nvidia-smi", "/usr/local/cuda/bin/nvidia-smi"]
+    for bin_path in smi_candidates:
+        if not bin_path:
+            continue
+        try:
+            smi_out = subprocess.check_output(
+                [bin_path, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                stderr=subprocess.DEVNULL, timeout=2.5
+            ).decode().strip()
+            if smi_out:
+                lines = smi_out.splitlines()
+                parts = [p.strip() for p in lines[0].split(",")]
+                name = parts[0]
+                total_mb = int(float(parts[1])) if len(parts) > 1 else 0
+                total_gb = round(total_mb / 1024, 1)
+                vram_int = round(total_gb)
+                vram_final = vram_int if abs(total_gb - vram_int) < 0.3 else total_gb
+                return {{
+                    "device": f"{{name}} ({{vram_final}} GB 显存 · {{total_mb}} MiB)" if total_mb > 0 else name,
+                    "gpu_name": name,
+                    "vram_gb": vram_final,
+                    "vram_mb": total_mb,
+                    "cuda_available": True
+                }}
+        except Exception:
+            continue
+
+    return {{
+        "device": "CPU 软件渲染 (0 GB 显存 · 未检测到独立显卡)",
+        "gpu_name": "CPU 软件渲染 (未检测到独显)",
+        "vram_gb": 0.0,
+        "vram_mb": 0,
+        "cuda_available": False
+    }}
+
 avatar_renderer = RealtimeAvatarRenderer()
 
 @app.get("/health")
 def health_check():
+    hw = probe_runtime_gpu()
     return {{
         "code": 0,
         "status": "healthy",
-        "device": GPU_DEVICE,
+        "device": hw["device"],
+        "gpu_name": hw["gpu_name"],
+        "vram_gb": hw["vram_gb"],
+        "cuda_available": hw["cuda_available"],
         "uptime_sec": int(time.time() - START_TIME),
         "service": "AI-LiveStream-Agent-Cloud-Sidecar"
     }}
@@ -129,12 +247,16 @@ def health_check():
 async def render_ws_endpoint(ws: WebSocket):
     await ws.accept()
     logger.info("本地主控客户端已成功连接 WebSocket 渲染通道")
+    hw = probe_runtime_gpu()
     ack_payload = {{
         "event": "handshake_ack",
         "version": "v3",
         "protocol_version": 3,
         "selected_version": 3,
-        "device": GPU_DEVICE,
+        "device": hw["device"],
+        "gpu_name": hw["gpu_name"],
+        "vram_gb": hw["vram_gb"],
+        "cuda_available": hw["cuda_available"],
         "status": "ready",
         "server_time": time.time(),
         "capabilities": {{

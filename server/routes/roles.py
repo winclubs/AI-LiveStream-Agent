@@ -82,10 +82,12 @@ ROLE_SUGGESTIONS = {
 VALID_ROLE_TYPES = tuple(ROLE_SUGGESTIONS.keys())
 
 MODE_TIPS = {
-    "A": "当前为全本地离线模式：请在 API 配置中启用本地 Ollama（大脑）与本地 CosyVoice（声音），全程断网可播。",
-    "B": "当前为主流端云混合模式：请在 API 配置中填入云端大模型 API Key，语音可选免费 Edge-TTS 或本地克隆音色。",
-    "C": "当前为端云分离架构：本地程序化 Avatar 保持热 shadow；大模型、TTS 与 renderer-only Avatar Provider 独立配置，远端节点需完成运行时握手后才会接管。",
-    "D": "当前为轻量免显卡模式：请启用云端 API 与 Edge-TTS 免费语音，无需任何独立显卡。"
+    "local": "当前为【纯本地硬件】模式：本地达标独立显卡全流程闭环驱动（大模型/TTS/数字人本地实时渲染），0 租赁费用，数据完全私密离线。",
+    "hybrid": "当前为【本地云端混合】模式：本地电脑负责主控调度推流，大模型 API 与租赁云端 GPU 协同加速，低配电脑畅跑超写实真人！",
+    "A": "当前为【纯本地硬件】模式：本地达标独立显卡全流程闭环驱动（大模型/TTS/数字人本地实时渲染），0 租赁费用，数据完全私密离线。",
+    "B": "当前为【本地云端混合】模式：本地电脑负责主控调度推流，大模型 API 与租赁云端 GPU 协同加速，低配电脑畅跑超写实真人！",
+    "C": "当前为【本地云端混合】模式：本地电脑负责主控调度推流，大模型 API 与租赁云端 GPU 协同加速，低配电脑畅跑超写实真人！",
+    "D": "当前为【本地云端混合】模式：本地电脑负责主控调度推流，大模型 API 与租赁云端 GPU 协同加速，低配电脑畅跑超写实真人！",
 }
 
 
@@ -95,6 +97,13 @@ async def get_role_suggestions(role_type: str = "ecommerce", mode: Optional[str]
     base = ROLE_SUGGESTIONS.get(role_type)
     if not base:
         raise HTTPException(status_code=404, detail="未知角色类型")
+
+    from server.routes.settings import normalize_live_mode
+    mode_tip = None
+    if mode:
+        norm_key = normalize_live_mode(mode)
+        mode_tip = MODE_TIPS.get(mode) or MODE_TIPS.get(norm_key)
+
     return {
         "code": 0,
         "data": {
@@ -103,7 +112,7 @@ async def get_role_suggestions(role_type: str = "ecommerce", mode: Optional[str]
             "default_theme": base.get("default_theme", ""),
             "theme_placeholder": base.get("theme_placeholder", ""),
             "constraint_prompt": base["constraint_prompt"],
-            "tips": base["tips"] + ([MODE_TIPS.get(mode)] if mode and MODE_TIPS.get(mode) else [])
+            "tips": base["tips"] + ([mode_tip] if mode_tip else [])
         }
     }
 

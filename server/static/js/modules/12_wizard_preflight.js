@@ -67,7 +67,7 @@ async function applyHardwareRecommendation() {
         }
         refreshWizardSuggestions();
     } catch (e) {
-        console.warn("硬件推荐获取失败，保持默认 A 档", e);
+        console.warn("硬件推荐获取失败，保持默认本地云端混合模式", e);
     }
 }
 
@@ -85,10 +85,11 @@ async function renderModeCards() {
             card.className = "mode-card" + (m.code === wizardMode ? " selected" : "");
             card.setAttribute("data-mode", m.code);
             card.onclick = () => selectWizardMode(m.code);
+            const isHybrid = (m.code === "hybrid" || m.code === "B" || m.code === "C" || m.code === "D");
             card.innerHTML = `
                 <div style="display:flex; justify-content: space-between; align-items:center;">
-                    <strong style="font-size:14px;">${m.code} · ${m.name}</strong>
-                    ${m.code === "C" ? '<span class="badge-recommend">强烈推荐</span>' : (m.code === "A" ? '<span class="badge-optional">默认</span>' : '')}
+                    <strong style="font-size:14px;">${m.name}</strong>
+                    ${isHybrid ? '<span class="badge-recommend">推荐低配/免显卡</span>' : '<span class="badge-optional">独显完全满足</span>'}
                 </div>
                 <div class="mode-card-meta">
                     <div class="row">${svg("cpu", "icon")}<span>硬件: ${m.hardware}</span></div>
@@ -320,9 +321,10 @@ async function refreshWizardSuggestions() {
         const json = await res.json();
         if (json.code !== 0) return;
         const d = json.data;
+        const modeDisplay = (wizardMode === "local" || wizardMode === "A" || String(wizardMode).includes("纯本地")) ? "纯本地硬件" : "本地云端混合";
         box.innerHTML = `
             <div style="padding: 12px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px;">
-                <div style="font-weight: 700; font-size: 13px; color: var(--accent-emerald);">【${d.label}】 × 模式 ${wizardMode} 运营建议:</div>
+                <div style="font-weight: 700; font-size: 13px; color: var(--accent-emerald);">【${d.label}】 × 【${modeDisplay}】运营建议:</div>
                 <ul style="font-size: 12px; color: var(--text-secondary); margin: 8px 0 0 18px; line-height: 1.8;">
                     ${d.tips.map(t => `<li>${t}</li>`).join("")}
                 </ul>
@@ -442,8 +444,37 @@ window.switchToTab = switchToTab;
 // 开播前检查 (Preflight)：真实探测开播条件，未通过不盲目开播 (v1.1.3)
 // ============================================================================
 let lastPreflightData = null;
+let _preflightAutoRefreshTimer = null;
+let _preflightAutoRefreshCount = 0;
+const _PREFLIGHT_AUTO_REFRESH_MAX = 40;  // 最多自动轮询 40 次 (约 2 分钟)，避免无限刷新
+
+// 后台自愈进行中的检查项 (下载/安装)，前端自动轮询刷新进度
+function _preflightNeedsAutoRefresh(data) {
+    return (data.checks || []).some(c => c.auto_in_progress === true);
+}
+
+function _schedulePreflightAutoRefresh(opts) {
+    if (_preflightAutoRefreshTimer) clearTimeout(_preflightAutoRefreshTimer);
+    if (_preflightAutoRefreshCount >= _PREFLIGHT_AUTO_REFRESH_MAX) {
+        showToast("后台下载/安装仍在进行，可稍后点击「重新体检」确认结果", "info");
+        return;
+    }
+    _preflightAutoRefreshTimer = setTimeout(() => {
+        _preflightAutoRefreshCount++;
+        // 用户已离开体检页则停止轮询 (modal 与 tab 两种呈现方式均检测)
+        const modalOpen = document.getElementById("preflight-modal")
+            && document.getElementById("preflight-modal").style.display === "flex";
+        const tabActive = document.getElementById("tab-preflight")
+            && document.getElementById("tab-preflight").classList.contains("active");
+        if (!modalOpen && !tabActive) return;
+        runPreflight({ ...opts, auto: false, _isAutoRefresh: true });
+    }, 3000);
+}
 
 async function runPreflight(opts = {}) {
+    // 用户主动发起的体检重置轮询计数 (自动轮询续跑除外)
+    if (!opts._isAutoRefresh) _preflightAutoRefreshCount = 0;
+    if (_preflightAutoRefreshTimer) { clearTimeout(_preflightAutoRefreshTimer); _preflightAutoRefreshTimer = null; }
     try {
         // 如果是人工查看且未强制弹窗，立即平滑切换到独立全幅页面并呈现加载占位
         if (!opts.auto && !opts.useModal) {
@@ -484,6 +515,8 @@ async function runPreflight(opts = {}) {
             // 核心：无弹窗，渲染到独立的体检大页面中
             renderPreflightTabPage(json.data, opts);
         }
+        // 后台自愈进行中时自动轮询，让用户实时看到下载/安装进度直至完成
+        if (_preflightNeedsAutoRefresh(json.data)) _schedulePreflightAutoRefresh(opts);
         return json.data;
     } catch (e) {
         showToast("开播前检查请求异常: " + e, "error");
@@ -495,6 +528,24 @@ function pfRowHtml(c) {
     const icons = { pass: "check", warn: "warn", fail: "x" };
     const statusLabels = { pass: "检测通过", warn: "建议修复", fail: "必须修复" };
     const badgeClass = c.status === "pass" ? "pill-pass" : (c.status === "warn" ? "pill-warning" : "pill-missing");
+
+    // 后台自愈进行中 (下载/安装) 时展示动态进度条，替代静态修复指引
+    let progressBar = "";
+    if (c.auto_in_progress) {
+        const pct = (() => {
+            const m = /(\d+)%/.exec(c.message || "");
+            return m ? parseInt(m[1], 10) : 0;
+        })();
+        progressBar = `
+            <div style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
+                <div style="flex: 1; height: 6px; background: rgba(148, 163, 184, 0.18); border-radius: 99px; overflow: hidden;">
+                    <div style="width: ${Math.max(2, Math.min(100, pct))}%; height: 100%; background: linear-gradient(90deg, #34d399, #38bdf8); border-radius: 99px; transition: width 0.6s ease;"></div>
+                </div>
+                <span style="font-size: 11px; color: var(--accent-emerald); white-space: nowrap;">后台自动处理中 ${pct}%</span>
+            </div>
+        `;
+    }
+
     let fixHtml = "";
     if (c.status !== "pass" && (c.fix_hint || c.action_tab)) {
         const hintPart = c.fix_hint
@@ -527,6 +578,7 @@ function pfRowHtml(c) {
                     </span>
                 </div>
                 <div class="pf-msg">${c.message}</div>
+                ${progressBar}
                 ${fixHtml}
             </div>
         </div>
@@ -692,12 +744,12 @@ function renderCurrentModeBadge(modeInfo) {
     const settingsDesc = document.getElementById("settings-mode-desc");
     if (badge && modeInfo) {
         badge.style.display = "inline-block";
-        badge.innerText = `模式 ${modeInfo.code} · ${modeInfo.name}`;
+        badge.innerText = `当前模式：${modeInfo.name}`;
     }
-    if (settingsName && modeInfo) settingsName.innerText = `${modeInfo.code}. ${modeInfo.name}`;
+    if (settingsName && modeInfo) settingsName.innerText = modeInfo.name;
     if (settingsDesc && modeInfo) {
         settingsDesc.innerHTML = `${modeInfo.hardware} · ${modeInfo.llm} · ${modeInfo.tts} · ${modeInfo.cost}<br>
-            <span style="color: var(--accent-emerald);">下方已按模式只呈现所需配置项:</span> ${modeInfo.required_configs.join(" / ")}`;
+            <span style="color: var(--accent-emerald);">对应核心算力调度:</span> ${modeInfo.required_configs.join(" / ")}`;
     }
 }
 

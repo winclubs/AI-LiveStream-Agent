@@ -20,6 +20,20 @@ DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH.as_posix()}"
 SERVER_HOST = os.getenv("LIVE_AGENT_HOST", "127.0.0.1")
 SERVER_PORT = int(os.getenv("LIVE_AGENT_PORT", "18080"))
 
+# 国内高速 pip 镜像源 (launcher 与服务端自愈安装共用，杜绝双份维护)
+DEFAULT_PIP_INDEX = os.getenv("LIVE_AGENT_PIP_INDEX", "https://pypi.tuna.tsinghua.edu.cn/simple")
+
+
+def auto_download_enabled() -> bool:
+    """
+    可选依赖 (神经唇形权重 / faster-whisper ASR 引擎) 后台自动下载安装总开关。
+
+    生产环境默认开启：体检与启动时检测到缺失即自动后台补齐，用户无感知；
+    测试或离线环境可通过 LIVE_AGENT_DISABLE_AUTO_DOWNLOAD=1 关闭，
+    此时体检仅如实上报缺失状态，不触发任何真实网络下载或 pip 安装。
+    """
+    return os.getenv("LIVE_AGENT_DISABLE_AUTO_DOWNLOAD", "0").strip() not in ("1", "true", "yes")
+
 # 读取单一版本源 version.json (SSOT)
 import json
 VERSION_FILE = BASE_DIR / "version.json"

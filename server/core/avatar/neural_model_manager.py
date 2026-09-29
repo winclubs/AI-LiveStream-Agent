@@ -53,13 +53,14 @@ MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
     },
     "onnx_lipsync": {
-        "name": "ONNX 轻量神经唇形模型 (CPU通用)",
+        "name": "ONNX 神经唇形模型 (Wav2Lip-256, CPU通用)",
         "file_name": "onnx_lipsync.onnx",
-        "description": "精简量化 ONNX 神经口型模型，支持 CPU/DirectML 快速推理，0 显存依赖",
-        "size_mb": 45,
+        "description": "Wav2Lip 256x256 标准 ONNX 导出 (mel[1,1,80,16] + face[1,6,256,256] → [1,3,256,256])，支持 CPU/DirectML 快速推理，0 显存依赖",
+        "size_mb": 205,
         "sha256": "",
         "download_sources": [
-            "https://huggingface.co/winclubs/AI-LiveStream-Agent-Assets/resolve/main/onnx_lipsync.onnx",
+            "https://hf-mirror.com/vnalex/wav2lip-256-onnx/resolve/main/wav2lip_256.onnx",
+            "https://huggingface.co/vnalex/wav2lip-256-onnx/resolve/main/wav2lip_256.onnx",
         ],
     },
 }
@@ -83,6 +84,7 @@ class NeuralModelManager:
             self.models_dir / model_key / f_name,
             BASE_DIR / "models" / f_name,
             BASE_DIR / "models" / model_key / f_name,
+            Path("D:/LiveTalking/models") / f_name,
         ]
 
     def find_model_path(self, model_key: str) -> Optional[Path]:

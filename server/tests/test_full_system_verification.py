@@ -75,7 +75,7 @@ def test_01_system_environment_and_hardware(client):
 def test_02_broadcast_wizard_and_preflight(client):
     """
     【模块 2 验证】
-    1. /api/v1/settings/modes: 4 种直播模式定义 (A/B/C/D)
+    1. /api/v1/settings/modes: 两种运行模式定义 (纯本地硬件 local / 本地云端混合 hybrid)
     2. /api/v1/settings/live-mode: 切换与获取直播模式
     3. /api/v1/settings/live-theme: 设置与读取直播主题
     4. /api/v1/live/preflight: 9 项开播前真实预检
@@ -86,16 +86,17 @@ def test_02_broadcast_wizard_and_preflight(client):
     modes_data = res_modes.json()
     assert modes_data["code"] == 0
     mode_codes = {m["code"] for m in modes_data["data"]}
-    assert {"A", "B", "C", "D"}.issubset(mode_codes)
+    assert mode_codes == {"local", "hybrid"}
 
-    # 2. 设定直播模式为主流端云混合模式 B
-    res_set_mode = client.post("/api/v1/settings/live-mode", json={"mode": "B"})
+    # 2. 设定直播模式为本地云端混合模式 hybrid
+    res_set_mode = client.post("/api/v1/settings/live-mode", json={"mode": "hybrid"})
     assert res_set_mode.status_code == 200
     assert res_set_mode.json()["code"] == 0
 
     res_get_mode = client.get("/api/v1/settings/live-mode")
     assert res_get_mode.status_code == 200
-    assert res_get_mode.json()["data"]["mode"] == "B"
+    assert res_get_mode.json()["data"]["mode"] == "hybrid"
+    assert res_get_mode.json()["data"]["display_name"] == "本地云端混合"
 
     # 3. 设定直播主题
     res_theme = client.post("/api/v1/settings/live-theme", json={"theme": "端到端系统功能全面验证直播"})

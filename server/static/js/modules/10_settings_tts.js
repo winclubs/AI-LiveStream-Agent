@@ -841,37 +841,12 @@ async function handleRegisterExternalVoiceId() {
     }
 }
 
-// 动态将新克隆的音色注入上方药丸容器首位并立即激活
-function injectClonedVoicePill(voiceVal, displayLabel) {
-    const container = document.getElementById("tts-fetched-voices-container");
-    if (!container) return;
-
-    // 清除容器中旧的“暂无音色”占位提示
-    const emptyNotice = container.querySelector("div");
-    if (emptyNotice && emptyNotice.innerText.includes("暂未获取音色")) {
-        container.innerHTML = "";
+// 动态将新克隆的音色注入并立即激活
+async function injectClonedVoicePill(voiceVal, displayLabel) {
+    const meta = resolveTTSProviderMeta(currentSelectedTTSProvider);
+    if (meta) {
+        await fetchAndRenderTTSVoices(meta, voiceVal);
     }
-
-    // 检查是否已存在相同 voiceVal 的药丸
-    let pill = container.querySelector(`[data-voice="${voiceVal}"]`);
-    if (!pill) {
-        pill = document.createElement("div");
-        pill.className = "fetched-model-pill";
-        pill.setAttribute("data-voice", voiceVal);
-        pill.setAttribute("title", `点击试听并选定专属克隆音色: ${displayLabel}`);
-        pill.style.borderColor = "#f59e0b";
-        pill.style.color = "#fbbf24";
-        pill.style.background = "rgba(245, 158, 11, 0.12)";
-        pill.style.fontWeight = "600";
-        pill.innerHTML = `
-            <svg class="pill-play-icon" viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: #fbbf24; fill: #fbbf24;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            <span class="pill-voice-name">${escapeHtml(displayLabel)}</span>
-        `;
-        pill.onclick = () => selectFetchedTTSVoice(voiceVal, displayLabel);
-        container.insertBefore(pill, container.firstChild);
-    }
-
-    // 彻底单选并选定该专属克隆音色！
     selectFetchedTTSVoice(voiceVal, displayLabel);
 }
 
@@ -1085,10 +1060,40 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
     const apiKey = keyInput ? keyInput.value.trim() : "";
     const provider = providerInput ? providerInput.value : currentSelectedTTSProvider;
 
-    // 标记当前正在播放的音色药丸动效
+    // 标记当前正在播放的音色卡片与胶囊试听按钮动效
     document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
-        el.classList.toggle("playing", el.getAttribute("data-voice") === voiceVal);
+        const isThis = el.getAttribute("data-voice") === voiceVal;
+        el.classList.toggle("playing", isThis);
+        const previewBtn = el.querySelector(".btn-voice-preview-pill");
+        if (previewBtn) {
+            previewBtn.classList.toggle("playing", isThis);
+            if (isThis) {
+                previewBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" style="width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 2.5;"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    <span>播放中</span>
+                `;
+            } else {
+                previewBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" style="width: 9px; height: 9px; stroke: currentColor; fill: currentColor;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span>试听</span>
+                `;
+            }
+        }
     });
+
+    const resetPlayingCardTags = () => {
+        document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
+            el.classList.remove("playing");
+            const previewBtn = el.querySelector(".btn-voice-preview-pill");
+            if (previewBtn) {
+                previewBtn.classList.remove("playing");
+                previewBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" style="width: 9px; height: 9px; stroke: currentColor; fill: currentColor;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span>试听</span>
+                `;
+            }
+        });
+    };
 
     if (pingStatusEl) {
         pingStatusEl.innerHTML = `
@@ -1134,7 +1139,7 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
             window._ttsPreviewController.audio = audio;
 
             audio.onended = () => {
-                document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+                resetPlayingCardTags();
                 if (pingStatusEl) {
                     pingStatusEl.innerHTML = `
                         <span style="color: #10B981; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;">
@@ -1148,7 +1153,7 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
             await audio.play();
         } else {
             const errJson = await previewRes.json().catch(() => ({}));
-            document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+            resetPlayingCardTags();
             if (pingStatusEl) {
                 pingStatusEl.innerHTML = `
                     <span style="color: #ef4444; font-size: 11.5px;">
@@ -1158,13 +1163,58 @@ async function playTTSVoicePreview(voiceVal, voiceLabel = "") {
             }
         }
     } catch (e) {
-        if (e.name === "AbortError") return; // 用户切换快速切换，正常中断
+        if (e.name === "AbortError") return; // 用户快速切换，正常中断
         console.warn("音色试听播放受阻:", e);
-        document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => el.classList.remove("playing"));
+        resetPlayingCardTags();
     }
 }
 
-// 异步拉取并渲染音色候选药丸（专属克隆音色档案与官方预设音色深度合并，专属克隆置顶展示）
+// 音色元数据解析器 (提取纯名称、风格特征标签以及业务分类)
+function parseTTSVoiceMeta(rawText, rawVal) {
+    if (!rawText) return { name: rawVal, desc: "官方通用音色", category: "other" };
+    const match = rawText.match(/^(.*?)[（\(](.*?)[）\)]$/);
+    let name = rawText.trim();
+    let desc = "";
+    if (match) {
+        name = match[1].trim();
+        desc = match[2].trim();
+    }
+    const combined = (name + " " + desc + " " + rawVal).toLowerCase();
+    let category = "other";
+    if (combined.includes("带货") || combined.includes("电商") || combined.includes("促单") || combined.includes("日用") || combined.includes("零食") || combined.includes("家电") || combined.includes("数码")) {
+        category = "ecommerce";
+    } else if (combined.includes("女声") || combined.includes("少女") || combined.includes("女主持") || combined.includes("邻家") || combined.includes("知性") || combined.includes("文雅") || combined.includes("stella")) {
+        category = "female";
+    } else if (combined.includes("男声") || combined.includes("男主持") || combined.includes("成熟稳重") || combined.includes("商务") || combined.includes("阳光") || combined.includes("磁性") || combined.includes("朝气")) {
+        category = "male";
+    } else if (combined.includes("老铁") || combined.includes("东北") || combined.includes("方言") || combined.includes("童声") || combined.includes("海外") || combined.includes("玩具") || combined.includes("解说") || combined.includes("故事") || combined.includes("bella")) {
+        category = "special";
+    }
+    return { name, desc, category };
+}
+
+// 全局音色分类过滤工具 (纯前端即时过滤，无需二次网络请求)
+window.filterTTSVoiceCategory = function(cat, btn) {
+    if (btn) {
+        document.querySelectorAll("#tts-fetched-voices-container .tts-voice-filter-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+    }
+    const cards = document.querySelectorAll("#tts-fetched-voices-container .tts-voice-card-preset");
+    let visibleCount = 0;
+    cards.forEach(card => {
+        const cCat = card.getAttribute("data-category") || "other";
+        const isMatch = (cat === "all") || (cCat === cat);
+        card.style.display = isMatch ? "flex" : "none";
+        if (isMatch) visibleCount++;
+    });
+
+    const emptyNotice = document.getElementById("tts-preset-voices-empty-notice");
+    if (emptyNotice) {
+        emptyNotice.style.display = (visibleCount === 0) ? "block" : "none";
+    }
+};
+
+// 异步拉取并渲染音色候选卡片（专属克隆资产独立置顶专区，官方预设提供网格卡片与分类工具条）
 async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
     const container = document.getElementById("tts-fetched-voices-container");
     const countStatusEl = document.getElementById("tts-voices-count-status");
@@ -1191,7 +1241,6 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
 
                 // 若该音色是官方预设音色（在官方预设推荐表中，或者 voice_type === 'preset'）
                 if (recommendedIdSet.has(vidLower) || v.voice_type === "preset") {
-                    // 若用户在音色资产库中为该官方音色改了名，同步更新推荐药丸的展示名称
                     const recItem = recommendedVoices.find(r => (r.val || "").trim().toLowerCase() === vidLower);
                     if (recItem && v.name && !v.name.startsWith("zh-CN-")) {
                         const oldDesc = recItem.text.includes("(") || recItem.text.includes("（")
@@ -1234,57 +1283,155 @@ async function fetchAndRenderTTSVoices(meta, selectedVoiceVal = "") {
     }
     if (voiceInput) voiceInput.value = currentSelected;
 
-    // 4. 构建药丸 DOM (引入全局 ID 防重锁，100% 确保每个音色只呈现一次)
-    let pillsHtml = "";
+    // 4. 构建结构化卡片 DOM (分类统计、专属克隆资产独立专区、官方预设卡片网格)
     const renderedVoiceIds = new Set();
 
-    // 4.1 专属克隆音色（金色尊贵皇冠高亮，置顶显示，只展示真实专属克隆，绝不混入官方音色）
-    clonedVoices.forEach(cv => {
-        if (!cv.id || renderedVoiceIds.has(cv.id)) return;
-        renderedVoiceIds.add(cv.id);
-
-        const isSel = cv.id === currentSelected;
-        pillsHtml += `
-            <div class="fetched-model-pill cloned-voice-pill ${isSel ? 'selected' : ''}"
-                 data-voice="${escapeHtml(cv.id)}"
-                 data-is-clone="true"
-                 title="点击选定并试听专属克隆音色: ${escapeHtml(cv.name)} (ID: ${escapeHtml(cv.id)})"
-                 onclick="selectFetchedTTSVoice('${escapeHtml(cv.id)}', '${escapeHtml(cv.name)} (专属克隆)')"
-                 style="border-color: rgba(245, 158, 11, 0.65); background: ${isSel ? 'rgba(245, 158, 11, 0.28)' : 'rgba(245, 158, 11, 0.12)'}; color: #FBBF24; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px;">
-                <span style="font-size: 13px;">👑</span>
-                <span style="font-weight: 600;">${escapeHtml(cv.name)}</span>
-                <span class="btn-delete-clone-pill"
-                      title="删除此克隆音色档案"
-                      onclick="handleDeleteClonedVoice(event, '${escapeHtml(cv.id)}', '${escapeHtml(cv.name)}')"
-                      style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: rgba(239, 68, 68, 0.25); color: #f87171; margin-left: 4px; cursor: pointer; transition: all 0.2s;"
-                      onmouseover="this.style.background='#ef4444';this.style.color='#ffffff';"
-                      onmouseout="this.style.background='rgba(239, 68, 68, 0.25)';this.style.color='#f87171';">
-                    <svg viewBox="0 0 24 24" style="width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 3;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </span>
-            </div>
-        `;
+    // 统计官方音色分类
+    let countEcom = 0;
+    let countFemale = 0;
+    let countMale = 0;
+    let countSpecial = 0;
+    recommendedVoices.forEach(v => {
+        if (!v.val) return;
+        const metaInfo = parseTTSVoiceMeta(v.text, v.val);
+        if (metaInfo.category === "ecommerce") countEcom++;
+        else if (metaInfo.category === "female") countFemale++;
+        else if (metaInfo.category === "male") countMale++;
+        else if (metaInfo.category === "special") countSpecial++;
     });
 
-    // 4.2 引擎预设官方音色（严格排重，已作为克隆展示的绝不在此重复）
+    let layoutHtml = "";
+
+    // 4.1 顶部音色分类过滤器工具条
+    layoutHtml += `
+        <div class="tts-voice-filter-bar">
+            <div class="tts-voice-section-title" style="margin-bottom: 0; color: var(--text-primary);">
+                <span style="display: inline-block; width: 3px; height: 12px; background: #10B981; border-radius: 2px;"></span>
+                <span>可用发音人声库</span>
+            </div>
+            <div class="tts-voice-filter-tags">
+                <button type="button" class="tts-voice-filter-btn active" onclick="filterTTSVoiceCategory('all', this)">全部 (${recommendedVoices.length})</button>
+                <button type="button" class="tts-voice-filter-btn" onclick="filterTTSVoiceCategory('ecommerce', this)">🛒 电商带货 (${countEcom})</button>
+                <button type="button" class="tts-voice-filter-btn" onclick="filterTTSVoiceCategory('female', this)">👩 亲和女声 (${countFemale})</button>
+                <button type="button" class="tts-voice-filter-btn" onclick="filterTTSVoiceCategory('male', this)">👨 沉稳男声 (${countMale})</button>
+                <button type="button" class="tts-voice-filter-btn" onclick="filterTTSVoiceCategory('special', this)">✨ 方言/特色 (${countSpecial})</button>
+            </div>
+        </div>
+    `;
+
+    // 4.2 专属克隆声音资产专区（若存在，置顶独立展示，采用金色 VIP 卡片网格）
+    if (clonedVoices.length > 0) {
+        layoutHtml += `
+            <div class="tts-voice-section-title" style="color: #FBBF24; margin-top: 4px;">
+                <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #FBBF24; fill: none; stroke-width: 2;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                <span>👑 主播专属声音克隆资产 (${clonedVoices.length} 款)</span>
+            </div>
+            <div class="tts-cloned-voices-grid">
+        `;
+
+        clonedVoices.forEach(cv => {
+            if (!cv.id || renderedVoiceIds.has(cv.id)) return;
+            renderedVoiceIds.add(cv.id);
+
+            const isSel = cv.id === currentSelected;
+            layoutHtml += `
+                <div class="fetched-model-pill cloned-voice-pill tts-voice-card-clone ${isSel ? 'selected' : ''}"
+                     data-voice="${escapeHtml(cv.id)}"
+                     data-is-clone="true"
+                     title="专属克隆音色: ${escapeHtml(cv.name)} (ID: ${escapeHtml(cv.id)}) · 点击选定并试听"
+                     onclick="selectFetchedTTSVoice('${escapeHtml(cv.id)}', '${escapeHtml(cv.name)} (专属克隆)')">
+                    <!-- 第一行：皇冠 + 发音人名称 + 选中状态徽标 (右侧预留右上角删除按钮位置) -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; padding-right: 22px;">
+                        <span class="tts-voice-name-text" style="font-weight: 700; color: #fbbf24; font-size: 13px; display: inline-flex; align-items: center; gap: 5px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                            <span style="font-size: 13px; line-height: 1;">👑</span>
+                            ${escapeHtml(cv.name)}
+                        </span>
+                        <span class="tts-voice-status-tag" style="font-size: 9.5px; padding: 1.5px 6px; border-radius: 3px; font-weight: 600; background: #10B981; color: #ffffff; ${isSel ? 'display: inline-block;' : 'display: none;'}">
+                            使用中 ✔
+                        </span>
+                    </div>
+                    <!-- 第二行：专属定制声线标签 + 金色试听胶囊按钮 -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                        <span style="font-size: 11px; color: #fbbf24; background: rgba(245, 158, 11, 0.16); padding: 1.5px 6px; border-radius: 3px; font-weight: 600; flex-shrink: 0;">
+                            专属定制声线
+                        </span>
+                        <span class="btn-voice-preview-pill clone"
+                              title="点击试听此专属克隆声音"
+                              onclick="handlePlayVoicePillBtn(event, '${escapeHtml(cv.id)}', '${escapeHtml(cv.name)} (专属克隆)')">
+                            <svg viewBox="0 0 24 24" style="width: 9px; height: 9px; stroke: currentColor; fill: currentColor;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            <span>试听</span>
+                        </span>
+                    </div>
+                    <!-- 右上角绝对定位删除按钮 (固定于卡片内部右上角) -->
+                    <span class="btn-delete-clone-pill"
+                          title="彻底删除此克隆音色档案"
+                          onclick="handleDeleteClonedVoice(event, '${escapeHtml(cv.id)}', '${escapeHtml(cv.name)}')">
+                        <svg viewBox="0 0 24 24" style="width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 3;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </span>
+                </div>
+            `;
+        });
+
+        layoutHtml += `</div>`;
+    }
+
+    // 4.3 官方预设精选音色库（卡片化双行排版与自适应网格）
+    layoutHtml += `
+        <div class="tts-voice-section-title" style="color: #38BDF8; margin-top: ${clonedVoices.length > 0 ? '14px' : '4px'};">
+            <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #38BDF8; fill: none; stroke-width: 2;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+            <span>🎙️ 官方精选预设音色库 (${recommendedVoices.length} 款)</span>
+        </div>
+        <div class="tts-preset-voices-grid">
+    `;
+
     recommendedVoices.forEach(v => {
         if (!v.val || renderedVoiceIds.has(v.val)) return;
         renderedVoiceIds.add(v.val);
 
         const isSel = v.val === currentSelected;
-        pillsHtml += `
-            <div class="fetched-model-pill ${isSel ? 'selected' : ''}"
+        const metaInfo = parseTTSVoiceMeta(v.text, v.val);
+
+        layoutHtml += `
+            <div class="fetched-model-pill tts-voice-card-preset ${isSel ? 'selected' : ''}"
                  data-voice="${escapeHtml(v.val)}"
-                 title="点击试听并选定官方音色: ${escapeHtml(v.text)}"
+                 data-category="${escapeHtml(metaInfo.category)}"
+                 title="点击选定并试听官方音色: ${escapeHtml(v.text)}"
                  onclick="selectFetchedTTSVoice('${escapeHtml(v.val)}', '${escapeHtml(v.text)}')">
-                ${escapeHtml(v.text)}
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                    <span class="tts-voice-name-text" style="font-weight: 700; font-size: 12.5px; color: ${isSel ? '#34D399' : 'var(--text-primary)'}; display: inline-flex; align-items: center; gap: 4px;">
+                        <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+                        ${escapeHtml(metaInfo.name)}
+                    </span>
+                    <span class="tts-voice-status-tag" style="font-size: 9.5px; padding: 1.5px 5px; border-radius: 3px; font-weight: 600; background: #10B981; color: #ffffff; ${isSel ? 'display: inline-block;' : 'display: none;'}">
+                        使用中 ✔
+                    </span>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                    <span style="font-size: 11px; color: var(--text-muted); background: rgba(15, 23, 42, 0.55); padding: 1.5px 6px; border-radius: 3px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 65%;">
+                        ${escapeHtml(metaInfo.desc || '官方推荐声线')}
+                    </span>
+                    <span class="btn-voice-preview-pill"
+                          title="点击试听发音"
+                          onclick="handlePlayVoicePillBtn(event, '${escapeHtml(v.val)}', '${escapeHtml(v.text)}')">
+                        <svg viewBox="0 0 24 24" style="width: 9px; height: 9px; stroke: currentColor; fill: currentColor;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <span>试听</span>
+                    </span>
+                </div>
             </div>
         `;
     });
 
-    if (!pillsHtml) {
-        container.innerHTML = `<div style="color: var(--text-muted); font-size: 12px;">暂无可用的发音音色，请点击上方「获取音色与模型」。</div>`;
+    layoutHtml += `
+            <div id="tts-preset-voices-empty-notice" style="display: none; grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 12px; padding: 16px 0;">
+                当前分类下暂无匹配音色，请切换其他分类。
+            </div>
+        </div>
+    `;
+
+    if (renderedVoiceIds.size === 0) {
+        container.innerHTML = `<div style="color: var(--text-muted); font-size: 12px; padding: 12px 6px;">暂无可用的发音音色，请点击上方「获取音色与模型」。</div>`;
     } else {
-        container.innerHTML = pillsHtml;
+        container.innerHTML = layoutHtml;
     }
 
     // 5. 更新状态与计数
@@ -1359,17 +1506,48 @@ async function handleDeleteClonedVoice(event, voiceId, voiceName) {
     }
 }
 
+// 试听胶囊按钮专属点击事件 (阻止冒泡，避免重复触发，立即播放试听)
+function handlePlayVoicePillBtn(event, voiceVal, voiceLabel) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    if (!voiceVal) return;
+    selectFetchedTTSVoice(voiceVal, voiceLabel);
+}
+
 // 切换选定音色 (点击立即自动发起试听并单选)
 function selectFetchedTTSVoice(voiceVal, voiceLabel = "") {
     if (!voiceVal) return;
     const voiceInput = document.getElementById("tts-input-voice");
     if (voiceInput) voiceInput.value = voiceVal;
 
-    // 清除全容器内所有药丸的 selected，只为当前匹配项保留 selected
+    // 清除全容器内所有药丸的 selected，只为当前匹配项保留 selected 并更新卡片内部徽标
     document.querySelectorAll("#tts-fetched-voices-container .fetched-model-pill").forEach(el => {
         const isMatch = el.getAttribute("data-voice") === voiceVal;
         el.classList.toggle("selected", isMatch);
         if (!isMatch) el.classList.remove("playing");
+
+        // 动态同步更新卡片内状态角标 (选中的显示翡翠绿徽标，未选中的隐藏，避免界面杂乱)
+        const tag = el.querySelector(".tts-voice-status-tag");
+        if (tag) {
+            if (isMatch) {
+                tag.style.display = "inline-block";
+                tag.textContent = "使用中 ✔";
+                tag.style.background = "#10B981";
+                tag.style.color = "#ffffff";
+            } else {
+                tag.style.display = "none";
+            }
+        }
+        // 同步标题文字颜色
+        const titleSpan = el.querySelector(".tts-voice-name-text");
+        if (titleSpan) {
+            const isClone = el.getAttribute("data-is-clone") === "true";
+            if (!isClone) {
+                titleSpan.style.color = isMatch ? "#34D399" : "var(--text-primary)";
+            }
+        }
     });
 
     const countStatusEl = document.getElementById("tts-voices-count-status");
@@ -1381,7 +1559,7 @@ function selectFetchedTTSVoice(voiceVal, voiceLabel = "") {
         if (!displayName || displayName === voiceVal) {
             const matchedPill = document.querySelector(`#tts-fetched-voices-container .fetched-model-pill[data-voice="${voiceVal}"]`);
             if (matchedPill) {
-                const nameSpan = matchedPill.querySelector("span:not(.btn-delete-clone-pill)") || matchedPill;
+                const nameSpan = matchedPill.querySelector(".tts-voice-name-text") || matchedPill.querySelector("span:not(.btn-delete-clone-pill)") || matchedPill;
                 displayName = nameSpan.textContent.trim();
             } else {
                 displayName = "已选定音色";

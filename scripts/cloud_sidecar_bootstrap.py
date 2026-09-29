@@ -29,6 +29,7 @@ import socket
 import argparse
 import subprocess
 from pathlib import Path
+from typing import Optional, Dict, Any, List
 
 # 配置常量
 DEFAULT_PORT = 8010
@@ -92,35 +93,95 @@ def check_and_install_dependencies():
             sys.exit(1)
 
 
-def detect_gpu_hardware() -> str:
-    """自动探查当前机器显卡型号与显存"""
-    gpu_info = "CPU 软件渲染 (未检测到独显)"
-    try:
-        smi_out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"],
-            stderr=subprocess.DEVNULL,
-            timeout=3
-        ).decode("utf-8", errors="ignore").strip()
-        if smi_out:
-            lines = smi_out.splitlines()
-            gpu_desc = lines[0].split(",")
-            name = gpu_desc[0].strip()
-            total = gpu_desc[1].strip() if len(gpu_desc) > 1 else ""
-            gpu_info = f"{name} ({total}MB 显存)"
-            return gpu_info
-    except Exception:
-        pass
+def detect_gpu_hardware(cli_gpu: Optional[str] = None, cli_vram: Optional[int] = None) -> dict:
+    """自动实机探查当前宿主机物理显卡型号与显存 (支持多路径探测、环境覆盖与显存容量规范化)"""
+    if cli_gpu:
+        vram_val = float(cli_vram) if cli_vram is not None else 0.0
+        vram_desc = f" ({cli_vram} GB 显存)" if cli_vram is not None else ""
+        return {
+            "device": f"{cli_gpu}{vram_desc}".strip(),
+            "gpu_name": cli_gpu.strip(),
+            "vram_gb": vram_val,
+            "vram_mb": int(vram_val * 1024),
+            "cuda_available": True
+        }
 
+    # 1. 优先环境变量覆盖
+    env_gpu = os.environ.get("GPU_DEVICE") or os.environ.get("CLOUD_GPU_MODEL")
+    if env_gpu and env_gpu.strip():
+        dev_str = env_gpu.strip()
+        return {
+            "device": dev_str,
+            "gpu_name": dev_str,
+            "vram_gb": 0.0,
+            "vram_mb": 0,
+            "cuda_available": "CPU" not in dev_str.upper()
+        }
+
+    # 2. 尝试 PyTorch CUDA 提取硬件名与物理显存 (最直接准确)
     try:
         import torch
         if torch.cuda.is_available():
             name = torch.cuda.get_device_name(0)
-            total_mb = int(torch.cuda.get_device_properties(0).total_memory / 1024 / 1024)
-            gpu_info = f"{name} ({total_mb}MB 显存)"
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+            total_mb = int(total_bytes / (1024 * 1024))
+            total_gb = round(total_bytes / (1024 ** 3), 1)
+            vram_int = round(total_gb)
+            vram_final = vram_int if abs(total_gb - vram_int) < 0.3 else total_gb
+            return {
+                "device": f"{name} ({vram_final} GB 显存 · {total_mb} MiB)",
+                "gpu_name": name,
+                "vram_gb": vram_final,
+                "vram_mb": total_mb,
+                "cuda_available": True
+            }
     except Exception:
         pass
 
-    return gpu_info
+    # 3. 尝试多种常见 nvidia-smi 路径
+    smi_candidates = [
+        shutil.which("nvidia-smi"),
+        "nvidia-smi",
+        "/usr/bin/nvidia-smi",
+        "/usr/local/cuda/bin/nvidia-smi",
+        "/usr/local/nvidia/bin/nvidia-smi",
+        "/opt/conda/bin/nvidia-smi"
+    ]
+    for bin_path in smi_candidates:
+        if not bin_path:
+            continue
+        try:
+            smi_out = subprocess.check_output(
+                [bin_path, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                stderr=subprocess.DEVNULL,
+                timeout=3
+            ).decode("utf-8", errors="ignore").strip()
+            if smi_out:
+                lines = smi_out.splitlines()
+                gpu_desc = lines[0].split(",")
+                name = gpu_desc[0].strip()
+                total_mb = int(float(gpu_desc[1].strip())) if len(gpu_desc) > 1 else 0
+                total_gb = round(total_mb / 1024, 1)
+                vram_int = round(total_gb)
+                vram_final = vram_int if abs(total_gb - vram_int) < 0.3 else total_gb
+                return {
+                    "device": f"{name} ({vram_final} GB 显存 · {total_mb} MiB)" if total_mb > 0 else name,
+                    "gpu_name": name,
+                    "vram_gb": vram_final,
+                    "vram_mb": total_mb,
+                    "cuda_available": True
+                }
+        except Exception:
+            continue
+
+    # 4. 未检测到任何独立显卡 (纯 CPU 实例)
+    return {
+        "device": "CPU 软件渲染 (0 GB 显存 · 未检测到独立显卡)",
+        "gpu_name": "CPU 软件渲染 (未检测到独显)",
+        "vram_gb": 0.0,
+        "vram_mb": 0,
+        "cuda_available": False
+    }
 
 
 def is_port_in_use(port: int) -> bool:
@@ -200,6 +261,92 @@ app = FastAPI(title="AI-LiveStream Cloud GPU Sidecar", version="3.0.0")
 
 GPU_DEVICE = {repr(gpu_info)}
 START_TIME = time.time()
+
+def probe_runtime_gpu() -> dict:
+    """服务端运行时动态探测宿主机真实物理 GPU 硬件型号与显存 (支持 Colab T4/A100、各类算力云)"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            dev_name = torch.cuda.get_device_name(0)
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+            total_mb = int(total_bytes / (1024 * 1024))
+            total_gb = round(total_bytes / (1024 ** 3), 1)
+            vram_int = round(total_gb)
+            vram_final = vram_int if abs(total_gb - vram_int) < 0.3 else total_gb
+            return {{
+                "device": f"{{dev_name}} ({{vram_final}} GB 显存 · {{total_mb}} MiB)",
+                "gpu_name": dev_name,
+                "vram_gb": vram_final,
+                "vram_mb": total_mb,
+                "cuda_available": True
+            }}
+    except Exception:
+        pass
+
+    import shutil, subprocess
+    smi_candidates = [
+        shutil.which("nvidia-smi"),
+        "nvidia-smi",
+        "/usr/bin/nvidia-smi",
+        "/usr/local/cuda/bin/nvidia-smi",
+        "/usr/local/nvidia/bin/nvidia-smi",
+        "/opt/conda/bin/nvidia-smi"
+    ]
+    for bin_path in smi_candidates:
+        if not bin_path:
+            continue
+        try:
+            smi_out = subprocess.check_output(
+                [bin_path, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                stderr=subprocess.DEVNULL,
+                timeout=2.5
+            ).decode("utf-8", errors="ignore").strip()
+            if smi_out:
+                lines = smi_out.splitlines()
+                gpu_desc = lines[0].split(",")
+                name = gpu_desc[0].strip()
+                total_mb = int(float(gpu_desc[1].strip())) if len(gpu_desc) > 1 else 0
+                total_gb = round(total_mb / 1024, 1)
+                vram_int = round(total_gb)
+                vram_final = vram_int if abs(total_gb - vram_int) < 0.3 else total_gb
+                return {{
+                    "device": f"{{name}} ({{vram_final}} GB 显存 · {{total_mb}} MiB)" if total_mb > 0 else name,
+                    "gpu_name": name,
+                    "vram_gb": vram_final,
+                    "vram_mb": total_mb,
+                    "cuda_available": True
+                }}
+        except Exception:
+            continue
+
+    fallback_dev = os.environ.get("GPU_DEVICE") or os.environ.get("CLOUD_GPU_MODEL") or GPU_DEVICE
+    if fallback_dev and fallback_dev.strip() and "未检测" not in fallback_dev:
+        dev_str = fallback_dev.strip()
+        import re
+        v_gb = 0.0
+        m_gb = re.search(r"(\\d+(?:\\.\\d+)?)\\s*GB", dev_str, re.IGNORECASE)
+        if m_gb:
+            v_gb = float(m_gb.group(1))
+        else:
+            m_mb = re.search(r"(\\d+)\\s*(?:MiB|MB)", dev_str, re.IGNORECASE)
+            if m_mb:
+                v_gb = round(int(m_mb.group(1)) / 1024, 1)
+        clean_name = re.sub(r"\\s*\\([^)]*\\)", "", dev_str.split(",")[0]).strip()
+        return {{
+            "device": dev_str,
+            "gpu_name": clean_name or dev_str,
+            "vram_gb": v_gb,
+            "vram_mb": int(v_gb * 1024),
+            "cuda_available": "CPU" not in dev_str.upper()
+        }}
+
+    return {{
+        "device": "CPU 软件渲染 (0 GB 显存 · 未检测到独立显卡)",
+        "gpu_name": "CPU 软件渲染 (未检测到独显)",
+        "vram_gb": 0.0,
+        "vram_mb": 0,
+        "cuda_available": False
+    }}
 
 # 协议常量 (严格对齐 sidecar_protocol.py)
 PROTOCOL_VERSION = 3
@@ -313,10 +460,14 @@ avatar_renderer = RealtimeAvatarRenderer()
 
 @app.get("/health")
 def health_check():
+    hw = probe_runtime_gpu()
     return {{
         "code": 0,
         "status": "healthy",
-        "device": GPU_DEVICE,
+        "device": hw["device"],
+        "gpu_name": hw["gpu_name"],
+        "vram_gb": hw["vram_gb"],
+        "cuda_available": hw["cuda_available"],
         "uptime_sec": int(time.time() - START_TIME),
         "service": "AI-LiveStream-Agent-Cloud-Sidecar",
         "renderer": "RealtimeWav2LipRenderer" if CV_AVAILABLE else "GenericRenderer"
@@ -327,15 +478,19 @@ def health_check():
 async def render_ws_endpoint(ws: WebSocket):
     await ws.accept()
     logger.info("主控客户端建立 WebSocket 渲染连接")
+    hw = probe_runtime_gpu()
 
-    # 规范化握手响应 (契约标准)
+    # 规范化握手响应 (契约标准，包含实机动态识别的显卡型号与真实显存)
     ack_payload = {{
         "event": "handshake_ack",
         "version": "v3",
         "protocol_version": 3,
         "selected_version": 3,
         "node_version": "3.0.0",
-        "device": GPU_DEVICE,
+        "device": hw["device"],
+        "gpu_name": hw["gpu_name"],
+        "vram_gb": hw["vram_gb"],
+        "cuda_available": hw["cuda_available"],
         "status": "ready",
         "server_time": time.time(),
         "capabilities": {{
@@ -383,6 +538,9 @@ async def render_ws_endpoint(ws: WebSocket):
     current_session_generation = 0
     received_audio_bytes = 0
     received_samples = 0
+    received_audio_frames = 0
+    declared_total_frames = 0
+    declared_frame_duration = 0
     rendered_frames_count = 0
     rendered_bytes_count = 0
     sample_rate = 16000
@@ -391,6 +549,7 @@ async def render_ws_endpoint(ws: WebSocket):
     # 音频暂存与分帧队列
     audio_buffer = bytearray()
     last_pts_samples = 0
+    last_video_pts = 0
     video_sequence = 0
 
     try:
@@ -433,10 +592,14 @@ async def render_ws_endpoint(ws: WebSocket):
                     sample_rate = int(fmt.get("sample_rate", 16000))
                     received_audio_bytes = 0
                     received_samples = 0
+                    received_audio_frames = 0
+                    declared_total_frames = int(msg.get("total_frames", 0) or 0)
+                    declared_frame_duration = int(msg.get("frame_duration_samples", 0) or 0)
                     rendered_frames_count = 0
                     rendered_bytes_count = 0
                     video_sequence = 0
                     last_pts_samples = 0
+                    last_video_pts = 0
                     audio_buffer.clear()
 
                     # 分配初始信用
@@ -466,7 +629,9 @@ async def render_ws_endpoint(ws: WebSocket):
                         mouth_open = min(1.0, energy * 4.5)
                         jpeg_bytes = avatar_renderer.render_frame(mouth_open, mouth_open * 0.7, video_sequence)
 
-                        last_pts_samples = received_samples
+                        # 尾帧 PTS 取剩余音频窗口的起始采样，避免落在 total_samples 边界之外
+                        last_pts_samples = received_samples - max(0, len(samples_arr))
+                        last_video_pts = last_pts_samples
                         v_frame = {{
                             "request_id": current_request_id,
                             "audio_id": current_audio_id,
@@ -489,14 +654,18 @@ async def render_ws_endpoint(ws: WebSocket):
                         "audio_id": current_audio_id,
                         "rendered_frames": rendered_frames_count,
                         "rendered_bytes": rendered_bytes_count,
-                        "last_video_pts_samples": last_pts_samples,
+                        "last_pts_samples": received_samples,
+                        "evidence": ack_payload["capabilities"]["render_backends"][0],
                         "strict_totals": {{
-                            "input_frames": max(1, rendered_frames_count),
+                            "declared_frames": declared_total_frames,
+                            "declared_samples": declared_total_frames * declared_frame_duration,
+                            "frame_duration_samples": declared_frame_duration,
+                            "received_frames": received_audio_frames,
                             "received_samples": received_samples,
                             "received_bytes": received_audio_bytes,
                             "rendered_frames": rendered_frames_count,
                             "rendered_bytes": rendered_bytes_count,
-                            "last_video_pts_samples": last_pts_samples
+                            "last_video_pts_samples": last_video_pts
                         }}
                     }}
                     await ws.send_text(json.dumps(complete_payload))
@@ -524,6 +693,7 @@ async def render_ws_endpoint(ws: WebSocket):
 
                 if kind == KIND_AUDIO:
                     received_audio_bytes += len(pcm_data)
+                    received_audio_frames += 1
                     samples_in_frame = len(pcm_data) // 2
                     received_samples += samples_in_frame
                     audio_buffer.extend(pcm_data)
@@ -545,8 +715,11 @@ async def render_ws_endpoint(ws: WebSocket):
                         mouth_width = min(1.0, energy * 2.8)
 
                         jpeg_bytes = avatar_renderer.render_frame(mouth_open, mouth_width, video_sequence)
-                        cur_pts = last_pts_samples + samples_per_video_frame
-                        last_pts_samples = cur_pts
+                        # PTS 取该帧音频窗口的起始采样位置 (帧起始语义)，与客户端
+                        # pts_samples < total_samples 的严格区间校验对齐。
+                        cur_pts = last_pts_samples
+                        last_pts_samples = last_pts_samples + samples_per_video_frame
+                        last_video_pts = cur_pts
 
                         v_frame_meta = {{
                             "request_id": current_request_id,
@@ -600,6 +773,8 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"本地渲染监听端口 (默认: {DEFAULT_PORT})")
     parser.add_argument("--no-tunnel", action="store_true", help="不拉起 Cloudflare 隧道 (仅局域网直连)")
     parser.add_argument("--daemon", action="store_true", help="后台守护启动后立即退出前台")
+    parser.add_argument("--gpu", type=str, default=None, help="显式指定 GPU 硬件型号 (如 Tesla T4 / RTX 4090)")
+    parser.add_argument("--vram", type=int, default=None, help="显式指定 GPU 显存容量 GB (如 15 或 24)")
     args = parser.parse_args()
 
     print_banner()
@@ -607,9 +782,18 @@ def main():
     # 1. 检查基础环境与依赖
     check_and_install_dependencies()
 
-    # 2. 硬件探查
-    gpu_info = detect_gpu_hardware()
-    print(f"  {GREEN}[✓] 宿主机硬件环境: {BOLD}{gpu_info}{RESET}")
+    # 2. 硬件探查 (全自动实机探测)
+    gpu_data = detect_gpu_hardware(cli_gpu=args.gpu, cli_vram=args.vram)
+    gpu_info = gpu_data["device"]
+    if not gpu_data["cuda_available"] or "CPU" in gpu_data["gpu_name"].upper():
+        print(f"\n{RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}")
+        print(f"{YELLOW}⚠️  【重要提示】当前云端实例未检测到物理 GPU 独显 (当前为纯 CPU 软件渲染)！{RESET}")
+        print(f"{YELLOW}👉 如果您使用的是 Google Colab：{RESET}")
+        print(f"   请在 Colab 顶部菜单依次点击：【代码执行程序】->【更改运行时类型】->【硬件加速器】")
+        print(f"   切换为【T4 GPU】或【A100 GPU】并保存，然后重新执行本启动脚本即可自动识别！")
+        print(f"{RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{RESET}")
+    else:
+        print(f"  {GREEN}[✓] 宿主机实机显卡自动探测成功: {BOLD}{gpu_data['gpu_name']}{RESET} (显存: {gpu_data['vram_gb']} GB)")
 
     # 3. 准备日志目录
     LOG_DIR.mkdir(parents=True, exist_ok=True)

@@ -30,54 +30,58 @@ logger = logging.getLogger("LiveAgent.Settings")
 router = APIRouter(prefix="/settings", tags=["系统配置与API服务商"])
 
 # ---------------------------------------------------------------------------
-# 直播模式定义 (规划 §8.1 硬件档次矩阵) —— 需求 1：开播前第一步选择直播模式
+# 直播运行模式定义：仅保留两种核心模式（纯本地硬件 vs 本地云端混合）
 # ---------------------------------------------------------------------------
 LIVE_MODES = {
-    "A": {
-        "code": "A",
-        "name": "全本地离线模式",
-        "hardware": "RTX 3090 / 4080 / 4090 (16G-24G)",
-        "llm": "本地 Ollama (DeepSeek-R1-14B / Qwen2.5)",
-        "tts": "本地 CosyVoice 2 (FP16)",
-        "avatar": "本地 OpenCV 程序化头像 (720P 25FPS；非 MuseTalk/TRT)",
-        "cost": "0 元 (仅消耗电费)",
-        "audience": "拥有专业主机、注重数据绝对隐私企业",
+    "local": {
+        "code": "local",
+        "name": "纯本地硬件",
+        "hardware": "RTX 3060 8G+ / 4核+ CPU / 16G+ 内存",
+        "llm": "本地大模型 (Ollama / Qwen2.5 / DeepSeek 本地蒸馏)",
+        "tts": "本地 MOSS-TTS-Nano / 本地 CosyVoice",
+        "avatar": "本地独立显卡高性能实时渲染 (720P~1080P 25FPS)",
+        "cost": "0 元 (仅消耗本地电费)",
+        "audience": "拥有达标独立显卡、注重数据私密与完全离线运行的用户",
         "required_configs": ["local_ollama", "local_cosyvoice"]
     },
-    "B": {
-        "code": "B",
-        "name": "主流端云混合模式",
-        "hardware": "RTX 2060 / 3060 / 4060 (6G-8G)",
-        "llm": "云端 API (DeepSeek / GPT / Kimi)",
-        "tts": "本地 CosyVoice / 云端极速 TTS (Edge)",
-        "avatar": "本地优化版数字人 (720P 25FPS)",
-        "cost": "仅少量 API 费用 (约 0.5 元/小时)",
-        "audience": "绝大多数拥有入门独显的个人主播",
-        "required_configs": ["openai_compatible", "cloud_edge_tts"]
-    },
-    "C": {
-        "code": "C",
-        "name": "端云分离架构",
-        "hardware": "低配电脑 / 2G 显卡 / 苹果 Mac（本地负责控制与程序化 shadow）",
-        "llm": "本地调度中枢与知识库 + 独立云端大模型 API",
-        "tts": "独立本地或云端 TTS；与 Avatar 渲染解耦",
-        "avatar": "本地程序化 Avatar 热 shadow + 可选 renderer-only Provider；仅运行时健康且已验证的节点才自动接管",
-        "cost": "本地程序化画面无额外 API 费；云端费用按实际 LLM、TTS、Avatar Provider 或自建节点计费",
-        "audience": "本地显存有限、需要按实际条件选配远端渲染的用户",
+    "hybrid": {
+        "code": "hybrid",
+        "name": "本地云端混合",
+        "hardware": "办公本 / 核显 / 普通电脑 + 弹性云端算力节点",
+        "llm": "云端大模型 API (DeepSeek / 阿里百炼 / GPT)",
+        "tts": "云端极速 TTS (百炼 CosyVoice / ElevenLabs)",
+        "avatar": "本地主控调度 + 租赁云端 GPU 实时高清写实渲染 (1080P/30FPS)",
+        "cost": "按需计费 (极低 API 费 + 云端 GPU 约 1.2 元/小时)",
+        "audience": "绝大多数个人主播、办公本或轻薄本用户，低成本实现写实真人",
         "required_configs": ["openai_compatible", "cloud_edge_tts", "neural_renderer"]
-    },
-    "D": {
-        "code": "D",
-        "name": "轻量免显卡模式",
-        "hardware": "办公轻薄本 / 纯 CPU",
-        "llm": "云端 API 直连",
-        "tts": "云端极速 TTS (MiniMax / Edge)",
-        "avatar": "轻量 mock 媒体驱动（当前未交付 Live2D）",
-        "cost": "极微量 API 费用",
-        "audience": "二次元虚拟主播、游戏闲聊、知识答疑",
-        "required_configs": ["cloud_edge_tts", "openai_compatible"]
     }
 }
+
+# 别名映射：无缝兼容历史 A/B/C/D 档位入参与测试
+LIVE_MODES["A"] = LIVE_MODES["local"]
+LIVE_MODES["B"] = LIVE_MODES["hybrid"]
+LIVE_MODES["C"] = LIVE_MODES["hybrid"]
+LIVE_MODES["D"] = LIVE_MODES["hybrid"]
+
+LIVE_MODE_ALIASES = {
+    "local": "local",
+    "hybrid": "hybrid",
+    "纯本地硬件": "local",
+    "本地云端混合": "hybrid",
+    "A": "local",
+    "B": "hybrid",
+    "C": "hybrid",
+    "D": "hybrid",
+}
+
+
+def normalize_live_mode(mode: Optional[str]) -> str:
+    """将任意模式入参（包括历史 A/B/C/D 档位）统一定位归一化为 local 或 hybrid"""
+    if not mode:
+        return "hybrid"
+    clean_val = str(mode).strip()
+    return LIVE_MODE_ALIASES.get(clean_val, "hybrid")
+
 
 SETTING_KEY_LIVE_MODE = "live_mode"
 SETTING_KEY_WIZARD_DONE = "wizard_completed"
@@ -101,13 +105,13 @@ async def _set_setting(db: AsyncSession, key: str, value: str) -> None:
 
 
 class LiveModeRequest(BaseModel):
-    mode: str = Field(min_length=1, max_length=1)  # A / B / C / D
+    mode: str = Field(min_length=1, max_length=32)  # local / hybrid / A / B / C / D / 纯本地硬件 / 本地云端混合
 
 
 @router.get("/modes")
 async def list_live_modes():
-    """获取全部可选直播模式定义 (需求 1：第一步选择直播模式)"""
-    return {"code": 0, "data": list(LIVE_MODES.values())}
+    """获取系统支持的两种直播运行模式定义 (纯本地硬件 vs 本地云端混合)"""
+    return {"code": 0, "data": [LIVE_MODES["local"], LIVE_MODES["hybrid"]]}
 
 
 @router.get("/avatar/providers")
@@ -126,53 +130,37 @@ async def list_avatar_providers():
 async def get_recommended_mode():
     """
     根据本机硬件配置自动推荐最适合的运行模式 (默认选择项)
-    档位映射 (规划 §8.1)：
-      - CUDA 可用且显存 >= 16G  -> A 全本地离线
-      - 显存 >= 6G              -> B 主流端云混合
-      - 有显卡但显存 < 6G        -> C 端云分离 (本地仅调度中枢)
-      - 无独立显卡               -> D 轻量免显卡
+      - CUDA 可用且显存 >= 7.5G -> local (纯本地硬件)
+      - 其他情况                -> hybrid (本地云端混合)
     """
     import asyncio
-    from server.routes.live import _probe_gpu, _recommend_tier
+    from server.routes.live import _probe_gpu
     gpu = await asyncio.to_thread(_probe_gpu)
-    tier = _recommend_tier(gpu)
-    mode_code = tier.split(" ")[1] if tier.startswith("Tier") else "D"
-
-    gpu_name = gpu.get("gpu_name")
+    gpu_name = gpu.get("gpu_name") or "集成显卡/核显"
     vram = gpu.get("vram_total_gb", 0) or 0
     cuda = gpu.get("cuda_available", False)
 
-    if mode_code == "A":
+    if cuda and vram >= 7.5:
+        mode_code = "local"
+        tier = "纯本地硬件 (本地单机运行)"
         reason = (
-            f"检测到 {gpu_name} (显存 {vram}GB) 且 CUDA 加速可用，显存充裕，"
-            "可全本地离线运行大模型与数字人渲染：0 元成本、数据绝对隐私。"
-        )
-    elif mode_code == "B":
-        reason = (
-            f"检测到 {gpu_name} (显存 {vram}GB)，足以本地运行轻量数字人渲染 (720P/25FPS)；"
-            "大模型建议走云端 API，仅产生少量 API 费用 (约 0.5 元/小时)。"
-        )
-    elif mode_code == "C":
-        hardware_summary = (
-            f"检测到 {gpu_name}（显存 {vram}GB）"
-            if gpu_name
-            else "未检测到可用于本地神经渲染的 NVIDIA 独立显卡"
-        )
-        reason = (
-            f"{hardware_summary}，建议端云分离：本地程序化 Avatar 保持热 shadow，"
-            "大模型、TTS 与 renderer-only Avatar Provider 分别配置。"
-            "远端画质、费用和可用性取决于实际厂商或自建节点，并需完成运行时握手与平台侧验收。"
+            f"检测到 {gpu_name} (显存 {vram}GB) 且 CUDA 加速可用，满足独立显卡单机运营门槛，"
+            "推荐【纯本地硬件】模式：0 租赁成本、数据完全私密离线。"
         )
     else:
+        mode_code = "hybrid"
+        tier = "本地云端混合 (端云协同模式)"
         reason = (
-            "未检测到可用的 NVIDIA 独立显卡，推荐轻量免显卡模式：云端 API 直连 + Edge-TTS 免费语音"
-            "(极微量费用)，适合二次元虚拟主播、游戏闲聊与知识答疑场景。"
+            f"检测到本地显卡配置有限 ({gpu_name})，推荐【本地云端混合】模式："
+            "本地电脑负责主控推流，配合云端 GPU 进行写实数字人渲染，极低成本畅享电影级画质。"
         )
 
+    display_name = LIVE_MODES.get(mode_code, {}).get("name", "本地云端混合")
     return {
         "code": 0,
         "data": {
             "mode": mode_code,
+            "display_name": display_name,
             "tier": tier,
             "gpu": gpu,
             "reason": reason
@@ -184,13 +172,16 @@ async def get_recommended_mode():
 async def get_live_mode(db: AsyncSession = Depends(get_db)):
     """获取当前已选择的直播模式与向导完成状态"""
     mode = await _get_setting(db, SETTING_KEY_LIVE_MODE)
+    mode_key = normalize_live_mode(mode)
     wizard_done = await _get_setting(db, SETTING_KEY_WIZARD_DONE)
     anchor_id = await _get_setting(db, SETTING_KEY_ANCHOR_ID)
+    mode_info = LIVE_MODES.get(mode_key)
     return {
         "code": 0,
         "data": {
-            "mode": mode,
-            "mode_info": LIVE_MODES.get(mode) if mode else None,
+            "mode": mode_key,
+            "display_name": mode_info.get("name", "") if mode_info else "",
+            "mode_info": mode_info,
             "wizard_completed": wizard_done == "1",
             "selected_anchor_id": anchor_id
         }
@@ -199,17 +190,19 @@ async def get_live_mode(db: AsyncSession = Depends(get_db)):
 
 @router.post("/live-mode")
 async def set_live_mode(req: LiveModeRequest, db: AsyncSession = Depends(get_db)):
-    """保存直播模式选择 (需求 3：直播过程中绝对禁止修改)"""
-    if req.mode not in LIVE_MODES:
-        raise HTTPException(status_code=400, detail="无效的直播模式，可选 A/B/C/D")
+    """保存直播模式选择 (直播进行中禁止修改)"""
+    mode_key = normalize_live_mode(req.mode)
+    if req.mode not in LIVE_MODES and req.mode not in LIVE_MODE_ALIASES:
+        raise HTTPException(status_code=400, detail="无效的直播模式，可选 local (纯本地硬件) 或 hybrid (本地云端混合)")
 
     from server.routes.live import global_live_controller
     if global_live_controller.is_live:
         raise HTTPException(status_code=409, detail="直播进行中，禁止切换直播模式！请先停止直播后再重新配置。")
 
-    await _set_setting(db, SETTING_KEY_LIVE_MODE, req.mode)
+    mode_info = LIVE_MODES[mode_key]
+    await _set_setting(db, SETTING_KEY_LIVE_MODE, mode_key)
     await _set_setting(db, SETTING_KEY_WIZARD_DONE, "1")
-    return {"code": 0, "message": f"直播模式已设定为【{LIVE_MODES[req.mode]['name']}】，对应配置项已按模式自动呈现", "data": LIVE_MODES[req.mode]}
+    return {"code": 0, "message": f"直播模式已设定为【{mode_info['name']}】，对应配置项已按模式自动呈现", "data": mode_info}
 
 
 class SelectedAnchorRequest(BaseModel):

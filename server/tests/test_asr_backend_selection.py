@@ -20,6 +20,14 @@ def test_get_asr_status_when_uninitialized():
     assert status["backend"] is None
     assert status["ready"] is False
     assert "尚未初始化" in status["message"]
+    # installed 字段如实反映 faster-whisper 依赖是否已落盘 (不触发模型加载)
+    assert isinstance(status.get("installed"), bool)
+
+
+def test_is_faster_whisper_installed_does_not_import_model():
+    # 轻量探测：无论 faster-whisper 是否安装，调用本身都不应抛异常、不触发模型下载
+    result = asr_engine.is_faster_whisper_installed()
+    assert isinstance(result, bool)
 
 
 def test_get_asr_status_faster_whisper_ready():

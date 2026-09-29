@@ -231,12 +231,19 @@ class RecordManager:
             "total_frames": rec.total_frames,
         }
 
-    def start_recording(self, title: str = "商品讲解切片", sku: str = "", width: int = 1280, height: int = 720) -> Dict[str, Any]:
+    def start_recording(
+        self,
+        title: str = "商品讲解切片",
+        sku: str = "",
+        width: int = 1280,
+        height: int = 720,
+        record_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """启动新录制"""
         if self.is_recording():
             return {"code": 1, "message": "已有正在进行的录制任务，请先停止当前录制"}
 
-        rec_id = f"rec_{uuid.uuid4().hex[:8]}"
+        rec_id = record_id.strip() if record_id else f"rec_{uuid.uuid4().hex[:8]}"
         recorder = VideoAudioRecorder(
             record_id=rec_id,
             title=title.strip() or "带货讲解切片",

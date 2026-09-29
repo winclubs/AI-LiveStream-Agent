@@ -220,6 +220,13 @@ CREATE TABLE IF NOT EXISTS live_session_records (
     danmaku_count INTEGER DEFAULT 0,
     peak_viewers INTEGER DEFAULT 0,
     gift_income FLOAT DEFAULT 0.0,
+    video_path VARCHAR(512) DEFAULT '',
+    oss_url VARCHAR(1024) DEFAULT '',
+    preview_image_url VARCHAR(1024) DEFAULT '',
+    video_duration_sec FLOAT DEFAULT 0.0,
+    video_size_bytes BIGINT DEFAULT 0,
+    oss_upload_status VARCHAR(32) DEFAULT 'none',
+    oss_error_msg TEXT DEFAULT '',
     FOREIGN KEY (role_id) REFERENCES anchor_roles(id) ON DELETE SET NULL,
     FOREIGN KEY (voice_id) REFERENCES voice_profiles(id) ON DELETE SET NULL,
     FOREIGN KEY (anchor_id) REFERENCES anchors(id) ON DELETE SET NULL
@@ -337,4 +344,11 @@ VALUES
 -- CREATE INDEX IF NOT EXISTS ix_avatar_actions_action_code ON avatar_actions(action_code);
 -- ALTER TABLE prohibited_words ADD COLUMN platform VARCHAR(32) DEFAULT 'all';
 -- CREATE INDEX IF NOT EXISTS ix_prohibited_words_platform ON prohibited_words(platform);
+-- ALTER TABLE live_session_records ADD COLUMN video_path VARCHAR(512) DEFAULT '';
+-- ALTER TABLE live_session_records ADD COLUMN oss_url VARCHAR(1024) DEFAULT '';
+-- ALTER TABLE live_session_records ADD COLUMN preview_image_url VARCHAR(1024) DEFAULT '';
+-- ALTER TABLE live_session_records ADD COLUMN video_duration_sec FLOAT DEFAULT 0.0;
+-- ALTER TABLE live_session_records ADD COLUMN video_size_bytes BIGINT DEFAULT 0;
+-- ALTER TABLE live_session_records ADD COLUMN oss_upload_status VARCHAR(32) DEFAULT 'none';
+-- ALTER TABLE live_session_records ADD COLUMN oss_error_msg TEXT DEFAULT '';
 

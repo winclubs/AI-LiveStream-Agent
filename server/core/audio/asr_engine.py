@@ -121,19 +121,28 @@ def get_asr_status() -> dict:
     - faster_whisper: 轻量引擎 (默认推荐)
     - sensevoice: 高精度引擎 (可选)
     - mock_fallback: 无可用引擎，语音转写不可用 (VAD 打断不受影响)
+    - installed 字段反映 faster-whisper 依赖是否已落盘 (不触发模型加载)，
+      供体检区分"已装未懒加载"与"完全未安装"两种截然不同的状态。
     """
     backend = _asr_backend_type
+    installed = is_faster_whisper_installed()
     if backend is None:
         # 尚未懒加载时探测一次，避免每次体检都触发真实加载
         return {
             "backend": None,
             "ready": False,
+            "installed": installed,
             "model_name": "",
-            "message": "ASR 引擎尚未初始化，首次语音输入时懒加载",
+            "message": (
+                "ASR 引擎尚未初始化 (faster-whisper 已安装)，首次语音输入时自动懒加载"
+                if installed
+                else "ASR 引擎尚未初始化，首次语音输入时懒加载"
+            ),
         }
     return {
         "backend": backend,
         "ready": backend in ("faster_whisper", "sensevoice") and _asr_model is not None,
+        "installed": installed,
         "model_name": _FASTER_WHISPER_MODEL_NAME if backend == "faster_whisper" else "SenseVoiceSmall",
         "message": (
             "轻量语音转写引擎就绪" if backend == "faster_whisper"
@@ -141,6 +150,20 @@ def get_asr_status() -> dict:
             else "未安装语音转写引擎，转写不可用 (打断/VAD 不受影响)"
         ),
     }
+
+
+def is_faster_whisper_installed() -> bool:
+    """
+    轻量探测 faster-whisper 依赖是否已安装 (仅做包元数据查找，不触发模块导入与模型下载)。
+
+    用于体检与自动安装决策：区分"依赖已装、引擎待首次懒加载"与"依赖完全缺失"。
+    """
+    try:
+        import importlib.util
+
+        return importlib.util.find_spec("faster_whisper") is not None
+    except Exception:
+        return False
 
 
 def transcribe_audio_bytes(audio_bytes: bytes, sample_rate: int = 16000) -> str:

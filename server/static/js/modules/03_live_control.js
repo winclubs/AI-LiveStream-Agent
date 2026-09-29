@@ -732,7 +732,7 @@ async function refreshLiveGpuTelemetry() {
             // 模式 2: 远端租赁 GPU
             badge.className = "brand-badge sky";
             badge.innerText = "⚡ 远端租赁 GPU";
-            const provider = cloudGpu.provider_name || "AutoDL/云端算力";
+            const provider = cloudGpu.provider_name || "云端 GPU 算力";
             detail.innerHTML = `已实测连通远端算力节点【${escapeHtml(provider)}】· <span style="color:#38bdf8;font-weight:600;">本地 0 显存负担</span> · 1080P 写实真人就绪`;
             if (tip) tip.innerHTML = `远端算力模式：本地仅需轻薄本 CPU 调度与推流`;
         } else if (cap.can_execute && !cap.is_low_spec_local) {

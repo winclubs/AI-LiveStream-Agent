@@ -42,6 +42,7 @@ from server.routes.ws_live import router as ws_router
 from server.routes.knowledge import router as knowledge_router
 from server.routes.system import router as system_router
 from server.routes.anchors import router as anchors_router
+from server.routes.oss import router as oss_router
 from server.routes.health import router as health_router
 from server.routes.metrics import router as metrics_router
 
@@ -96,6 +97,23 @@ async def lifespan(app: FastAPI):
                     logger.warning(f"MOSS-TTS-Nano 运行时预热失败 (首次合成时将自动重试): {warmup_err}")
 
             asyncio.create_task(_moss_warmup())
+
+            # 可选依赖后台自愈：缺失时自动下载神经唇形权重 / 安装 ASR 转写引擎。
+            # 全程后台执行，不阻塞服务就绪；失败仅记录日志，直播主流程不受影响。
+            async def _optional_dependencies_auto_heal():
+                try:
+                    from server.config import auto_download_enabled
+                    if not auto_download_enabled():
+                        logger.info("自动下载总开关已关闭 (LIVE_AGENT_DISABLE_AUTO_DOWNLOAD=1)，跳过可选依赖自愈")
+                        return
+                    from server.core.avatar.lipsync_weight_downloader import get_lipsync_weight_downloader
+                    get_lipsync_weight_downloader().start_download(source="modelscope")
+                    from server.core.audio.asr_dependency_installer import maybe_start_auto_install
+                    maybe_start_auto_install()
+                except Exception:
+                    logger.warning("可选依赖后台自愈触发失败 (直播主流程不受影响)", exc_info=True)
+
+            asyncio.create_task(_optional_dependencies_auto_heal())
 
             health_state.ready()
             startup_succeeded = True
@@ -245,6 +263,7 @@ app.include_router(live_router, prefix="/api/v1")
 app.include_router(knowledge_router, prefix="/api/v1")
 app.include_router(system_router, prefix="/api/v1")
 app.include_router(anchors_router, prefix="/api/v1")
+app.include_router(oss_router, prefix="/api/v1")
 app.include_router(ws_router)
 app.include_router(health_router)
 app.include_router(metrics_router)

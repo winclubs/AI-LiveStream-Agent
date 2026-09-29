@@ -35,6 +35,8 @@ function initNavigation() {
                     renderConfiguredTTS(cachedAllConfigs);
                 }
             }
+            if (tab === "oss") { if (typeof initOssSettingsPage === 'function') initOssSettingsPage(); }
+            if (tab === "operations") { if (typeof initOperationsPage === 'function') initOperationsPage(); }
         });
     });
 

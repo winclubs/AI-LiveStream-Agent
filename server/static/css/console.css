@@ -750,6 +750,257 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* ============================================================================
+   TTS 音色列表卡片化与分类排版专用样式 (支持现代网格、分区与微动效)
+   ========================================================================== */
+#tts-fetched-voices-container {
+  display: block !important;
+  padding: 14px;
+  background: rgba(12, 16, 23, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+}
+
+/* 重置 ::before 伪元素，防止干扰卡片内部精致图标与徽标 */
+#tts-fetched-voices-container .fetched-model-pill::before {
+  display: none !important;
+  content: none !important;
+}
+
+/* 顶部音色分类过滤器工具条 */
+.tts-voice-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.15);
+}
+
+.tts-voice-filter-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tts-voice-filter-btn {
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(30, 41, 59, 0.6);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tts-voice-filter-btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(56, 189, 248, 0.5);
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.tts-voice-filter-btn.active {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: #10B981;
+  color: #34D399;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);
+}
+
+/* 分区标题栏 */
+.tts-voice-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-bottom: 8px;
+}
+
+/* 专属声音克隆资产网格 */
+.tts-cloned-voices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* 专属声音克隆卡片 (双行上下分层，未选中低调暗边框，选中金色高亮) */
+.tts-voice-card-clone {
+  display: flex !important;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 11px !important;
+  min-height: 60px;
+  border-radius: 7px !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  background: rgba(22, 30, 46, 0.7) !important;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  position: relative !important;
+}
+
+.tts-voice-card-clone:hover {
+  border-color: rgba(245, 158, 11, 0.45) !important;
+  background: rgba(30, 41, 59, 0.85) !important;
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.tts-voice-card-clone.selected {
+  border: 1.5px solid #fbbf24 !important;
+  background: rgba(245, 158, 11, 0.16) !important;
+  box-shadow: 0 0 0 1px #fbbf24, 0 4px 14px rgba(245, 158, 11, 0.28) !important;
+}
+
+.tts-voice-card-clone.playing {
+  border-color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.18) !important;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.4) !important;
+}
+
+/* 专属声音克隆卡片右上角删除按钮 (固定绝对定位于右上角) */
+.tts-voice-card-clone .btn-delete-clone-pill {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  z-index: 2;
+}
+
+.tts-voice-card-clone .btn-delete-clone-pill:hover {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  transform: scale(1.1);
+}
+
+/* 官方精选预设音色网格 */
+.tts-preset-voices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 9px;
+  max-height: 290px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tts-preset-voices-grid::-webkit-scrollbar {
+  width: 5px;
+}
+.tts-preset-voices-grid::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3);
+  border-radius: 4px;
+}
+.tts-preset-voices-grid::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 4px;
+}
+.tts-preset-voices-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+/* 官方预设音色精美卡片 */
+.tts-voice-card-preset {
+  display: flex !important;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 11px !important;
+  min-height: 60px;
+  border-radius: 7px !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  background: rgba(22, 30, 46, 0.7) !important;
+  cursor: pointer;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+.tts-voice-card-preset:hover {
+  border-color: rgba(56, 189, 248, 0.45) !important;
+  background: rgba(30, 41, 59, 0.85) !important;
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.tts-voice-card-preset.selected {
+  border-color: #10B981 !important;
+  background: rgba(16, 185, 129, 0.14) !important;
+  box-shadow: 0 0 0 1px #10B981, 0 3px 12px rgba(16, 185, 129, 0.24) !important;
+}
+
+.tts-voice-card-preset.playing {
+  border-color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.18) !important;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.4) !important;
+}
+
+/* 专属试听胶囊按钮 */
+.btn-voice-preview-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2.5px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.btn-voice-preview-pill:hover {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: #38bdf8;
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.35);
+}
+
+.btn-voice-preview-pill.playing {
+  background: rgba(16, 185, 129, 0.22) !important;
+  border-color: #10b981 !important;
+  color: #34d399 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4) !important;
+}
+
+/* 专属克隆声音的金色试听胶囊按钮 */
+.btn-voice-preview-pill.clone {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+}
+
+.btn-voice-preview-pill.clone:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: #f59e0b;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.35);
+}
+
+/* ============================================================================
    布局工具类
    ========================================================================== */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }

@@ -1860,6 +1860,20 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
             await db.commit()
         raise HTTPException(status_code=500, detail=f"直播资源启动失败: {exc}") from exc
 
+    # 启动直播自动录制以留存全场视频便于复盘与 OSS 归档
+    try:
+        from server.core.media.recorder import get_record_manager
+        rec_mgr = get_record_manager()
+        if not rec_mgr.is_recording():
+            rec_mgr.start_recording(
+                title=live_theme or "直播实况录像",
+                record_id=session_id,
+                width=1280,
+                height=720,
+            )
+    except Exception as rec_err:
+        logger.warning(f"启动自动场次录像异常: {rec_err}")
+
     return {
         "code": 0,
         "session_id": session_id,
@@ -1968,6 +1982,35 @@ async def _stop_live_unlocked(db: AsyncSession):
                     total_gmv, orders_count = aggregate.one()
                     setattr(record, "total_gmv", float(total_gmv or 0.0))
                     setattr(record, "orders_count", int(orders_count or 0))
+
+                    # 停止自动场次录像并联动阿里云 OSS 异步归档
+                    try:
+                        from server.core.media.recorder import get_record_manager
+                        rec_mgr = get_record_manager()
+                        if rec_mgr.is_recording():
+                            rec_info = rec_mgr.stop_recording()
+                            if rec_info.get("code") == 0 and rec_info.get("data"):
+                                data = rec_info["data"]
+                                vid_p = data.get("video_path", "")
+                                prev_p = data.get("preview_path", "")
+                                dur_sec = data.get("duration_sec", 0.0)
+                                f_size = data.get("file_size_bytes", 0)
+                                setattr(record, "video_path", vid_p)
+                                setattr(record, "preview_image_url", prev_p)
+                                setattr(record, "video_duration_sec", dur_sec)
+                                setattr(record, "video_size_bytes", f_size)
+                                # 异步启动 OSS 上传任务
+                                from server.core.media.oss_uploader import global_oss_uploader
+                                asyncio.create_task(
+                                    global_oss_uploader.upload_session_recording_async(
+                                        session_id=sid,
+                                        video_path=vid_p,
+                                        preview_path=prev_p,
+                                    )
+                                )
+                    except Exception as rec_err:
+                        logger.warning(f"结束场次录制与 OSS 归档处理异常: {rec_err}")
+
                     await db.commit()
             except Exception as db_err:
                 logger.error("停播持久化场次指标失败: %s", db_err, exc_info=True)
@@ -2419,15 +2462,11 @@ def _resolve_landmarks_for_avatar(avatar_path: str) -> str:
 
 
 def _recommend_tier(gpu_info: dict) -> str:
-    """按显存阶梯推荐运行档位"""
+    """按显卡硬件与算力推荐运行模式 (纯本地硬件 vs 本地云端混合)"""
     vram = gpu_info.get("vram_total_gb", 0.0) or 0.0
-    if gpu_info.get("cuda_available") and vram >= 15.5:
-        return "Tier A (全本地离线模式)"
-    if vram >= 5.5:
-        return "Tier B (主流端云混合模式)"
-    if vram > 0:
-        return "Tier C (端云分离模式)"
-    return "Tier D (轻量免显卡模式)"
+    if gpu_info.get("cuda_available") and vram >= 7.5:
+        return "纯本地硬件 (本地单机运行)"
+    return "本地云端混合 (端云协同模式)"
 
 # 硬件负载 TTL 缓存 (避免多客户端 5s 轮询反复 spawn nvidia-smi/WMI 子进程)
 _HW_PAYLOAD_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
@@ -2713,7 +2752,11 @@ async def get_live_stats(db: AsyncSession = Depends(get_db)):
     anchor_id = None
     res = await db.execute(select(AppSetting).where(AppSetting.key == SETTING_KEY_LIVE_MODE))
     row = res.scalar_one_or_none()
-    mode = row.value if row else None
+    raw_mode = row.value if row else None
+
+    from server.routes.settings import normalize_live_mode, LIVE_MODES
+    norm_mode = normalize_live_mode(raw_mode)
+    mode_name = LIVE_MODES.get(norm_mode, {}).get("name", "本地云端混合")
 
     res2 = await db.execute(select(AppSetting).where(AppSetting.key == SETTING_KEY_ANCHOR_ID))
     row2 = res2.scalar_one_or_none()
@@ -2734,7 +2777,8 @@ async def get_live_stats(db: AsyncSession = Depends(get_db)):
         "data": {
             "is_live": is_live,
             "session_id": global_live_controller.session_id,
-            "mode": mode,
+            "mode": mode_name,
+            "mode_code": norm_mode,
             "platform": global_live_controller.platform if is_live else None,
             "anchor_name": anchor_name or active_role.role_name,
             "role_name": active_role.role_name,
@@ -2783,11 +2827,11 @@ OBS_INSTALL_PATHS = [
     r"C:\Program Files\obs-studio\bin\32bit\obs32.exe",
 ]
 
-# 模式对本地硬件的需求强度 (A 最重)
-MODE_DEMAND_RANK = {"A": 3, "B": 2, "C": 1, "D": 0}
+# 模式对本地硬件的需求强度 (local 纯本地硬件要求独显；hybrid 本地云端混合兼容轻量硬件)
+MODE_DEMAND_RANK = {"local": 2, "hybrid": 1}
 
 
-def _pf(status: str, key: str, title: str, message: str, fix_hint: str = "", action_tab: Optional[str] = None) -> dict:
+def _pf(status: str, key: str, title: str, message: str, fix_hint: str = "", action_tab: Optional[str] = None, auto_in_progress: bool = False) -> dict:
     return {
         "status": status,  # pass / warn / fail
         "key": key,
@@ -2795,6 +2839,7 @@ def _pf(status: str, key: str, title: str, message: str, fix_hint: str = "", act
         "message": message,
         "fix_hint": fix_hint,
         "action_tab": action_tab,  # 前端一键跳转处理的页签
+        "auto_in_progress": auto_in_progress,  # 后台自愈进行中 (前端据此自动轮询刷新进度)
     }
 
 
@@ -3090,12 +3135,15 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
     checks = []
 
     # 1. 直播模式
-    if mode and mode in LIVE_MODES:
-        checks.append(_pf("pass", "mode", "直播模式", f"{mode}. {LIVE_MODES[mode]['name']} · {LIVE_MODES[mode]['cost']}"))
+    from server.routes.settings import normalize_live_mode, LIVE_MODES
+    norm_mode = normalize_live_mode(mode)
+    mode_info = LIVE_MODES.get(norm_mode)
+    if mode_info:
+        checks.append(_pf("pass", "mode", "直播模式", f"{mode_info['name']} · {mode_info['cost']}"))
     else:
         checks.append(_pf("fail", "mode", "直播模式",
                           "尚未选择直播运行模式",
-                          "在【开播向导】第一步选择模式 (系统已按硬件自动推荐)", "wizard"))
+                          "在【开播向导】第一步选择模式 (纯本地硬件 或 本地云端混合)", "wizard"))
 
     # 2. 主播角色
     checks.append(_pf("pass", "role", "主播角色", f"当前主播：{role.role_name} ({role.role_type})"))
@@ -3133,15 +3181,19 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
     # 8. 硬件与所选模式匹配度
     gpu = await asyncio.to_thread(_probe_gpu)
     rec_tier = _recommend_tier(gpu)
-    rec_code = rec_tier.split(" ")[1] if rec_tier.startswith("Tier") else "D"
-    if mode and mode in MODE_DEMAND_RANK and MODE_DEMAND_RANK[mode] > MODE_DEMAND_RANK.get(rec_code, 0):
+    rec_code = "local" if "纯本地硬件" in rec_tier else "hybrid"
+    rec_name = "纯本地硬件" if rec_code == "local" else "本地云端混合"
+    curr_mode = normalize_live_mode(mode)
+    curr_name = "纯本地硬件" if curr_mode == "local" else "本地云端混合"
+
+    if curr_mode == "local" and rec_code == "hybrid":
         checks.append(_pf("warn", "hardware", "硬件与模式匹配",
-                          f"您的硬件更适合 {rec_code} 档 (当前选 {mode} 档，本地渲染可能卡顿)",
-                          "可回到【开播向导】更换为推荐档位", "wizard"))
+                          "检测到本地显卡算力有限，当前已选【纯本地硬件】可能导致渲染卡顿，建议切换为【本地云端混合】模式",
+                          "可前往【开播向导】或【运行模式】切换为【本地云端混合】", "wizard"))
     else:
         gpu_name = gpu.get("gpu_name") or "未检测到独立显卡"
         checks.append(_pf("pass", "hardware", "硬件与模式匹配",
-                          f"{gpu_name} · 推荐 {rec_code} 档 / 已选 {mode or '未设置'} 档，匹配无冲突"))
+                          f"{gpu_name} · 推荐【{rec_name}】/ 当前已选【{curr_name}】，匹配无冲突"))
 
     # 9. 违禁词合规护栏
     guardrail_count = len(global_guardrail.word_meta) if global_guardrail.is_ready else 0
@@ -3210,8 +3262,9 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             "执行 `python scripts/generate_action_clip.py --all-missing` 一键补齐，或在控制台上传真人实拍切片", None,
         ))
 
-    # 13. 神经唇形权重就绪度 (缺失时给出按需下载指引，下载完成自动热挂载真实推理)
+    # 13. 神经唇形权重就绪度 (缺失时自动后台下载，完成后热挂载真实推理)
     try:
+        from server.config import auto_download_enabled
         from server.core.avatar.lipsync_weight_downloader import get_lipsync_weight_downloader
         downloader = get_lipsync_weight_downloader()
         dl_status = downloader.get_status()
@@ -3225,38 +3278,69 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             checks.append(_pf(
                 "warn", "lipsync_weight", "神经唇形权重",
                 f"后台下载进行中 ({progress}%)：{dl_status.get('message', '')}；下载完成前保持 RealAvatarLite 微动态渲染",
-                "可在控制台等待下载完成，或调用 GET /api/v1/anchors/avatar/download-lipsync-status 轮询进度", None,
+                "下载全自动进行，无需操作；可稍后重新体检确认结果", None, True,
             ))
-        else:
+        elif dl_status.get("state") == "failed" and not auto_download_enabled():
             checks.append(_pf(
                 "warn", "lipsync_weight", "神经唇形权重",
-                "未检测到 ONNX 神经唇形权重 (onnx_lipsync.onnx)，当前使用 RealAvatarLite 形变级渲染；下载后自动升级为真实神经唇形重绘",
-                "调用 POST /api/v1/anchors/avatar/download-lipsync-weight 一键下载 (约45MB，ModelScope 源)", None,
+                f"神经唇形权重下载失败：{dl_status.get('message', '')}；当前使用 RealAvatarLite 形变级渲染，直播不受影响",
+                "网络恢复后重新体检将自动重试下载 (约45MB，ModelScope 源)", None,
+            ))
+        else:
+            # 命中自愈：体检发现缺失即自动触发后台下载，用户无需任何手动操作
+            downloader.start_download(source="modelscope", task_id=f"dl_{uuid.uuid4().hex[:8]}")
+            checks.append(_pf(
+                "warn", "lipsync_weight", "神经唇形权重",
+                "未检测到 ONNX 神经唇形权重 (onnx_lipsync.onnx)，已自动触发后台下载 (约45MB，ModelScope 源)；"
+                "当前使用 RealAvatarLite 形变级渲染，下载完成后自动升级为真实神经唇形重绘",
+                "下载在后台自动进行，无需操作；可稍后重新体检确认下载结果", None, True,
             ))
     except Exception:
         logger.debug("预体检神经唇形权重检查异常", exc_info=True)
 
-    # 14. ASR 语音转写引擎 (faster-whisper 轻量默认；缺失时 VAD 打断仍可用但无转写)
+    # 14. ASR 语音转写引擎 (faster-whisper 轻量默认；缺失时自动后台安装)
     try:
-        from server.core.audio.asr_engine import get_asr_status
+        from server.config import auto_download_enabled
+        from server.core.audio.asr_engine import get_asr_status, is_faster_whisper_installed
+        from server.core.audio.asr_dependency_installer import get_asr_dependency_installer
         asr_status = get_asr_status()
         if asr_status.get("ready"):
             checks.append(_pf(
                 "pass", "asr_engine", "语音转写 (ASR)",
                 f"{asr_status.get('message')} (后端: {asr_status.get('backend')})",
             ))
-        elif asr_status.get("backend") is None:
+        elif asr_status.get("backend") is None and is_faster_whisper_installed():
+            # 依赖已装、引擎待首次懒加载：这是正常就绪状态，不算缺陷
             checks.append(_pf(
-                "warn", "asr_engine", "语音转写 (ASR)",
-                "ASR 引擎尚未初始化，首次语音输入时自动懒加载 (需已安装 faster-whisper)",
-                "执行 pip install faster-whisper 安装轻量转写引擎；打断功能不受影响", None,
+                "pass", "asr_engine", "语音转写 (ASR)",
+                "faster-whisper 已安装，首次语音输入时自动懒加载轻量转写引擎；VAD 极速打断立即可用",
             ))
         else:
-            checks.append(_pf(
-                "warn", "asr_engine", "语音转写 (ASR)",
-                "未安装语音转写引擎，语音转写不可用 (VAD 极速打断不受影响)",
-                "执行 pip install faster-whisper 安装轻量转写引擎 (约30MB，无 torch 依赖)", None,
-            ))
+            installer = get_asr_dependency_installer()
+            inst_status = installer.get_status()
+            if inst_status.get("is_busy"):
+                progress = inst_status.get("progress", 0)
+                checks.append(_pf(
+                    "warn", "asr_engine", "语音转写 (ASR)",
+                    f"正在自动安装 faster-whisper 轻量转写引擎 ({progress}%)：{inst_status.get('message', '')}；"
+                    "安装完成前语音转写不可用，打断功能不受影响",
+                    "安装在后台自动进行，无需操作；可稍后重新体检确认结果", None, True,
+                ))
+            elif inst_status.get("state") == "failed" and not auto_download_enabled():
+                checks.append(_pf(
+                    "warn", "asr_engine", "语音转写 (ASR)",
+                    f"自动安装 faster-whisper 失败：{inst_status.get('message', '')}；语音转写暂不可用 (VAD 极速打断不受影响)",
+                    "网络恢复后重新体检将自动重试安装 (约30MB，无 torch 依赖)", None,
+                ))
+            else:
+                # 命中自愈：体检发现依赖缺失即自动触发后台 pip 安装
+                installer.start_install()
+                checks.append(_pf(
+                    "warn", "asr_engine", "语音转写 (ASR)",
+                    "检测到未安装 faster-whisper 轻量转写引擎，已自动触发后台安装 (约30MB，国内镜像源)；"
+                    "安装完成前语音转写暂不可用，打断功能不受影响",
+                    "安装在后台自动进行，无需操作；可稍后重新体检确认安装结果", None, True,
+                ))
     except Exception:
         logger.debug("预体检 ASR 引擎检查异常", exc_info=True)
 
@@ -3472,6 +3556,25 @@ async def set_avatar_action(req: AvatarActionRequest):
 # ============================================================================
 # 🎙️ 全双工 ASR 语音识别与麦克风极速打断系统 (阶段四)
 # ============================================================================
+
+@router.post("/asr/install-dependency", summary="触发 ASR 转写引擎依赖后台自动安装 (faster-whisper)")
+async def install_asr_dependency():
+    """
+    体检检测到 faster-whisper 缺失时触发：后台通过国内镜像源 pip 安装轻量转写引擎，
+    安装完成后首次语音输入自动懒加载。同一时刻仅允许一个安装任务。
+    """
+    from server.core.audio.asr_dependency_installer import get_asr_dependency_installer
+    result = get_asr_dependency_installer().start_install(force=True)
+    return {"code": 0 if result["ok"] else 1, **result}
+
+
+@router.get("/asr/install-status", summary="查询 ASR 依赖自动安装进度与状态")
+async def get_asr_install_status():
+    """供控制台轮询安装进度 (pending / installing / installed / failed)"""
+    from server.core.audio.asr_dependency_installer import get_asr_dependency_installer
+    status = get_asr_dependency_installer().get_status()
+    return {"code": 0, "data": status}
+
 
 @router.websocket("/asr/ws")
 async def websocket_asr_endpoint(websocket: WebSocket):

@@ -9,8 +9,15 @@ Pytest 全局夹具：为 server/tests 套件提供测试隔离数据库与全�
 - 数据库文件通过 server.database.db.enable_test_isolation() 切换，
   不触碰 LIVE_AGENT_DATA_DIR 环境变量，避免污染同进程其它套件。
 - 每个测试自动清空全局画层状态，防止电商优惠券/特写画层残留跨用例漂移。
+- 关闭可选依赖后台自动下载总开关：杜绝体检/启动钩子在测试环境触发真实
+  的 45MB 权重下载或 pip 安装 (ADR-16 架构诚实：测试不应依赖外部网络)。
 """
 import asyncio as _asyncio
+import os as _os
+
+# 必须在导入任何业务模块之前设定：auto_download_enabled() 运行期读取本变量，
+# 设定后体检与启动钩子的自动下载/安装逻辑在测试全程保持关闭。
+_os.environ.setdefault("LIVE_AGENT_DISABLE_AUTO_DOWNLOAD", "1")
 
 import pytest
 

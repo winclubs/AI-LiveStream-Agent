@@ -4,7 +4,7 @@
  */
 
 const API_BASE = "/api/v1";
-const FRONTEND_VERSION = "2.0.0";
+const FRONTEND_VERSION = "2.0.1";
 
 // 跨异步初始化流程共享的核心状态必须先显式初始化，避免首屏读取未声明变量。
 let ws = null;
@@ -329,7 +329,10 @@ function showToast(message, type = "success", duration = 3200) {
     const iconSpan = document.createElement("span");
     iconSpan.innerHTML = svg(typeMap[type] || "info", "icon");
     const textSpan = document.createElement("span");
-    textSpan.textContent = String(message || "").replace(/<br>/g, "\n");
+    // 彻底杜绝全局所有页面“双图标”：Toast 左侧已统一渲染系统 SVG 状态图标，自动清除文本开头重复的 emoji/字符图标
+    let cleanMessage = String(message || "").replace(/<br>/g, "\n");
+    cleanMessage = cleanMessage.replace(/^[\s\uFEFF\xA0]*[🚫❌✖️❗❕⚠️🚨✅🟢🔴🟡⚪ℹ️💡⚡📋🎉🎬✓✕]+[\s\uFEFF\xA0]*/u, "");
+    textSpan.textContent = cleanMessage;
     toast.appendChild(iconSpan);
     toast.appendChild(textSpan);
     container.appendChild(toast);

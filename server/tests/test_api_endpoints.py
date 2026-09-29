@@ -580,24 +580,31 @@ def test_system_hardware_endpoint(client):
     assert "cpu_percent" in payload
     assert "gpu" in payload
     assert "recommended_mode" in payload
-    assert payload["recommended_mode"].startswith("Tier")
+    assert ("纯本地硬件" in payload["recommended_mode"] or "本地云端混合" in payload["recommended_mode"])
 
 
 def test_live_mode_wizard_and_lock(client):
     """需求1+3：直播模式选择向导 + 直播中禁止改模式/切角色"""
-    # 1. 模式清单包含 A~D 四档
+    # 1. 模式清单包含纯本地硬件与本地云端混合两种核心模式
     modes_res = client.get("/api/v1/settings/modes")
     assert modes_res.status_code == 200
     modes = modes_res.json()["data"]
-    assert {m["code"] for m in modes} == {"A", "B", "C", "D"}
+    assert {m["code"] for m in modes} == {"local", "hybrid"}
 
-    # 2. 选择模式 B 并回读
-    set_res = client.post("/api/v1/settings/live-mode", json={"mode": "B"})
+    # 2. 选择模式 hybrid（或历史别名 B）并回读
+    set_res = client.post("/api/v1/settings/live-mode", json={"mode": "hybrid"})
     assert set_res.status_code == 200
     assert set_res.json()["code"] == 0
     read_res = client.get("/api/v1/settings/live-mode")
-    assert read_res.json()["data"]["mode"] == "B"
+    assert read_res.json()["data"]["mode"] == "hybrid"
+    assert read_res.json()["data"]["display_name"] == "本地云端混合"
     assert read_res.json()["data"]["wizard_completed"] is True
+
+    # 兼容历史别名 B 传入自动规范化为 hybrid
+    compat_res = client.post("/api/v1/settings/live-mode", json={"mode": "B"})
+    assert compat_res.status_code == 200
+    read_compat = client.get("/api/v1/settings/live-mode")
+    assert read_compat.json()["data"]["mode"] == "hybrid"
 
     # 3. 无效模式被拒绝
     bad_res = client.post("/api/v1/settings/live-mode", json={"mode": "Z"})
@@ -626,7 +633,7 @@ def test_role_suggestions_by_mode_and_role(client):
     data = res.json()["data"]
     assert "法律" in data["constraint_prompt"]
     assert "法律热点剖析" in data["default_theme"]
-    assert any("端云分离" in t for t in data["tips"])
+    assert any("本地云端混合" in t for t in data["tips"])
 
     # 验证四大角色的联动主题均不相同且非空
     for role_type in ("ecommerce", "entertainment", "expert", "chitchat"):
@@ -1029,11 +1036,11 @@ def test_recommend_tier_and_gpu_probe(client):
     """硬件探测：档位推荐矩阵 + GPU 探测结构完整性"""
     from server.routes.live import _recommend_tier, _probe_gpu
 
-    # 档位矩阵 (规划 §8.1)
-    assert _recommend_tier({"cuda_available": True, "vram_total_gb": 24}) == "Tier A (全本地离线模式)"
-    assert _recommend_tier({"cuda_available": False, "vram_total_gb": 8}) == "Tier B (主流端云混合模式)"
-    assert _recommend_tier({"cuda_available": False, "vram_total_gb": 2}) == "Tier C (端云分离模式)"
-    assert _recommend_tier({"cuda_available": False, "vram_total_gb": 0}) == "Tier D (轻量免显卡模式)"
+    # 双模式矩阵 (纯本地硬件 vs 本地云端混合)
+    assert _recommend_tier({"cuda_available": True, "vram_total_gb": 24}) == "纯本地硬件 (本地单机运行)"
+    assert _recommend_tier({"cuda_available": False, "vram_total_gb": 8}) == "本地云端混合 (端云协同模式)"
+    assert _recommend_tier({"cuda_available": False, "vram_total_gb": 2}) == "本地云端混合 (端云协同模式)"
+    assert _recommend_tier({"cuda_available": False, "vram_total_gb": 0}) == "本地云端混合 (端云协同模式)"
 
     # 探测结构完整
     gpu = _probe_gpu()
@@ -1052,12 +1059,11 @@ def test_recommended_mode_by_hardware(client):
     res = client.get("/api/v1/settings/recommended-mode")
     assert res.status_code == 200
     data = res.json()["data"]
-    assert data["mode"] in ("A", "B", "C", "D")
-    assert data["tier"].startswith("Tier")
+    assert data["mode"] in ("local", "hybrid")
+    assert data["tier"] in ("纯本地硬件 (本地单机运行)", "本地云端混合 (端云协同模式)")
+    assert data["display_name"] in ("纯本地硬件", "本地云端混合")
     assert data["reason"]  # 中文推荐理由非空
     assert "gpu" in data
-    # 档位映射与档位字符串一致
-    assert data["tier"].startswith(f"Tier {data['mode']}")
 
 def test_chitchat_role_and_suggestions(client):
     """闲聊扯淡角色：第四角色入库、可激活、有专属建议"""
@@ -1708,6 +1714,18 @@ def test_console_critical_operation_contracts():
     assert 'if (!sku) { alert("请输入已上架商品的 SKU"); return; }' in js
     assert 'placeholder="商品 SKU（必填）" required' in html
     assert 'onclick="runPreflight({ auto: true })"' not in html
+
+    # 回归: 试听台词驱动必须使用 avatar-detail 返回的 anchor_id 字段构造请求,
+    # 该接口只返回 anchor_id 而没有 id, 误用 d.id 会让 URL 变成 anchors/undefined,
+    # 后端随即 404 “主播不存在”, 而预览弹窗明明已正常打开 (用户视角的自相矛盾)。
+    assert "const driveAnchorId = d.anchor_id || d.id;" in js
+    assert "${API_BASE}/anchors/${driveAnchorId}/avatar/preview-speech-drive" in js
+    assert "${API_BASE}/anchors/${d.id}/avatar/preview-speech-drive" not in js
+    # 回归: 试播期间必须停掉切片轮播定时器, 否则 40ms 定时器不断把
+    # slice-face-img 覆盖回静态资产帧, rAF 渲染出的口型帧被抹掉 -> 嘴巴不动。
+    assert "switchPreviewSubTab('slices');\n    // 试播期间由 rAF 音频时钟帧循环独占" in js
+    assert "stopSliceAnimationPlay();" in js
+    assert "startSliceAnimationPlay();" in js
 
 
 def test_save_neural_renderer_config_and_validation_error_handler(client):

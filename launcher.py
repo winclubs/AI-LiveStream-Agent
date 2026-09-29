@@ -43,10 +43,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from server.config import SERVER_HOST, SERVER_PORT, APP_VERSION, SERVICE_NAME
+from server.config import SERVER_HOST, SERVER_PORT, APP_VERSION, SERVICE_NAME, DEFAULT_PIP_INDEX
 
-# 国内高速镜像源推荐
-DEFAULT_PIP_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple"
+# 国内高速镜像源推荐 (与 server.config 共用单一真相源，杜绝双份维护漂移)
 
 # 依赖需求定义 (库导入名: pip安装包名)
 CORE_DEPENDENCIES = {

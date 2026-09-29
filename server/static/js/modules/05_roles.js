@@ -71,9 +71,10 @@ async function loadRoleTips() {
         const json = await res.json();
         if (json.code !== 0) return;
         const d = json.data;
+        const modeDisplay = (currentMode === "local" || currentMode === "A" || String(currentMode).includes("纯本地")) ? "纯本地硬件" : "本地云端混合";
         tipsBox.innerHTML = `
             <div style="padding: 12px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px;">
-                <div style="font-weight: 700; font-size: 12px; color: var(--accent-emerald);">【${escapeHtml(d.label)}】运营建议${currentMode ? ` (当前模式 ${currentMode} 档)` : ""}:</div>
+                <div style="font-weight: 700; font-size: 12px; color: var(--accent-emerald);">【${escapeHtml(d.label)}】运营建议${currentMode ? ` (当前模式: ${modeDisplay})` : ""}:</div>
                 <ul style="font-size: 12px; color: var(--text-secondary); margin: 6px 0 0 18px; line-height: 1.8;">
                     ${d.tips.map(t => `<li>${escapeHtml(t)}</li>`).join("")}
                 </ul>

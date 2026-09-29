@@ -1432,6 +1432,7 @@ async def delete_anchor(anchor_id: str, db: AsyncSession = Depends(get_db)):
 # ------------------------------------------------------------------
 class LipsyncDownloadRequest(BaseModel):
     source: Optional[str] = Field("modelscope", description="下载源 (modelscope 优先 / huggingface 兜底)")
+    force: Optional[bool] = Field(False, description="强制重试 (跳过失败冷却期，供用户手动重试使用)")
 
 
 @router.post("/avatar/download-lipsync-weight", summary="按需下载神经唇形权重 (onnx_lipsync.onnx)")
@@ -1442,9 +1443,10 @@ async def download_lipsync_weight(req: Optional[LipsyncDownloadRequest] = None):
     """
     from server.core.avatar.lipsync_weight_downloader import get_lipsync_weight_downloader
     source = (req.source if req else "modelscope") or "modelscope"
+    force = bool(req.force) if req else False
     task_id = f"dl_{uuid.uuid4().hex[:8]}"
     downloader = get_lipsync_weight_downloader()
-    result = downloader.start_download(source=source, task_id=task_id)
+    result = downloader.start_download(source=source, task_id=task_id, force=force)
     return {"code": 0 if result["ok"] else 1, **result}
 
 
@@ -1571,6 +1573,7 @@ async def preview_speech_drive(anchor_id: str, req: PreviewSpeechDriveRequest):
         synthesize_preview_audio,
     )
     from server.core.avatar.speech_drive_preview import (
+        PreviewHardwareError,
         get_speech_drive_preview_service,
     )
     from server.database.db import AsyncSessionLocal
@@ -1611,7 +1614,7 @@ async def preview_speech_drive(anchor_id: str, req: PreviewSpeechDriveRequest):
         raise HTTPException(status_code=503, detail=e.detail)
     except Exception as e:
         logger.warning(f"试播 TTS 合成失败: {e}", exc_info=True)
-        raise HTTPException(status_code=503, detail="主播绑定的音色有误，请检查")
+        raise HTTPException(status_code=503, detail=f"语音合成失败: {str(e)[:160]}")
     if not audio_bytes:
         raise HTTPException(status_code=503, detail="语音引擎返回音频为空，请检查音色配置")
 
@@ -1622,6 +1625,10 @@ async def preview_speech_drive(anchor_id: str, req: PreviewSpeechDriveRequest):
             asset_dir=ad,
             audio_bytes=audio_bytes,
         )
+    except PreviewHardwareError as e:
+        # 硬件门槛不满足或真实渲染失败：直接禁止试播，如实弹出硬件不足提示，绝无降级
+        logger.warning(f"试播被硬件门禁阻断: {e}")
+        raise HTTPException(status_code=424, detail=str(e))
     except Exception as e:
         logger.warning(f"试播渲染失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="试播驱动失败，请重试")

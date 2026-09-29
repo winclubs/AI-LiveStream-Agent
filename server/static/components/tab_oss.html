@@ -1,0 +1,395 @@
+<!-- 阿里云 OSS 存储配置与直播录像复盘 (步骤 4) -->
+<div class="tab-content" id="tab-oss">
+  <style>
+    /* OSS 模块专属工业级暗黑与翡翠微光样式 */
+    #tab-oss .oss-config-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px 24px;
+    }
+    @media (max-width: 900px) {
+      #tab-oss .oss-config-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    #tab-oss .oss-endpoint-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    #tab-oss .oss-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-family: var(--font-mono, monospace);
+      color: #94a3b8;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #tab-oss .oss-pill:hover {
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.12);
+      border-color: rgba(16, 185, 129, 0.45);
+      transform: translateY(-1px);
+    }
+    #tab-oss .oss-pill.active {
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.18);
+      border-color: #10b981;
+      font-weight: 600;
+    }
+    #tab-oss .oss-switch-card {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: var(--radius-md, 10px);
+      transition: border-color 0.2s ease;
+    }
+    #tab-oss .oss-switch-card:hover {
+      border-color: rgba(45, 212, 160, 0.35);
+    }
+    /* 科技感滑动开关 (消除原生粗糙复选框) */
+    #tab-oss .tech-switch {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    #tab-oss .tech-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    #tab-oss .tech-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: rgba(148, 163, 184, 0.25);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 24px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #tab-oss .tech-slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #f1f5f9;
+      border-radius: 50%;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #tab-oss .tech-switch input:checked + .tech-slider {
+      background-color: #10b981;
+      border-color: #059669;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+    }
+    #tab-oss .tech-switch input:checked + .tech-slider:before {
+      transform: translateX(22px);
+      background-color: #ffffff;
+    }
+    #tab-oss .oss-badge-capsule {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+    #tab-oss .oss-badge-capsule.ready {
+      background: rgba(16, 185, 129, 0.12);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+    #tab-oss .oss-badge-capsule.uploading {
+      background: rgba(245, 158, 11, 0.12);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+    #tab-oss .oss-badge-capsule.local {
+      background: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+    }
+    #tab-oss .oss-badge-capsule.failed {
+      background: rgba(239, 68, 68, 0.12);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+    }
+    #tab-oss .oss-badge-capsule.none {
+      background: rgba(148, 163, 184, 0.1);
+      color: #94a3b8;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+  </style>
+
+  <!-- 1. 顶栏指引与状态面板 -->
+  <div class="panel-card" style="margin-bottom: 20px;">
+    <div class="panel-header" style="margin-bottom: 8px;">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <span class="panel-title" style="color: var(--signal); font-size: 17px; font-weight: 700;">
+          <svg class="icon" viewBox="0 0 24 24" style="stroke: var(--signal); width: 20px; height: 20px;">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          阿里云 OSS 存储与直播录像全量复盘
+        </span>
+        <span class="brand-badge green">私域资产留存中心</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="status-indicator">
+          <span class="status-dot" id="oss-status-dot"></span>
+          <span id="oss-status-label" style="font-size: 13px; color: var(--text-secondary); font-family: var(--font-mono);">
+            正在检测 OSS 接入状态...
+          </span>
+        </span>
+      </div>
+    </div>
+    <p class="page-intro" style="margin-bottom: 0;">
+      通过无缝桥接<strong>阿里云 OSS (Object Storage Service)</strong>，每场直播下播后自动合成标准 <strong>H.264 + AAC</strong> 高清 MP4 录像切片，全量静默同步至您的私域存储桶。您可随时在后台<strong>一键无延迟在线复盘播放、回溯带货战绩并导出本地</strong>。
+    </p>
+  </div>
+
+  <!-- 2. 阿里云 OSS 接入参数配置面板 -->
+  <div class="panel-card" style="margin-bottom: 24px; border: 1.5px solid rgba(45, 212, 160, 0.32);">
+    <div class="panel-header" style="border-bottom: 1px solid rgba(148, 163, 184, 0.12); padding-bottom: 14px; margin-bottom: 18px;">
+      <div>
+        <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+          <svg class="icon" viewBox="0 0 24 24" style="stroke: #34d399; width: 18px; height: 18px;">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            <line x1="6" y1="6" x2="6.01" y2="6"/>
+            <line x1="6" y1="18" x2="6.01" y2="18"/>
+          </svg>
+          存储桶授权与接入鉴权
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+          密钥与凭证由本地 AES-256 硬件安全隔离，仅在下播同步时调用。
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-oss-test" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          连通性测试
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-oss-save" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          保存配置
+        </button>
+      </div>
+    </div>
+
+    <!-- 表单网格 (规整 2 列) -->
+    <div class="oss-config-grid">
+      <!-- 1. Endpoint 地域节点 -->
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="oss-endpoint">
+          Endpoint 地域节点域名 <span style="color: var(--red);">*</span>
+          <span style="font-size: 12px; color: var(--text-muted); font-weight: normal; margin-left: 6px;">(外网访问域名)</span>
+        </label>
+        <input type="text" id="oss-endpoint" class="form-control" placeholder="https://oss-cn-hangzhou.aliyuncs.com" autocomplete="off" />
+        <!-- 常用地域微光快捷选择胶囊 -->
+        <div class="oss-endpoint-pills">
+          <span class="oss-pill" data-val="https://oss-cn-hangzhou.aliyuncs.com">华东1 (杭州)</span>
+          <span class="oss-pill" data-val="https://oss-cn-shanghai.aliyuncs.com">华东2 (上海)</span>
+          <span class="oss-pill" data-val="https://oss-cn-beijing.aliyuncs.com">华北2 (北京)</span>
+          <span class="oss-pill" data-val="https://oss-cn-shenzhen.aliyuncs.com">华南1 (深圳)</span>
+          <span class="oss-pill" data-val="https://oss-cn-guangzhou.aliyuncs.com">华南3 (广州)</span>
+          <span class="oss-pill" data-val="https://oss-cn-chengdu.aliyuncs.com">西南1 (成都)</span>
+        </div>
+      </div>
+
+      <!-- 2. Bucket 存储空间名称 -->
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="oss-bucket">
+          Bucket 存储空间名称 <span style="color: var(--red);">*</span>
+          <span style="font-size: 12px; color: var(--text-muted); font-weight: normal; margin-left: 6px;">(阿里云已创建的 Bucket)</span>
+        </label>
+        <input type="text" id="oss-bucket" class="form-control" placeholder="例如：live-stream-recordings" autocomplete="off" />
+        <div class="field-tip">建议配置存储类型为「标准存储」，并按需开启跨域 CORS 规则。</div>
+      </div>
+
+      <!-- 3. AccessKey ID -->
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="oss-ak-id">
+          AccessKey ID <span style="color: var(--red);">*</span>
+          <span style="font-size: 12px; color: var(--text-muted); font-weight: normal; margin-left: 6px;">(阿里云 RAM 访问凭证)</span>
+        </label>
+        <input type="text" id="oss-ak-id" class="form-control" placeholder="LTAI5t..." autocomplete="off" />
+        <div class="field-tip">推荐创建仅具备 OSS 读写权限的子账号 (RAM User) 密钥。</div>
+      </div>
+
+      <!-- 4. AccessKey Secret -->
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="oss-ak-secret">
+          AccessKey Secret <span style="color: var(--red);">*</span>
+          <span style="font-size: 12px; color: var(--text-muted); font-weight: normal; margin-left: 6px;">(访问密钥安全私钥)</span>
+        </label>
+        <div class="api-key-input-wrapper">
+          <input type="password" id="oss-ak-secret" class="form-control" placeholder="••••••••••••••••" autocomplete="off" />
+          <button type="button" id="btn-toggle-oss-secret" class="btn-toggle-eye" title="切换显示/隐藏明文">
+            <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="field-tip">保存在本地受保护数据库中，绝不上传至任何第三方云端。</div>
+      </div>
+
+      <!-- 5. 云端存储目录前缀 -->
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="oss-prefix">
+          云端目录前缀
+          <span style="font-size: 12px; color: var(--text-muted); font-weight: normal; margin-left: 6px;">(留空则保存在根目录)</span>
+        </label>
+        <input type="text" id="oss-prefix" class="form-control" placeholder="recordings/" value="recordings/" />
+        <div class="field-tip">推荐保持 <code>recordings/</code>，文件将以 <code>YYYYMMDD_HHMMSS_场次ID.mp4</code> 命名。</div>
+      </div>
+
+      <!-- 6. 自定义加速域名 / CDN 域名 -->
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="oss-custom-domain">
+          自定义加速域名 / CDN 域名
+          <span style="font-size: 12px; color: var(--text-muted); font-weight: normal; margin-left: 6px;">(选填)</span>
+        </label>
+        <input type="text" id="oss-custom-domain" class="form-control" placeholder="https://media.yourdomain.com (留空使用阿里云官方直链)" />
+        <div class="field-tip">若您的 Bucket 已绑定自定义 ICP 备案域名或配置 CDN，填入后将以该域名加速回放。</div>
+      </div>
+
+      <!-- 7. 全自动归档开关条 -->
+      <div class="oss-switch-card">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(45, 212, 160, 0.1); border: 1px solid rgba(45, 212, 160, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <svg class="icon" viewBox="0 0 24 24" style="stroke: #34d399; width: 20px; height: 20px;">
+              <polyline points="16 16 12 12 8 16"/>
+              <line x1="12" y1="12" x2="12" y2="21"/>
+              <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+            </svg>
+          </div>
+          <div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px;">
+              下播后自动归档到云端
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted);">
+              开启后，每场直播在【直播大屏】下播时，系统自动在后台异步转码并上传完整实况音视频到 OSS，无感不卡顿。
+            </div>
+          </div>
+        </div>
+        <label class="tech-switch" for="oss-auto-upload-toggle" title="下播后自动归档到云端">
+          <input type="checkbox" id="oss-auto-upload-toggle" title="下播后自动归档到云端" aria-label="下播后自动归档到云端" checked />
+          <span class="tech-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 连通性测试结果面板 (动态展开) -->
+    <div id="oss-test-result-box" style="display: none; margin-top: 16px; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.6;"></div>
+  </div>
+
+  <!-- 3. 直播录像归档与复盘分析看板 -->
+  <div class="panel-card" style="padding: 0; overflow: hidden;">
+    <div style="padding: 20px 24px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+          <svg class="icon" viewBox="0 0 24 24" style="stroke: var(--amber); width: 18px; height: 18px;">
+            <polygon points="23 7 16 12 23 17 23 7" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+          直播录像归档与复盘分析
+        </div>
+        <div style="font-size: 12.5px; color: var(--text-secondary); margin-top: 3px;">
+          每一次实况直播均自动沉淀关键带货战绩、弹幕峰值以及 1080P 高清实况录像。
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span id="oss-records-count-badge" class="brand-badge" style="font-family: var(--font-mono); font-size: 12px;">
+          已记录 0 场
+        </span>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-oss-records" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          刷新场次列表
+        </button>
+      </div>
+    </div>
+
+    <!-- 数据表格容器 -->
+    <div style="overflow-x: auto;">
+      <table class="data-table" style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: rgba(15, 23, 42, 0.45);">
+            <th style="padding: 13px 18px; width: 22%;">场次主题 / ID</th>
+            <th style="padding: 13px 18px; width: 17%;">开播时间 / 时长</th>
+            <th style="padding: 13px 18px; width: 14%;">带货战绩 (GMV / 单数)</th>
+            <th style="padding: 13px 18px; width: 14%;">互动数据 (弹幕 / 峰值)</th>
+            <th style="padding: 13px 18px; width: 11%;">视频大小</th>
+            <th style="padding: 13px 18px; width: 10%;">存储状态</th>
+            <th style="padding: 13px 18px; width: 12%; text-align: right;">复盘操作</th>
+          </tr>
+        </thead>
+        <tbody id="oss-records-tbody">
+          <!-- 动态加载或空状态填充 -->
+          <tr>
+            <td colspan="7" style="text-align: center; padding: 48px 20px; color: var(--text-muted);">
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                <svg viewBox="0 0 24 24" style="width: 28px; height: 28px; stroke: rgba(148,163,184,0.4); fill: none; stroke-width: 1.5; animation: spin 1.5s linear infinite;">
+                  <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"/>
+                </svg>
+                <span style="font-size: 13px;">正在加载直播历史记录...</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 4. 直播录像高清复盘播放器模态弹窗 -->
+<div id="oss-video-modal" style="display: none; position: fixed; inset: 0; background: rgba(5, 8, 14, 0.88); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); z-index: 10002; align-items: center; justify-content: center; padding: 20px;">
+  <div style="width: min(940px, 95vw); background: #0c121e; border: 1.5px solid rgba(45, 212, 160, 0.35); border-radius: var(--radius-lg, 14px); overflow: hidden; box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85), 0 0 30px rgba(45, 212, 160, 0.15);">
+    <div style="padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(148, 163, 184, 0.14); background: rgba(15, 23, 42, 0.8);">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 8px rgba(45, 212, 160, 0.8);"></span>
+        <h4 id="oss-modal-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">
+          直播实况复盘回放
+        </h4>
+      </div>
+      <button type="button" id="btn-close-oss-modal" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px 8px; font-size: 20px; line-height: 1; border-radius: 4px; transition: color 0.15s ease;" onmouseover="this.style.color='#f1f5f9'" onmouseout="this.style.color='var(--text-muted)'">
+        &times;
+      </button>
+    </div>
+    <div style="background: #000000; display: flex; align-items: center; justify-content: center;">
+      <video id="oss-modal-video-player" controls style="width: 100%; max-height: 540px; display: block; outline: none;" preload="metadata">
+        您的浏览器不支持 HTML5 视频播放。
+      </video>
+    </div>
+    <div style="padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6); border-top: 1px solid rgba(148, 163, 184, 0.12); font-size: 12.5px; color: var(--text-secondary); flex-wrap: wrap; gap: 10px;">
+      <div id="oss-modal-source-info" style="font-family: var(--font-mono);">
+        视频源: 本地分片流 / 阿里云 OSS 加速直链
+      </div>
+      <div>
+        <a id="oss-modal-download-btn" href="#" target="_blank" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px; text-decoration: none;">
+          <svg class="icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          下载到本地
+        </a>
+      </div>
+    </div>
+  </div>
+</div>

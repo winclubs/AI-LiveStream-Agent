@@ -6,12 +6,12 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-Desktop%20UI-47848F?style=flat&logo=electron&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?style=flat&logo=sqlite&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-365%20Collected%20364%20Passed-4caf50?style=flat&logo=pytest&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-423%20Collected%20423%20Passed-4caf50?style=flat&logo=pytest&logoColor=white)
 ![License](https://img.shields.io/badge/License-Proprietary%20%2F%20Commercial-blue?style=flat)
 
 <p align="center">
-  <b>一段 1~2 分钟真人实拍视频，全自动切片生成专属数字人</b><br>
-  <b>超级策略大脑（8 大 LLM + RAG + 工业货盘） + 高保真流式渲染小脑（LiveTalking / 云端 GPU / CPU 双轨）</b><br>
+  <b>上传一段 1~2 分钟真人实拍视频，全自动切片生成专属数字人形象</b><br>
+  <b>上传一段 1~2 分钟真人实录音频，全自动克隆成数字人直播的发音</b><br>
   <b>7×24 小时无人值守带货 · 毫秒级全双工语音打断 · 全平台弹幕自动场控 · 视觉抗封禁防查</b>
 </p>
 
@@ -19,10 +19,11 @@
 
 ---
 
-> 📌 **项目使用者定位说明**：
-> 无论用户使用何种电脑配置，系统均能完美自适应支持：
-> 1. **本地硬件完全达标用户（拥有高性能独立显卡 RTX 3060/3090/4090 等）**：单机全离线承载，数据 100% 绝对私有；
-> 2. **本地硬件不足用户（轻薄本 / 核显 / 老旧电脑 / 显存 <= 2GB）**：**系统优先读取用户配置**。只要配置了远端租赁 GPU（如 AutoDL、Google Colab Tesla T4、Intern InkStone A100、阿里云/腾讯云），系统**自动优先调度云端显卡**承担高负载渲染，本地仅需 CPU 调度，实现极低发热与电影级写实画面；若显存不足且未配置云端显卡，系统**严禁静默崩溃，输出明确警示并平滑降级为轻量 CPU 模式**。
+> 📌 **项目使用者定位说明（硬件配置重要提示）**：
+> 实际情况下，过低配置的电脑根本无法流畅运行高拟真数字人直播，或者效果非常差劲，请根据自身硬件条件合理选型，避免浪费时间盲目折腾：
+> 1. **本地电脑 CPU 小于 4 核的用户，不用折腾！**
+> 2. **本地电脑显存小于 16G 的用户，也不要折腾！**
+> 3. **本地电脑没有独立显卡或者显卡低于 8G 的用户，请一定配置云端 GPU（可租赁）**
 
 ---
 
@@ -165,8 +166,8 @@ flowchart TD
    - **内容防封**：Aho-Corasick 算法毫秒级扫描敏感词与广告法违规词，智能同义替换或整句熔断；
    - **视觉防封**：底层视频流注入亚感知高斯微扰与 0.05Hz 光影微动，每帧 SHA256 绝对离散，粉碎平台固定指纹静态查处；
    - **拟人发声**：智能注入换气微停顿与“嗯、那个”等自然语气助词，消除机械感。
-6. ✅ **365 项自动化测试验证**：
-   - 全链路覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例（实测 364 通过 / 1 项环境隔离断言已修复）；
+6. ✅ **423 项全量自动化测试验证（100% 通过）**：
+   - 全链路覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例（实测 423 项测试全部通过，100% 通过率）；
    - 前端模块化 JS 全量通过 Node.js 严格语法检测，前后端代码零语法错误。
 
 ---
@@ -449,7 +450,7 @@ python scripts/cloud_sidecar_bootstrap.py --port 8010
 
 系统实行工业级严苛的代码质量门禁与自动化回归体系：
 
-- **自动化测试套件**：全量 **365 项单元与端到端集成测试**（实测 364 通过 / 1 项环境隔离断言已修复，运行耗时 ~180s），覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例；
+- **自动化测试套件**：全量 **423 项单元与端到端集成测试**（实测 423 项全部通过 / 100% 通过率，覆盖率健全，运行耗时 ~180s），覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例；
 - **全量语法静态校验**：所有 Python 源文件通过 `py_compile` 静态编译解析，**0 语法错误，0 致命异常**；
 - **前端 JS 规范检验**：所有模块化 JavaScript 经过严格聚合与 Node.js 严格语法检测（`node --check`），确保无低级语法 Bug；
 - **高可用看门狗机制**：具备显存超限自动释放（`VRAMWatchdog`）、网络断线熔断器自愈恢复、长音频超时看门狗与媒体管线平滑兜底。
@@ -476,7 +477,7 @@ python -m ruff check launcher.py scripts server
 node --check apps/desktop-ui/main.js
 node --check server/static/js/console.js
 
-# 3. 运行全量 365 项自动化测试并统计覆盖率
+# 3. 运行全量 423 项自动化测试并统计覆盖率
 $env:LIVE_AGENT_DATA_DIR = Join-Path $env:TEMP ('ai-live-agent-test-' + [guid]::NewGuid().ToString('N'))
 python -m pytest -q server/tests --cov=server --cov-branch
 ```
@@ -570,7 +571,7 @@ python scripts/restore_data.py --backup "G:\backups\before-upgrade" --data-dir "
   python scripts/generate_action_clip.py --all-missing
   ```
   占位动作会叠加指引箭头与动作名贴片，可先用它跑通促单节奏，随后在控制台【数字人】页面上传真人实拍切片替换。
-- **神经唇形权重一键下载**：执行下载器把 `onnx_lipsync.onnx` 等权重落入 `data/models/`（国内推荐 ModelScope 源），`NeuralLipRenderer` 即自动从程序化渲染升级为真实神经唇形重绘：
+- **神经唇形权重与 ASR 引擎自动补齐 (零操作)**：`onnx_lipsync.onnx` (约45MB) 与 `faster-whisper` 轻量转写引擎 (约30MB) 在服务启动或开播体检时若检测到缺失，**自动后台下载/安装**（ModelScope 源 + 国内 pip 镜像源），完成后自动热挂载真实神经唇形重绘；下载/安装期间无缝回退 RealAvatarLite 微动态渲染与 VAD 极速打断，直播不中断。如需离线环境关闭该行为，设置环境变量 `LIVE_AGENT_DISABLE_AUTO_DOWNLOAD=1`；手动补齐也可沿用下载器：
   ```powershell
   python scripts/download_weights.py --model onnx-lipsync --source modelscope
   ```

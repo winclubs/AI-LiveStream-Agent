@@ -294,6 +294,19 @@ MIGRATIONS = [
             "UPDATE prohibited_words SET platform = 'all' WHERE platform IS NULL OR platform = ''",
         ],
     ),
+    (
+        "0012_add_live_session_recording_and_oss",
+        "live_session_records 表新增视频录像路径、OSS链接、时长与归档状态列",
+        [
+            "ALTER TABLE live_session_records ADD COLUMN video_path VARCHAR(512) DEFAULT ''",
+            "ALTER TABLE live_session_records ADD COLUMN oss_url VARCHAR(1024) DEFAULT ''",
+            "ALTER TABLE live_session_records ADD COLUMN preview_image_url VARCHAR(1024) DEFAULT ''",
+            "ALTER TABLE live_session_records ADD COLUMN video_duration_sec FLOAT DEFAULT 0.0",
+            "ALTER TABLE live_session_records ADD COLUMN video_size_bytes BIGINT DEFAULT 0",
+            "ALTER TABLE live_session_records ADD COLUMN oss_upload_status VARCHAR(32) DEFAULT 'none'",
+            "ALTER TABLE live_session_records ADD COLUMN oss_error_msg TEXT DEFAULT ''",
+        ],
+    ),
 ]
 
 
