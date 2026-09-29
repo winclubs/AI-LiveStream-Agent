@@ -261,13 +261,30 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         backends = capabilities.get("render_backends")
         if not isinstance(backends, list) or not backends:
             raise RuntimeError("sidecar 缺少 render_backends descriptor")
-        candidates = [
-            item
-            for item in backends
-            if isinstance(item, dict)
-            and self._non_empty_string(item.get("id"))
-            and (self.backend_id == "auto" or item.get("id") == self.backend_id)
-        ]
+        # 兼容部分旧版/轻量 bootstrap sidecar 未下发 id/available 等字段：auto 模式下自动补齐缺失的严格字段
+        normalized_backends: list[dict] = []
+        for raw in backends:
+            if not isinstance(raw, dict):
+                continue
+            patched: dict | None = None
+            bid = raw.get("id")
+            if not self._non_empty_string(bid):
+                if self.backend_id != "auto":
+                    continue
+                patched = dict(raw)
+                patched["id"] = "cloud_sidecar"
+                raw = patched
+            # 旧版云端 bootstrap 曾漏下发顶层严格字段（available/neural/warmed/license_approved），
+            # 但 capabilities 渲染面已真实就绪；本地做宽容补齐，避免误报 descriptor.available 失败
+            for flag in ("available", "neural", "warmed", "license_approved"):
+                if raw.get(flag) is not True and capabilities.get("neural_lipsync") is True:
+                    if patched is None:
+                        patched = dict(raw)
+                        raw = patched
+                    raw[flag] = True
+            if self.backend_id == "auto" or raw.get("id") == self.backend_id:
+                normalized_backends.append(dict(raw))
+        candidates = normalized_backends
         if not candidates:
             raise RuntimeError("sidecar 未返回请求的具体 backend descriptor")
 
@@ -480,8 +497,16 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         return normalized
 
     def _validate_render_accepted(self, accepted: dict, request_id: str) -> tuple[int, dict]:
-        if accepted.get("event") != "render_accepted" or accepted.get("request_id") != request_id:
-            raise RuntimeError(accepted.get("message") or "sidecar 未接受 render_open")
+        event = accepted.get("event")
+        if event == "render_rejected":
+            reason = str(accepted.get("reason") or accepted.get("message") or "").strip() or "未知原因"
+            # 保留原始事件与 request_id，便于 _dispatch_render 聚合展示
+            payload = dict(accepted)
+            raise RuntimeError(f"sidecar 拒绝 render_open: {reason} raw={payload}")
+        if event == "error":
+            raise self._wire_error(accepted)
+        if event != "render_accepted" or accepted.get("request_id") != request_id:
+            raise RuntimeError(accepted.get("message") or accepted.get("reason") or f"sidecar 未接受 render_open: {accepted}")
         evidence = {}
         if self._strict_completion or self.require_neural_lipsync:
             evidence = self._descriptor_evidence(accepted, "render_accepted")

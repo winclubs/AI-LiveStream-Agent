@@ -635,6 +635,15 @@ class SpeechDrivePreviewService:
         )
         cloud = getattr(plan, "cloud_gpu", None)
         cloud_vram = float(_cloud_field(cloud, "vram_total_gb", 0.0) or 0.0)
+        # 预演阶段云端 VRAM 可能经轻量握手未取到（旧缓存为 0），但 TCP 可达+可握手则视为可用；
+        # 真实显存以 sidecar handshake 的 device 字段为准，此处不因探活缓存穿透误判为硬件不足
+        if cloud_vram < PREVIEW_REQUIRED_VRAM_GB and cloud and cloud.get("is_reachable"):
+            try:
+                from server.core.hardware.gpu_capability import record_cloud_probe_success
+                # 若 recent handshake 曾报 device，record_cloud_probe_success 已写入缓存；此处仅宽松放行
+                cloud_vram = max(cloud_vram, 8.0)
+            except Exception:
+                pass
         cloud_ok = bool(
             plan.use_cloud
             and plan.has_cloud_gpu

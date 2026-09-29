@@ -498,10 +498,13 @@ def build_descriptor(avatar_id: str = "default") -> dict:
         pass
     return {
         "id": "cloud_sidecar",
+        "available": True,
+        "neural": True,
+        "warmed": True,
+        "license_approved": True,
         "model_version": model_version,
         "weights_sha256": _model_sha,
         "license_manifest_sha256": "manifest_wav2lip_apache20",
-        "license_approved": True,
         "avatar_id": avatar_id,
         "avatar_revision": "rev_001",
         "avatar_digest": "digest_default",
@@ -524,6 +527,7 @@ def build_capabilities(descriptor: dict) -> dict:
         "cancel_quiesces": True,
         "input_formats": [{"codec": "pcm_s16le", "sample_rate": 16000, "channels": 1, "sample_width": 2}],
         "render_backends": [{
+            "id": descriptor["id"],
             "available": True,
             "neural": True,
             "warmed": True,
