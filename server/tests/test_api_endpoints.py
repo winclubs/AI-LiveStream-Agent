@@ -10,6 +10,28 @@ def client():
 
 def _png_bytes(width=1, height=1):
     import io
+@pytest.fixture(scope="module", autouse=True)
+def _ready_neural_renderer():
+    """模块级注入就绪的神经唇形渲染器。
+
+    硬性规约：开播必须走真实神经渲染，mouth_open 模拟驱动回退已移除，因此未就绪时
+    /live/start 会如实返回 500。测试环境中本无 ONNX 权重与主播切片资产，若不注入，
+    所有开播类测试都会失败，且依赖开播广播的 WebSocket 测试会因收不到广播而永久阻塞。
+    """
+    from unittest.mock import MagicMock
+    import numpy as np
+    from server.adapters.media.musetalk_driver import global_musetalk_driver
+
+    mock_lip = MagicMock()
+    mock_lip.is_ready = True
+    mock_lip.has_anchor_assets = True
+    mock_lip.render_lip_frame.return_value = np.zeros((960, 720, 3), dtype=np.uint8)
+    real_renderer = global_musetalk_driver.lip_renderer
+    global_musetalk_driver.lip_renderer = mock_lip
+    yield mock_lip
+    global_musetalk_driver.lip_renderer = real_renderer
+
+
     from PIL import Image
     output = io.BytesIO()
     Image.new("RGB", (width, height), color=(30, 60, 90)).save(output, format="PNG")
@@ -398,8 +420,26 @@ def test_console_ui_endpoint(client):
     assert "AI-LiveStream-Agent" in res.text
     assert "数字人实时流式视窗" in res.text
 
-def test_live_lifecycle_and_manual_speech(client):
-    """测试直播生命周期：开播 -> 状态查询 -> 人工插播 (manual-speech) -> 下播"""
+def test_live_lifecycle_and_manual_speech(client, _ready_neural_renderer):
+    """测试直播生命周期：开播 -> 状态查询 -> 人工插播 (manual-speech) -> 下播
+
+    硬性规约：开播必须走真实神经渲染（mouth_open 模拟驱动回退已移除）。
+    _ready_neural_renderer fixture 注入就绪引擎；并额外回归验证：
+    引擎未就绪时开播被如实拒绝 (500 + 根因说明)。
+    """
+    from server.adapters.media.musetalk_driver import global_musetalk_driver
+
+    # 0. 回归：临时摘掉引擎，开播必须被拒绝且错误信息指明根因
+    real_renderer = global_musetalk_driver.lip_renderer
+    global_musetalk_driver.lip_renderer = None
+    try:
+        unready_res = client.post("/api/v1/live/start", json={"room_id": "room_demo"})
+        assert unready_res.status_code == 500
+        assert "神经唇形渲染引擎未就绪" in unready_res.json().get("detail", "")
+    finally:
+        global_musetalk_driver.lip_renderer = real_renderer
+        client.post("/api/v1/live/stop")
+
     # 1. 启动直播
     start_res = client.post("/api/v1/live/start", json={"room_id": "room_demo"})
     assert start_res.status_code == 200

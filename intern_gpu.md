@@ -367,7 +367,7 @@ class Wav2LipInferencer:
         face_f = face_256.astype(np.float32) / 255.0
         masked_face = face_f.copy()
         masked_face[128:, :, :] = 0.0
-        concat_face = np.concatenate([face_f, masked_face], axis=2)
+        concat_face = np.concatenate([masked_face, face_f], axis=2)
         tensor_face = np.transpose(concat_face, (2, 0, 1))[np.newaxis, :, :, :]
         return tensor_face.astype(np.float32)
 
