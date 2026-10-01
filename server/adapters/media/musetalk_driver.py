@@ -168,27 +168,65 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         except Exception as e:
             logger.warning(f"同步真人微动态底模失败: {e}")
 
-        # 尝试加载主播神经唇形重绘切片与坐标 (若当前主播素材已由 task_manager 预处理)
-        if self.lip_renderer is not None and path:
-            try:
-                self.lip_renderer.load_anchor_assets(Path(path))
-            except Exception as e:
-                logger.debug(f"加载主播神经唇形切片资产跳过: {e}")
+        # 加载主播神经唇形重绘切片与坐标。
+        # 注意：source_path 是**肖像照片**，不是切片资产目录；神经切片资产由
+        # set_avatar_asset() 单独挂载（历史上此处误传肖像照片，导致
+        # has_anchor_assets 恒为 False、神经渲染分支从未生效）。
+        self._anchor_assets_loaded = self._load_neural_anchor_assets(path)
 
         self.latest_jpeg_frame = encode_jpeg(self.base_portrait, quality=85)
+
+    def _load_neural_anchor_assets(self, asset_dir_path: str) -> bool:
+        """载入神经唇形切片资产 (face_imgs/ + coords.pkl)。失败返回 False，不上抛。
+
+        失败不在此处上抛：开播时可能先设底图、后挂资产，挂载失败由
+        start() 的前置校验统一拦截并给出清晰根因。
+        """
+        if self.lip_renderer is None or not asset_dir_path:
+            return False
+        try:
+            return bool(self.lip_renderer.load_anchor_assets(Path(asset_dir_path)))
+        except Exception as e:
+            logger.warning(f"加载主播神经唇形切片资产失败 (asset_dir={asset_dir_path}): {e}")
+            return False
+
+    def set_avatar_asset(self, avatar_asset_dir: str) -> bool:
+        """挂载神经唇形切片资产目录 (anchor.avatar_asset_dir)，与肖像底图分离。
+
+        历史缺陷：切片资产目录从未传入本驱动，导致 has_anchor_assets 恒为 False，
+        神经渲染被静默旁路、画面始终由 mouth_open 模拟驱动产出（表现为"只会微笑"）。
+        """
+        loaded = self._load_neural_anchor_assets(avatar_asset_dir)
+        logger.info(
+            f"神经唇形切片资产挂载 {'成功' if loaded else '失败'}: {avatar_asset_dir or '(未提供)'}"
+        )
+        return loaded
 
     async def start(self):
         if self.is_running:
             return
+
+        # 硬性规约前置校验：唇形必须由真实神经渲染产生。引擎未就绪时直接拒绝启动，
+        # 而不是放任渲染线程每帧抛错（历史缺陷：会回退 mouth_open 模拟驱动，
+        # 产出"只会微笑"的假唇形）。错误在此暴露，用户能立即看到根因。
+        if not CV_AVAILABLE:
+            raise RuntimeError(
+                "未安装 numpy/opencv-python，神经唇形渲染无法执行；"
+                "请执行: pip install numpy opencv-python"
+            )
+        if (
+            self.lip_renderer is None
+            or not getattr(self.lip_renderer, "is_ready", False)
+            or not getattr(self.lip_renderer, "has_anchor_assets", False)
+        ):
+            raise RuntimeError(
+                "神经唇形渲染引擎未就绪（ONNX 权重缺失或主播切片资产未加载），"
+                "已禁止启动：唇形必须由真实神经渲染产生，不提供 mouth_open 模拟驱动回退。"
+                "请确认 onnx_lipsync 权重已下载，且当前主播已完成切片资产生成。"
+            )
+
         self.is_running = True
         self.start_ts = time.time()
-
-        if not CV_AVAILABLE:
-            logger.warning(
-                "未安装 numpy/opencv-python，程序化数字人渲染已禁用（仅音频链路可用）。"
-                "如需数字人画面，请执行: pip install numpy opencv-python"
-            )
-            return
 
         # 尝试开启本地虚拟摄像头
         global_virtual_cam.start()
@@ -544,7 +582,10 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 self.current_mouth_open += (0.0 - self.current_mouth_open) * 0.5
                 self.current_mouth_form += (0.0 - self.current_mouth_form) * 0.5
 
-            # 截取前后 200ms 的 16kHz float32 音频切片 (3200 采样点) 供神经唇形重绘
+            # 截取前后 100ms 的 16kHz float32 音频切片 (3200 采样点) 供神经唇形重绘
+            # 硬性规约：不再由 is_speaking/mouth_open 门控 pcm_window。静音帧也必须
+            # 送神经渲染——模型会依据静音 mel 自然闭合嘴唇；一旦门控，静音段会
+            # 退回底片导致"只在说话时才动、停顿就回到微笑脸"的割裂感。
             current_pcm_window = None
             active_pcm = sent.get("pcm_16k") if sent else self._latest_pcm_16k
             active_elapsed = (
@@ -552,12 +593,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 if (sent and "elapsed" in locals())
                 else max(0.0, time.monotonic() - self._latest_pcm_time)
             )
-            if (
-                np is not None
-                and active_pcm is not None
-                and len(active_pcm) > 0
-                and self.is_speaking
-            ):
+            if np is not None and active_pcm is not None and len(active_pcm) > 0:
                 center_sample = int(active_elapsed * 16000)
                 win_start = center_sample - 1600
                 win_end = center_sample + 1600
@@ -574,14 +610,21 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 else:
                     current_pcm_window = np.zeros(3200, dtype=np.float32)
 
-            # 2. 生成当前合成视频帧 (神经唇形重绘 / 真人微动态 / 程序化兜底 + 泊松眨眼)
+            # 2. 生成当前合成视频帧 (神经唇形重绘；模拟驱动已按硬性规约移除)
             render_started = time.time()
-            frame_rgb = self._synthesize_frame(
-                t,
-                self.current_mouth_open,
-                self.current_mouth_form,
-                pcm_window=current_pcm_window,
-            )
+            try:
+                frame_rgb = self._synthesize_frame(
+                    t,
+                    self.current_mouth_open,
+                    self.current_mouth_form,
+                    pcm_window=current_pcm_window,
+                )
+            except Exception as render_err:
+                # 渲染线程内不能静默吞错冒充画面，也不能回退模拟驱动：
+                # 停止引擎并大声报错，把根因暴露给上层（错误即故障信号）。
+                self.is_running = False
+                logger.error(f"神经唇形渲染失败，渲染线程终止 (绝不回退模拟驱动): {render_err}")
+                break
             # 记录单帧基础渲染耗时用于音画同步补偿 (规划 §15.1)
             global_av_sync.record_render_latency((time.time() - render_started) * 1000.0)
 
@@ -700,50 +743,37 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         except Exception:
             pass
 
-        # 优先接入真实神经唇形重绘引擎 (Wav2Lip ONNX + coords 动态羽化回贴)
-        # 动作帧不再与神经唇形互斥：传入动作专属坐标并从当前帧实时裁剪对齐人脸
+        # 硬性规约：唇形必须由真实神经渲染产生，禁止回退 mouth_open 模拟驱动
+        # （RealAvatarLite 微动态 / procedural_renderer 程序化兜底均会产出"只会
+        # 微笑"的假唇形，与语音内容脱节，已彻底移除）。
+        # 神经引擎未就绪属于必须暴露的致命错误，绝不静默降级冒充神经渲染。
         if (
-            self.lip_renderer is not None
-            and getattr(self.lip_renderer, "is_ready", False)
-            and getattr(self.lip_renderer, "has_anchor_assets", False)
-            and pcm_window is not None
-            and (not has_custom_action or action_coord is not None)
+            self.lip_renderer is None
+            or not getattr(self.lip_renderer, "is_ready", False)
+            or not getattr(self.lip_renderer, "has_anchor_assets", False)
         ):
-            try:
-                neural_frame = self.lip_renderer.render_lip_frame(
-                    active_portrait,
-                    self.current_frame_id,
-                    pcm_window,
-                    mouth_open=mouth_open,
-                    override_coord=action_coord,
-                )
-                if neural_frame is not None:
-                    return neural_frame
-            except Exception as e:
-                logger.debug("神经唇形重绘异常，平滑降级: %s", e)
+            raise RuntimeError(
+                "神经唇形渲染引擎未就绪（模型权重缺失或主播资产未加载），"
+                "已禁止 mouth_open 模拟驱动回退；请确认 onnx_lipsync 权重与主播切片资产"
+            )
+        if has_custom_action and action_coord is None:
+            raise RuntimeError("动作切片缺少逐帧 coords，无法对齐神经唇形重绘的人脸位置")
+        if pcm_window is None:
+            pcm_window = np.zeros(3200, dtype=np.float32)
 
-        # 若未触发动作切片且神经模型未就绪，接入低配真人微动态与下唇自适应羽化融合引擎
-        if not has_custom_action and self.avatar_source_path and _os.path.exists(self.avatar_source_path):
-            try:
-                from server.core.media.real_avatar_lite import global_real_avatar_lite
-                real_frame = global_real_avatar_lite.render_frame(
-                    t,
-                    mouth_open=mouth_open,
-                    mouth_form=mouth_form,
-                    is_blinking=self.micro_expr.is_blinking(t),
-                )
-                if real_frame is not None:
-                    return real_frame
-            except Exception:
-                pass
-
-        from server.core.media.procedural_renderer import synth_frame
-        return synth_frame(
-            active_portrait, self.width, self.height, t, mouth_open,
-            face_box=self.face_box, action_clip=self.action_clip,
-            is_blinking=self.micro_expr.is_blinking(t),
-            mouth_form=mouth_form,
-        )
+        try:
+            neural_frame = self.lip_renderer.render_lip_frame(
+                active_portrait,
+                self.current_frame_id,
+                pcm_window,
+                mouth_open=mouth_open,
+                override_coord=action_coord,
+            )
+        except Exception as e:
+            raise RuntimeError(f"神经唇形重绘失败，已禁止模拟驱动回退: {e}") from e
+        if neural_frame is None:
+            raise RuntimeError("神经唇形重绘返回空帧，已禁止模拟驱动回退")
+        return neural_frame
 
     def get_latest_jpeg(self) -> bytes:
         """获取最新的 JPEG 视频帧供前端推流"""

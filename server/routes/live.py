@@ -656,19 +656,20 @@ class LiveSessionController:
         task.add_done_callback(self._background_tasks.discard)
         return task
 
-    async def start(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False):
+    async def start(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False, avatar_asset_dir: str = ""):
         """事务式启动资源；任一步失败都回滚已启动任务和设备。"""
         try:
             await self._start_resources(
                 session_id, products, room_id, platform, theme, voice_id,
-                avatar_path, mode, landmarks_path, demo_mode=demo_mode
+                avatar_path, mode, landmarks_path, demo_mode=demo_mode,
+                avatar_asset_dir=avatar_asset_dir,
             )
         except Exception:
             logger.exception("直播资源启动失败，正在回滚")
             await self.stop()
             raise
 
-    async def _start_resources(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False):
+    async def _start_resources(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False, avatar_asset_dir: str = ""):
         if self.is_live:
             return
         self.is_live = True
@@ -713,7 +714,7 @@ class LiveSessionController:
             global_media_router.detach_sidecar()
 
         # 启动数字人渲染引擎与音画帧管道 (根据模式、主播底图与人脸关键点)
-        global_media_router.select_driver(mode=mode, avatar_path=avatar_path, landmarks_path=landmarks_path)
+        global_media_router.select_driver(mode=mode, avatar_path=avatar_path, landmarks_path=landmarks_path, avatar_asset_dir=avatar_asset_dir)
         await global_media_router.start()
 
         # 启动 VRAM 看门狗 (无 GPU 环境自动空转)
@@ -1818,7 +1819,8 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         await global_live_controller.start(
             session_id, products, target_room, platform=platform, theme=live_theme,
             voice_id=target_voice_id, avatar_path=avatar_path, mode=live_mode,
-            landmarks_path=landmarks_path, demo_mode=is_demo
+            landmarks_path=landmarks_path, demo_mode=is_demo,
+            avatar_asset_dir=avatar_asset_dir,
         )
         setattr(session_record, "status", "live")
         await db.commit()

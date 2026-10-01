@@ -79,17 +79,16 @@ async def test_native_neural_avatar_driver_lifecycle_and_non_black_frames():
     assert caps["driver"] == "native_neural_driver"
     assert caps["self_contained"] is True
     assert caps["neural_lipsync"] is False  # 必须如实报告为 False
-    assert caps["engine_type"] == "real_avatar_lite"
+    # 未就绪时必须诚实报 unavailable，不得声称 real_avatar_lite 在工作
+    # （模拟驱动已按硬性规约移除，引擎不在位时不得冒充任何渲染后端）
+    assert caps["engine_type"] == "unavailable"
     assert "fps" in caps
     assert caps["fps"] == 25
 
-    # 2. 待机非黑屏实质性测试：停顿与待机时画面绝不能是全黑或纯深色占位帧
-    standby_frame = driver._render_frame(0)
-    assert standby_frame is not None
-    assert standby_frame.shape == (720, 1280, 3)
-    # 平均像素亮度必须 > 30.0，杜绝 (24, 24, 24) 纯黑帧
-    mean_val = float(standby_frame.mean())
-    assert mean_val > 30.0, f"待机画面过暗或黑屏，当前像素均值: {mean_val}"
+    # 2. 硬性规约：神经引擎未就绪时禁止 mouth_open 模拟驱动回退，必须直接报错
+    #    （历史缺陷：回退 RealAvatarLite 会产出"只会微笑"的假唇形）
+    with pytest.raises(RuntimeError, match="神经唇形渲染引擎未就绪"):
+        driver._render_frame(0)
 
     # 3. 启动驱动
     start_res = await driver.start()
@@ -113,8 +112,22 @@ async def test_native_neural_avatar_driver_lifecycle_and_non_black_frames():
 
 
 def test_action_clip_priority_over_standby(monkeypatch):
-    """测试动作切片帧优先级：当处于动作状态机激活动作时，画面优先呈现动作帧而不被待机底模粗暴覆盖"""
+    """测试动作切片帧优先级：当处于动作状态机激活动作时，画面优先呈现动作帧而不被待机底模粗暴覆盖
+
+    硬性规约：唇形必须由真实神经渲染产生。测试注入一个最小化的就绪 renderer
+    （直接回放输入帧），验证动作切片帧确实被送进神经渲染管线且未被任何模拟驱动覆盖。
+    """
     driver = NativeNeuralAvatarDriver(config={"fps": 25, "width": 100, "height": 100})
+
+    # 注入一个就绪的神经渲染器：直接回放输入底帧（模拟"神经重绘不改像素"）
+    class _ReadyRenderer:
+        is_ready = True
+        has_anchor_assets = True
+
+        def render_lip_frame(self, full_frame, frame_idx, pcm_window, mouth_open=0.0, override_coord=None):
+            return full_frame
+
+    driver.lip_renderer = _ReadyRenderer()
 
     # 模拟动作状态机输出特定的纯绿色测试动作帧 (R=0, G=255, B=0)
     mock_action_frame = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -124,7 +137,7 @@ def test_action_clip_priority_over_standby(monkeypatch):
 
     rendered = driver._render_frame(0)
     assert rendered is not None
-    # 验证输出的是动作切片帧（Green 通道为 255）
+    # 验证输出的是动作切片帧（Green 通道为 255），且未被模拟驱动覆盖
     assert rendered[50, 50, 1] == 255
 
 

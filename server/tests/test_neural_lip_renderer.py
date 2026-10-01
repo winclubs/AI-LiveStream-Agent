@@ -63,7 +63,10 @@ def test_neural_lip_renderer_fallback_when_no_model():
 
 
 def test_prepare_face_input():
-    """测试 6 通道输入张量构建及下半脸掩码"""
+    """测试 6 通道输入张量构建及下半脸掩码
+
+    通道顺序为 [masked, face]: 前 3 通道下半脸置零, 后 3 通道为完整原图。
+    """
     renderer = NeuralLipRenderer(custom_onnx_path=Path("non_existent.onnx"))
     face_img = np.ones((256, 256, 3), dtype=np.uint8) * 200
 
@@ -72,11 +75,11 @@ def test_prepare_face_input():
     assert tensor.shape == (1, 6, 256, 256)
     assert tensor.dtype == np.float32
 
-    # 前 3 通道保持原图归一化值 (约 200/255.0)
-    assert np.allclose(tensor[0, :3, :, :], 200.0 / 255.0, atol=1e-3)
-    # 后 3 通道上半脸保持原值，下半脸 (y >= 128) 必须全为 0
-    assert np.allclose(tensor[0, 3:, :128, :], 200.0 / 255.0, atol=1e-3)
-    assert np.all(tensor[0, 3:, 128:, :] == 0.0)
+    # 前 3 通道: 上半脸保持原值, 下半脸 (y >= 128) 必须全为 0
+    assert np.allclose(tensor[0, :3, :128, :], 200.0 / 255.0, atol=1e-3)
+    assert np.all(tensor[0, :3, 128:, :] == 0.0)
+    # 后 3 通道保持完整原图归一化值 (约 200/255.0)
+    assert np.allclose(tensor[0, 3:, :, :], 200.0 / 255.0, atol=1e-3)
 
 
 def test_blend_back_seamless():
@@ -164,7 +167,11 @@ def test_render_lip_frame_end_to_end_mock_session():
 
 
 def test_musetalk_driver_pipeline_neural_integration():
-    """测试 ProceduralAvatarDriver 主渲染推流链路对神经唇形重绘的接入与降级"""
+    """测试 ProceduralAvatarDriver 主渲染推流链路对神经唇形重绘的接入
+
+    硬性规约：唇形必须由真实神经渲染产生，禁止 mouth_open 模拟驱动回退
+    （RealAvatarLite 微动态与 procedural_renderer 程序化兜底已彻底移除）。
+    """
     driver = ProceduralAvatarDriver()
     assert hasattr(driver, "lip_renderer")
 
@@ -184,17 +191,27 @@ def test_musetalk_driver_pipeline_neural_integration():
     caps = driver.get_capabilities()["capabilities"]
     assert caps["neural_lipsync"] is True
 
-    # 调用 _synthesize_frame，验证神经重绘帧优先采纳
+    # 调用 _synthesize_frame，验证神经重绘帧被采纳
     test_pcm = np.zeros(3200, dtype=np.float32)
     rendered = driver._synthesize_frame(0.1, mouth_open=0.5, mouth_form=0.0, pcm_window=test_pcm)
     assert np.array_equal(rendered, neural_frame_out)
     mock_lip.render_lip_frame.assert_called_once()
 
-    # 3. 神经重绘单帧抛出异常或返回 None 时，优雅降级
+    # 3. 神经未就绪时禁止模拟驱动回退，必须直接报错
+    mock_lip.is_ready = False
+    with pytest.raises(RuntimeError, match="神经唇形渲染引擎未就绪"):
+        driver._synthesize_frame(0.1, mouth_open=0.5, mouth_form=0.0, pcm_window=test_pcm)
+
+    # 4. 神经重绘返回 None 时同样禁止回退
+    mock_lip.is_ready = True
     mock_lip.render_lip_frame.return_value = None
-    fallback_frame = driver._synthesize_frame(0.1, mouth_open=0.5, mouth_form=0.0, pcm_window=test_pcm)
-    assert fallback_frame is not None
-    assert fallback_frame.shape == (960, 720, 3)
+    with pytest.raises(RuntimeError, match="返回空帧"):
+        driver._synthesize_frame(0.1, mouth_open=0.5, mouth_form=0.0, pcm_window=test_pcm)
+
+    # 5. 神经重绘抛异常时同样禁止回退
+    mock_lip.render_lip_frame.side_effect = RuntimeError("onnx boom")
+    with pytest.raises(RuntimeError, match="神经唇形重绘失败"):
+        driver._synthesize_frame(0.1, mouth_open=0.5, mouth_form=0.0, pcm_window=test_pcm)
 
 
 def test_media_router_dynamic_capability_reflection():

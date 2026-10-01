@@ -188,7 +188,12 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         logger.info("原生自包含数字人已执行瞬间打断 (flush_talk)")
 
     def _render_frame(self, frame_idx: int) -> np.ndarray:
-        """单帧画面原生合成管线 (动作切片 → 神经唇形重绘 → 真人微动态 → 兜底底图)"""
+        """单帧画面原生合成管线 (动作切片 → 神经唇形重绘)
+
+        硬性规约：唇形必须由真实神经渲染产生。RealAvatarLite 微动态与
+        procedural_renderer 程序化兜底均基于 mouth_open 模拟驱动，产出的唇形
+        与语音内容脱节（表现为"只会微笑"），已彻底移除，未就绪时直接报错。
+        """
         mouth_open = self._current_energy if self._speaking else 0.0
         # 语音停顿超时平滑归零
         if time.time() - self._last_speech_time > 0.25:
@@ -198,40 +203,34 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         # 1. 优先从 (全局) 动作状态机获取当前动作切片帧
         base_frame = self.action_state_machine.get_frame(frame_idx)
 
-        # 2. 神经唇形重绘：模型与主播切片资产均就绪时执行真实 ONNX 前向推理
+        # 2. 神经唇形重绘：必须就绪，禁止回退模拟驱动
         if (
-            self.lip_renderer is not None
-            and getattr(self.lip_renderer, "is_ready", False)
-            and getattr(self.lip_renderer, "has_anchor_assets", False)
+            self.lip_renderer is None
+            or not getattr(self.lip_renderer, "is_ready", False)
+            or not getattr(self.lip_renderer, "has_anchor_assets", False)
         ):
-            pcm_window = self._latest_pcm_16k if self._speaking else None
-            try:
-                neural_frame = self.lip_renderer.render_lip_frame(
-                    base_frame if base_frame is not None else np.zeros((self.height, self.width, 3), dtype=np.uint8),
-                    frame_idx,
-                    pcm_window,
-                    mouth_open=mouth_open,
-                )
-                if neural_frame is not None:
-                    base_frame = neural_frame
-            except Exception as e:
-                logger.debug(f"神经唇形重绘异常，平滑降级: {e}")
-
-        # 3. 待机或神经未就绪：调用 RealAvatarLite 渲染真人微动态底模
-        if base_frame is None:
-            from server.core.media.real_avatar_lite import global_real_avatar_lite
-            t = frame_idx / float(max(1, self.fps))
-            rendered = global_real_avatar_lite.render_frame(
-                t=t,
-                mouth_open=mouth_open,
-                mouth_form=0.0,
-                is_blinking=(frame_idx % 80 in (78, 79)),
+            raise RuntimeError(
+                "神经唇形渲染引擎未就绪（模型权重缺失或主播资产未加载），"
+                "已禁止 mouth_open 模拟驱动回退"
             )
-            if rendered is not None:
-                base_frame = rendered
-            else:
-                # 优雅兜底：若均未加载则构建暖色调拟真人待机底板 (严禁全黑或极暗无光画面)
-                base_frame = np.full((self.height, self.width, 3), (180, 160, 140), dtype=np.uint8)
+        # 静音帧同样送神经渲染：模型依据静音 mel 自然闭合嘴唇，
+        # 避免停顿段退回底片造成"说话才动、停顿回到微笑脸"的割裂感
+        pcm_window = self._latest_pcm_16k if self._speaking else None
+        if pcm_window is None:
+            pcm_window = np.zeros(3200, dtype=np.float32)
+        canvas = base_frame if base_frame is not None else np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        try:
+            neural_frame = self.lip_renderer.render_lip_frame(
+                canvas,
+                frame_idx,
+                pcm_window,
+                mouth_open=mouth_open,
+            )
+        except Exception as e:
+            raise RuntimeError(f"神经唇形重绘失败，已禁止模拟驱动回退: {e}") from e
+        if neural_frame is None:
+            raise RuntimeError("神经唇形重绘返回空帧，已禁止模拟驱动回退")
+        base_frame = neural_frame
 
         if base_frame.shape[0] != self.height or base_frame.shape[1] != self.width:
             base_frame = cv2.resize(base_frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
@@ -277,7 +276,7 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             "self_contained": True,
             # 恪守 ADR-16：只有 ONNX 会话与主播切片资产同时就绪才宣称神经推理
             "neural_lipsync": neural_lip_active,
-            "engine_type": "wav2lip_onnx" if neural_lip_active else "real_avatar_lite",
+            "engine_type": "wav2lip_onnx" if neural_lip_active else "unavailable",
             "model_key": self.active_model_key,
             "model_installed": bool(self.is_neural_ready),
             "model_path": str(self.active_model_path) if self.active_model_path else "",
@@ -298,7 +297,7 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             "self_contained": True,
             "neural_lipsync": neural_lip_active,
             "is_neural_ready": neural_lip_active,
-            "engine_type": "wav2lip_onnx" if neural_lip_active else "real_avatar_lite",
+            "engine_type": "wav2lip_onnx" if neural_lip_active else "unavailable",
             "active_model_key": self.active_model_key,
             "total_frames_synthesized": self.total_frames_synthesized,
             "current_energy": round(self._current_energy, 3),

@@ -138,24 +138,55 @@ class MediaDriverRouter(BaseMediaDriver):
             return self.sidecar_driver
         return None
 
-    def select_driver(self, mode: str = "B", avatar_path: str = "", landmarks_path: str = "") -> BaseMediaDriver:
-        """根据当前直播模式与媒体依赖能力选择渲染驱动 (主播底图与人脸关键点同步下发)"""
-        if mode == "D" or not CV_AVAILABLE:
+    def select_driver(
+        self,
+        mode: str = "B",
+        avatar_path: str = "",
+        landmarks_path: str = "",
+        avatar_asset_dir: str = "",
+    ) -> BaseMediaDriver:
+        """根据当前直播模式与媒体依赖能力选择渲染驱动 (主播底图与人脸关键点同步下发)
+
+        参数职责严格区分：
+        - avatar_path: 主播**肖像照片**，用于底图与关键点定位
+        - avatar_asset_dir: 主播**切片资产目录**(face_imgs/ + coords.pkl)，神经唇形必需
+
+        保留边界（审计结论）：
+        - MockMediaDriver 不产出任何视频帧，只有音频链路，用于无 GPU 联调。
+          它不会生成"假唇形"，故保留，但**仅允许显式选择**。
+        - 历史缺陷一：`or not CV_AVAILABLE` 会在缺少 numpy/opencv 时静默降级到
+          mock，用户按 local/hybrid（要求真人画面）开播却"成功"得到无画面直播，
+          属于谎报可用。改为如实失败。
+        - 历史缺陷二：切片资产目录从未传入，神经渲染被静默旁路，唇形退化为
+          mouth_open 模拟驱动（表现为"只会微笑"）。此处显式挂载。
+        """
+        if mode == "D":
+            # 显式联调模式：仅音频链路，不产出数字人画面
             self.active_driver = global_mock_media_driver
             self.driver_type = "mock"
-            if not CV_AVAILABLE:
-                logger.warning("未安装 numpy/opencv-python，已回退轻量仿真媒体驱动 (功能降级)")
-            else:
-                logger.info("已切换至轻量仿真媒体驱动 (MockMediaDriver - Tier D)")
+            logger.warning("已切换至轻量仿真媒体驱动 (MockMediaDriver)：仅音频链路，不产出数字人画面")
+            return self.active_driver
+
+        if not CV_AVAILABLE:
+            raise RuntimeError(
+                "未安装 numpy/opencv-python，无法执行真实数字人渲染。"
+                "仿真媒体驱动只提供音频链路、不会产出画面，故不再静默降级（如需仅音频联调请显式使用 D 模式）。"
+                "请执行: pip install numpy opencv-python"
+            )
+
+        self.active_driver = global_procedural_avatar_driver
+        self.driver_type = "procedural_avatar"
+        if avatar_path:
+            global_procedural_avatar_driver.set_avatar(avatar_path, landmarks_path or None)
+        # 神经唇形切片资产（与肖像底图分离）：缺失时如实上报，由 start() 前置校验拦截
+        if avatar_asset_dir:
+            global_procedural_avatar_driver.set_avatar_asset(avatar_asset_dir)
         else:
-            self.active_driver = global_procedural_avatar_driver
-            self.driver_type = "procedural_avatar"
-            if avatar_path:
-                try:
-                    global_procedural_avatar_driver.set_avatar(avatar_path, landmarks_path or None)
-                except Exception as e:
-                    logger.warning(f"数字人底图/关键点加载失败，使用内置底板: {e}")
-            logger.info(f"已切换至程序化数字人渲染驱动 (Procedural Avatar Renderer - 模式 {mode})")
+            logger.warning(
+                "未提供主播切片资产目录 (avatar.avatar_asset_dir)，"
+                "神经唇形无法工作；唇形必须由真实神经渲染产生，不提供模拟驱动回退"
+            )
+        logger.info(f"已切换至程序化数字人渲染驱动 (Procedural Avatar Renderer - 模式 {mode})")
         return self.active_driver
 
     @staticmethod

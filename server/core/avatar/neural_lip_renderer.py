@@ -241,14 +241,17 @@ class NeuralLipRenderer:
     def _prepare_face_input(self, face_256: np.ndarray) -> np.ndarray:
         """
         构建 Wav2Lip 标准 6 通道输入张量 [1, 6, 256, 256]
-        前 3 通道为原图，后 3 通道为将下半脸 (y >= 128) 置零的 Masked 人脸
+        前 3 通道为将下半脸 (y >= 128) 置零的 Masked 人脸，后 3 通道为原图。
+
+        顺序说明: 模型权重按 [masked, face] 顺序训练。若误用 [face, masked]，
+        输出下半脸会被破坏成色块 (实测下半脸平均绝对误差 ~119/255)。
         """
         face_f = face_256.astype(np.float32) / 255.0  # 归一化至 [0, 1]
         masked_face = face_f.copy()
         masked_face[128:, :, :] = 0.0  # 下半脸掩码
 
         # 拼接 6 通道: shape (256, 256, 6)
-        concat_face = np.concatenate([face_f, masked_face], axis=2)
+        concat_face = np.concatenate([masked_face, face_f], axis=2)
         # 转换为 NCHW: shape (1, 6, 256, 256)
         tensor_face = np.transpose(concat_face, (2, 0, 1))[np.newaxis, :, :, :]
         return tensor_face.astype(np.float32)

@@ -358,7 +358,17 @@ def test_media_and_danmaku_adapters():
         await cosy_driver.stop()
 
         # 3. MuseTalk 测试
+        # 硬性规约：唇形必须由真实神经渲染产生（模拟驱动回退已移除），
+        # 冒烟测试注入就绪的 mock 神经渲染器以满足启动前置校验。
+        from unittest.mock import MagicMock as _MMC
+
         muse_driver = MuseTalkMediaDriver()
+        _mock_lip = _MMC()
+        _mock_lip.is_ready = True
+        _mock_lip.has_anchor_assets = True
+        import numpy as _np_mod
+        _mock_lip.render_lip_frame.return_value = _np_mod.zeros((960, 720, 3), dtype=_np_mod.uint8)
+        muse_driver.lip_renderer = _mock_lip
         await muse_driver.start()
         await muse_driver.feed_audio_chunk(b"\x00" * 3200, "测试文本")
         assert muse_driver.is_speaking is True
@@ -1291,19 +1301,28 @@ def test_rag_context_hint_swallows_errors():
 def test_render_loop_runs_off_event_loop_thread():
     import threading as _threading
     import time as _time
-    from server.core.media import procedural_renderer as _pr
+    from unittest.mock import MagicMock
+    import numpy as np
     from server.adapters.media.musetalk_driver import global_musetalk_driver as _driver
 
     async def _async_test():
         loop_tid = _threading.get_ident()
-        synth_tids = []
-        real_synth = _pr.synth_frame
+        publish_tids = []
+        real_publish = _driver._publish_frame
+        real_renderer = _driver.lip_renderer
 
-        def spy_synth(*a, **k):
-            synth_tids.append(_threading.get_ident())
-            return real_synth(*a, **k)
+        def spy_publish(*a, **k):
+            publish_tids.append(_threading.get_ident())
+            return real_publish(*a, **k)
 
-        _pr.synth_frame = spy_synth
+        # 硬性规约：引擎必须真实就绪才允许启动（模拟驱动回退已移除）。
+        # 注入就绪的 mock 神经渲染器，回放固定测试帧。
+        mock_lip = MagicMock()
+        mock_lip.is_ready = True
+        mock_lip.has_anchor_assets = True
+        mock_lip.render_lip_frame.return_value = np.zeros((960, 720, 3), dtype=np.uint8)
+        _driver.lip_renderer = mock_lip
+        _driver._publish_frame = spy_publish
         try:
             await _driver.start()
             deadline = _time.time() + 6
@@ -1311,12 +1330,13 @@ def test_render_loop_runs_off_event_loop_thread():
                 await asyncio.sleep(0.05)
 
             assert _driver.total_frames_rendered >= 5, "渲染循环未产出帧"
-            assert synth_tids, "帧合成未被调用"
-            assert all(t != loop_tid for t in synth_tids), (
-                "帧合成仍在事件循环线程内执行 (25fps 渲染会持续阻塞主循环)"
+            assert publish_tids, "帧发布未被调用"
+            assert all(t != loop_tid for t in publish_tids), (
+                "帧发布仍在事件循环线程内执行 (25fps 渲染会持续阻塞主循环)"
             )
         finally:
-            _pr.synth_frame = real_synth
+            _driver._publish_frame = real_publish
+            _driver.lip_renderer = real_renderer
             await _driver.stop()
 
     asyncio.run(_async_test())
