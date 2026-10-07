@@ -68,6 +68,7 @@ class IncrementalPCMTransaction:
         self._buffer = bytearray()
         self._pending_payload: bytes | None = None
         self._frames: list[AudioFrame] = []
+        self._drained_count = 0
         self._next_sequence = 0
         self._next_pts_samples = 0
         self._on_terminal = on_terminal
@@ -133,6 +134,14 @@ class IncrementalPCMTransaction:
         self._frames.append(frame)
         self._next_sequence += 1
         self._next_pts_samples += frame.duration_samples
+
+    def drain_frames(self) -> tuple[AudioFrame, ...]:
+        """返回当前已形成且尚未交付的帧，不关闭事务。"""
+        if self.state not in {"open", "committed"}:
+            return ()
+        frames = tuple(self._frames[self._drained_count:])
+        self._drained_count = len(self._frames)
+        return frames
 
     def finish(self) -> tuple[AudioFrame, ...]:
         """封闭输入并原子返回完整帧批次；失败事务不会返回 partial。"""

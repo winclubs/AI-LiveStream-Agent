@@ -69,8 +69,8 @@ def _extract_best_portrait_from_video(video_path: str, anchor_id: str) -> str | 
 
 def _anchor_payload(a: Anchor, voice_name: str | None = None, task: AvatarTask | None = None) -> dict:
     avatar_meta = {}
-    if a.avatar_asset_dir and Path(a.avatar_asset_dir).exists():
-        meta_file = Path(a.avatar_asset_dir) / "meta.json"
+    if a.avatar_asset_dir and Path(str(a.avatar_asset_dir)).exists():
+        meta_file = Path(str(a.avatar_asset_dir)) / "meta.json"
         if meta_file.exists():
             try:
                 avatar_meta = json.loads(meta_file.read_text(encoding="utf-8"))
@@ -144,22 +144,23 @@ async def list_anchors(db: AsyncSession = Depends(get_db)):
     all_tasks = task_res.scalars().all()
     latest_task_by_anchor: dict[str, AvatarTask] = {}
     for t in all_tasks:
-        if t.anchor_id and t.anchor_id not in latest_task_by_anchor:
-            latest_task_by_anchor[t.anchor_id] = t
+        aid = str(t.anchor_id) if t.anchor_id else ""
+        if aid and aid not in latest_task_by_anchor:
+            latest_task_by_anchor[aid] = t
 
     data = []
     has_self_healed = False
     for anchor, v_name, v_provider in rows:
-        task = latest_task_by_anchor.get(anchor.id)
+        task = latest_task_by_anchor.get(str(anchor.id))
         # 资产自愈：若任务已完成但主播未关联 asset_dir，或未有关联封面但 preview.jpg 存在，自动补齐
         if task and task.status == "completed":
-            if not anchor.avatar_asset_dir and task.output_dir and Path(task.output_dir).exists():
-                anchor.avatar_asset_dir = task.output_dir
+            if not anchor.avatar_asset_dir and task.output_dir and Path(str(task.output_dir)).exists():
+                setattr(anchor, "avatar_asset_dir", str(task.output_dir))
                 has_self_healed = True
             if not anchor.photo_portrait and task.output_dir:
-                cand_preview = Path(task.output_dir) / "preview.jpg"
+                cand_preview = Path(str(task.output_dir)) / "preview.jpg"
                 if cand_preview.exists():
-                    anchor.photo_portrait = cand_preview.as_posix()
+                    setattr(anchor, "photo_portrait", cand_preview.as_posix())
                     has_self_healed = True
 
         payload = _anchor_payload(anchor, voice_name=v_name, task=task)
@@ -238,13 +239,13 @@ async def create_anchor(
                 target_video = task_dir / f"input{ext}"
                 publish_staged(staged_v, target_video)
                 final_video_path = target_video.as_posix()
-                record.source_video = final_video_path
+                setattr(record, "source_video", final_video_path)
 
                 # 若用户未单独上传正面形象照，立即通过多画面人脸质量评估抽取最高清正脸肖像
                 if not record.photo_portrait:
                     best_portrait = _extract_best_portrait_from_video(final_video_path, anchor_id)
                     if best_portrait:
-                        record.photo_portrait = best_portrait
+                        setattr(record, "photo_portrait", best_portrait)
 
                 from server.core.avatar.task_manager import AVATAR_ASSETS_DIR, get_avatar_task_manager
                 output_dir = (AVATAR_ASSETS_DIR / task_id).as_posix()
@@ -325,19 +326,19 @@ async def update_anchor(
         clean_type = type_value
     valid_type = (clean_type if clean_type in VALID_ANCHOR_TYPES else "ecommerce") if clean_type else None
 
-    update_fields = {}
+    update_fields: dict[str, str | None] = {}
     if name.strip():
         update_fields["name"] = name.strip()
-        record.name = name.strip()
+        setattr(record, "name", name.strip())
     if valid_type:
         update_fields["anchor_type"] = valid_type
-        record.anchor_type = valid_type
+        setattr(record, "anchor_type", valid_type)
     if voice_provided:
         update_fields["voice_id"] = voice_value or None
-        record.voice_id = voice_value or None
+        setattr(record, "voice_id", voice_value or None)
     if remark_provided:
         update_fields["remark"] = remark_value or ""
-        record.remark = remark_value or ""
+        setattr(record, "remark", remark_value or "")
 
     if update_fields:
         await db.execute(
@@ -351,7 +352,7 @@ async def update_anchor(
     video_task_id = None
     try:
         for slot_key, uploaded in uploads.items():
-            pair = await _stage_photo(record.id, slot_key, uploaded)
+            pair = await _stage_photo(str(record.id), slot_key, uploaded)
             if pair:
                 staged_pairs[slot_key] = pair
         for slot_key, pair in staged_pairs.items():
@@ -374,20 +375,20 @@ async def update_anchor(
                 target_video = task_dir / f"input{ext}"
                 publish_staged(staged_v, target_video)
                 final_video_path = target_video.as_posix()
-                record.source_video = final_video_path
+                setattr(record, "source_video", final_video_path)
 
                 # 若主播未单独上传正面照，立即通过多画面人脸质量评估抽取最高清正脸肖像
                 if not record.photo_portrait:
-                    best_portrait = _extract_best_portrait_from_video(final_video_path, record.id)
+                    best_portrait = _extract_best_portrait_from_video(final_video_path, str(record.id))
                     if best_portrait:
-                        record.photo_portrait = best_portrait
+                        setattr(record, "photo_portrait", best_portrait)
 
                 from server.core.avatar.task_manager import AVATAR_ASSETS_DIR, get_avatar_task_manager
                 output_dir = (AVATAR_ASSETS_DIR / task_id).as_posix()
 
                 task_record = AvatarTask(
                     id=task_id,
-                    anchor_id=record.id,
+                    anchor_id=str(record.id),
                     name=f"{record.name}·数字人资产",
                     status="pending",
                     progress=0,
@@ -403,7 +404,7 @@ async def update_anchor(
                     task_id=task_id,
                     name=f"{record.name}·数字人资产",
                     video_path=final_video_path,
-                    anchor_id=record.id,
+                    anchor_id=str(record.id),
                     output_dir=output_dir,
                 )
                 video_task_id = task_id
@@ -468,8 +469,8 @@ async def create_avatar_task(
         if final_video_path and not anchor_rec.photo_portrait:
             auto_portrait = _extract_best_portrait_from_video(final_video_path, target_anchor_id)
             if auto_portrait:
-                anchor_rec.photo_portrait = auto_portrait
-                anchor_rec.updated_at = datetime.now()
+                setattr(anchor_rec, "photo_portrait", auto_portrait)
+                setattr(anchor_rec, "updated_at", datetime.now())
                 await db.commit()
 
     clean_name = name.strip() or "真人视频数字人"
@@ -568,14 +569,14 @@ async def apply_avatar_task(
     if task.status != "completed":
         raise HTTPException(status_code=400, detail=f"该任务尚未完成训练 (当前状态: {task.status})，无法应用")
 
-    anchor.avatar_asset_dir = task.output_dir or ""
-    anchor.source_video = task.video_path or ""
-    task.anchor_id = anchor.id
+    setattr(anchor, "avatar_asset_dir", str(task.output_dir or ""))
+    setattr(anchor, "source_video", str(task.video_path or ""))
+    setattr(task, "anchor_id", str(anchor.id))
 
     if task.output_dir:
-        cand_preview = Path(task.output_dir) / "preview.jpg"
+        cand_preview = Path(str(task.output_dir)) / "preview.jpg"
         if cand_preview.exists() and not anchor.photo_portrait:
-            anchor.photo_portrait = cand_preview.as_posix()
+            setattr(anchor, "photo_portrait", cand_preview.as_posix())
 
     await db.commit()
     await db.refresh(anchor)
@@ -609,15 +610,15 @@ async def delete_avatar_task(task_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="任务不存在")
 
     # 清理磁盘产物
-    if task.output_dir and Path(task.output_dir).exists():
+    if task.output_dir and Path(str(task.output_dir)).exists():
         try:
-            shutil.rmtree(task.output_dir, ignore_errors=True)
+            shutil.rmtree(str(task.output_dir), ignore_errors=True)
         except Exception:
             pass
 
-    if task.video_path and Path(task.video_path).exists():
+    if task.video_path and Path(str(task.video_path)).exists():
         try:
-            vp = Path(task.video_path)
+            vp = Path(str(task.video_path))
             if "avatar_tasks" in vp.parts:
                 shutil.rmtree(vp.parent, ignore_errors=True)
         except Exception:
@@ -636,15 +637,15 @@ async def get_anchor_avatar_detail(anchor_id: str, db: AsyncSession = Depends(ge
         raise HTTPException(status_code=404, detail="指定的主播不存在")
 
     asset_dir = anchor.avatar_asset_dir
-    has_asset = bool(asset_dir and Path(asset_dir).exists())
+    has_asset = bool(asset_dir and Path(str(asset_dir)).exists())
     meta = {}
-    has_video = bool(anchor.source_video and Path(anchor.source_video).exists())
+    has_video = bool(anchor.source_video and Path(str(anchor.source_video)).exists())
     has_audio = False
     coords_count = 0
     face_imgs_count = 0
 
-    if has_asset:
-        ad = Path(asset_dir)
+    if has_asset and asset_dir:
+        ad = Path(str(asset_dir))
         meta_file = ad / "meta.json"
         if meta_file.exists():
             try:
@@ -788,7 +789,7 @@ async def get_digital_human_hardware_requirements():
                 {
                     "stage_id": "streaming",
                     "stage_name": "阶段二：数字人开播与实时唇形驱动 (在线推流)",
-                    "core_algorithm": "PyTorch CUDA 深度学习神经网络实时推理 (Wav2Lip / MuseTalk 25 FPS)",
+                    "core_algorithm": "PyTorch CUDA 深度学习神经网络实时推理 (ByteDance LatentSync / 扩散重绘 25 FPS)",
                     "required_hardware": "NVIDIA 显存 >= 4GB/6GB (支持 CUDA) 或 开启远端租赁 GPU (AutoDL 等)",
                     "current_hardware": f"本地 {local_gpu.gpu_name or '显卡'} (显存 {local_gpu.vram_total_gb}GB)；云端: {(cloud_gpu.gpu_name + ' (' + str(cloud_gpu.vram_total_gb) + 'GB 显存) · 已在线') if (cloud_gpu.is_reachable and cloud_gpu.gpu_name) else (('已在线 (' + (cloud_gpu.provider_name or '已连通') + ')') if cloud_gpu.is_reachable else '未开机')}",
                     "is_qualified": live_pass,
@@ -811,10 +812,10 @@ async def get_anchor_avatar_sample_frames(anchor_id: str, db: AsyncSession = Dep
         raise HTTPException(status_code=404, detail="主播不存在")
 
     asset_dir = anchor.avatar_asset_dir
-    if not asset_dir or not Path(asset_dir).exists():
+    if not asset_dir or not Path(str(asset_dir)).exists():
         return {"code": 0, "data": {"samples": [], "stream_frames": [], "total_frames": 0, "has_asset": False}}
 
-    ad = Path(asset_dir)
+    ad = Path(str(asset_dir))
     full_dir = ad / "full_imgs"
     face_dir = ad / "face_imgs"
     coords_file = ad / "coords.pkl"
@@ -929,9 +930,10 @@ async def get_anchor_avatar_asset_frame(
         raise HTTPException(status_code=404, detail="切片资产不存在")
 
     target_sub = "full_imgs" if type == "full" else "face_imgs"
-    frame_path = Path(anchor.avatar_asset_dir) / target_sub / f"{idx}.jpg"
+    asset_base = Path(str(anchor.avatar_asset_dir))
+    frame_path = asset_base / target_sub / f"{idx}.jpg"
     if not frame_path.exists():
-        frame_path = Path(anchor.avatar_asset_dir) / target_sub / f"{idx}.png"
+        frame_path = asset_base / target_sub / f"{idx}.png"
 
     if not frame_path.exists():
         raise HTTPException(status_code=404, detail=f"未找到帧 {idx}")
@@ -945,11 +947,11 @@ async def get_anchor_source_video(anchor_id: str, db: AsyncSession = Depends(get
     anchor = await db.get(Anchor, anchor_id)
     if not anchor:
         raise HTTPException(status_code=404, detail="主播不存在")
-    if anchor.source_video and Path(anchor.source_video).exists():
-        return FileResponse(anchor.source_video, media_type="video/mp4")
+    if anchor.source_video and Path(str(anchor.source_video)).exists():
+        return FileResponse(str(anchor.source_video), media_type="video/mp4")
     # 降级返回肖像或预览图
-    if anchor.photo_portrait and Path(anchor.photo_portrait).exists():
-        return FileResponse(anchor.photo_portrait, media_type="image/jpeg")
+    if anchor.photo_portrait and Path(str(anchor.photo_portrait)).exists():
+        return FileResponse(str(anchor.photo_portrait), media_type="image/jpeg")
     raise HTTPException(status_code=404, detail="未找到该主播关联的出镜视频或切片预览")
 
 
@@ -979,12 +981,13 @@ async def list_avatar_actions(
     action_sm = get_action_state_machine()
     data = []
     for r in records:
-        clip = action_sm.clips.get(r.action_code)
+        code_val = int(getattr(r, "action_code", 0) or 0)
+        clip = action_sm.clips.get(code_val)
         frames_count = clip.total_frames if clip else 0
         has_neural_assets = False
         preview_url = ""
-        if r.frames_dir and Path(r.frames_dir).exists():
-            p_dir = Path(r.frames_dir)
+        if r.frames_dir and Path(str(r.frames_dir)).exists():
+            p_dir = Path(str(r.frames_dir))
             if frames_count == 0:
                 full_dir = p_dir / "full_imgs"
                 if full_dir.exists():
@@ -1008,10 +1011,10 @@ async def list_avatar_actions(
             "trigger_type": r.trigger_type or "both",
             "trigger_keywords": r.trigger_keywords or "",
             "trigger_events": r.trigger_events or "",
-            "duration_sec": float(r.duration_sec or 3.5),
-            "priority": int(r.priority or 1),
-            "mirror_loop": bool(r.mirror_loop),
-            "is_active": bool(r.is_active),
+            "duration_sec": float(getattr(r, "duration_sec", 3.5) or 3.5),
+            "priority": int(getattr(r, "priority", 1) or 1),
+            "mirror_loop": bool(getattr(r, "mirror_loop", False)),
+            "is_active": bool(getattr(r, "is_active", True)),
             "created_at": r.created_at.isoformat() if r.created_at else "",
         })
 
@@ -1032,7 +1035,7 @@ async def get_action_preview(
     record = await db.get(AvatarAction, action_id)
     if not record or not record.frames_dir:
         raise HTTPException(status_code=404, detail="动作切片不存在")
-    p_dir = Path(record.frames_dir)
+    p_dir = Path(str(record.frames_dir))
     preview_file = p_dir / "preview.jpg"
     if not preview_file.exists():
         # 寻找一张候选帧返回
@@ -1101,7 +1104,7 @@ async def split_anchor_video_segments(
     自动从主播母轨视频中裁剪各个片段并并行生成动作切片三元组
     """
     anchor = await db.get(Anchor, anchor_id)
-    if not anchor or not anchor.source_video or not Path(anchor.source_video).exists():
+    if not anchor or not anchor.source_video or not Path(str(anchor.source_video)).exists():
         raise HTTPException(status_code=400, detail="该主播未上传原始出镜视频，无法执行多时间戳分段拆解")
 
     body = await request.json()
@@ -1109,7 +1112,7 @@ async def split_anchor_video_segments(
     if not segments:
         raise HTTPException(status_code=400, detail="请提供至少一段分段时间戳配置 segments")
 
-    source_path = Path(anchor.source_video)
+    source_path = Path(str(anchor.source_video))
     cap = cv2.VideoCapture(str(source_path))
     if not cap.isOpened():
         raise HTTPException(status_code=400, detail="无法打开视频源文件进行分段裁剪")
@@ -1140,7 +1143,7 @@ async def split_anchor_video_segments(
         end_frame = int(end_sec * fps)
         sub_cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        fourcc = cv2.VideoWriter.fourcc(*"mp4v")
         writer = cv2.VideoWriter(str(sub_video_path), fourcc, fps, (width, height))
         cur_f = start_frame
         while cur_f <= end_frame:
@@ -1207,14 +1210,14 @@ async def save_avatar_action(
         record = await db.get(AvatarAction, action_id)
 
     if record:
-        record.action_name = action_name
-        record.trigger_type = trigger_type
-        record.trigger_keywords = trigger_keywords
-        record.trigger_events = trigger_events
-        record.duration_sec = duration_sec
-        record.priority = priority
-        record.mirror_loop = mirror_loop
-        record.is_active = is_active
+        setattr(record, "action_name", action_name)
+        setattr(record, "trigger_type", trigger_type)
+        setattr(record, "trigger_keywords", trigger_keywords)
+        setattr(record, "trigger_events", trigger_events)
+        setattr(record, "duration_sec", duration_sec)
+        setattr(record, "priority", priority)
+        setattr(record, "mirror_loop", mirror_loop)
+        setattr(record, "is_active", is_active)
     else:
         record = AvatarAction(
             id=action_id or f"act_{uuid.uuid4().hex[:8]}",
@@ -1267,7 +1270,7 @@ async def upload_action_clip(
     if ext not in VALID_VIDEO_EXTS:
         raise HTTPException(status_code=400, detail=f"不支持的视频格式: {ext}，仅支持 {VALID_VIDEO_EXTS}")
 
-    clip_dir = AVATAR_ACTIONS_DIR / record.id
+    clip_dir = AVATAR_ACTIONS_DIR / str(record.id)
     clip_dir.mkdir(parents=True, exist_ok=True)
     video_dest = clip_dir / f"clip{ext}"
 
@@ -1287,14 +1290,14 @@ async def upload_action_clip(
     frames_dir_path = ""
     try:
         res = await task_mgr.process_action_slice(
-            anchor_id=record.anchor_id or "global",
-            action_code=record.action_code,
-            action_name=record.action_name,
+            anchor_id=str(record.anchor_id or "global"),
+            action_code=int(getattr(record, "action_code", 0) or 0),
+            action_name=str(record.action_name or ""),
             video_path=video_dest.as_posix(),
-            trigger_keywords=record.trigger_keywords or "",
-            trigger_events=record.trigger_events or "",
-            duration_sec=float(record.duration_sec or 3.5),
-            priority=int(record.priority or 1),
+            trigger_keywords=str(record.trigger_keywords or ""),
+            trigger_events=str(record.trigger_events or ""),
+            duration_sec=float(getattr(record, "duration_sec", 3.5) or 3.5),
+            priority=int(getattr(record, "priority", 1) or 1),
         )
         frames_count = res.get("frames_count", 0)
         frames_dir_path = res.get("frames_dir", "")
@@ -1319,13 +1322,13 @@ async def upload_action_clip(
             cap.release()
         frames_count = frame_idx
         frames_dir_path = frames_dir.as_posix()
-        record.video_path = str(video_dest.as_posix())
-        record.frames_dir = str(frames_dir_path)
+        setattr(record, "video_path", str(video_dest.as_posix()))
+        setattr(record, "frames_dir", str(frames_dir_path))
         await db.commit()
         await db.refresh(record)
 
     action_sm = get_action_state_machine()
-    await action_sm.load_configs_from_db(record.anchor_id)
+    await action_sm.load_configs_from_db(str(record.anchor_id) if record.anchor_id else None)
 
     return {
         "code": 0,
@@ -1383,14 +1386,14 @@ async def delete_avatar_action(
     if record.action_code == 0:
         raise HTTPException(status_code=400, detail="默认待机呼吸动作不可删除")
 
-    clip_dir = AVATAR_ACTIONS_DIR / record.id
+    clip_dir = AVATAR_ACTIONS_DIR / str(record.id)
     if clip_dir.exists():
         try:
-            shutil.rmtree(clip_dir, ignore_errors=True)
+            shutil.rmtree(str(clip_dir), ignore_errors=True)
         except Exception:
             pass
 
-    anchor_id = record.anchor_id
+    anchor_id = str(record.anchor_id) if record.anchor_id else None
     await db.delete(record)
     await db.commit()
 
@@ -1410,9 +1413,9 @@ async def delete_anchor(anchor_id: str, db: AsyncSession = Depends(get_db)):
 
     for col in PHOTO_FIELDS.values():
         path = getattr(record, col, "")
-        if path and Path(path).exists():
+        if path and Path(str(path)).exists():
             try:
-                Path(path).unlink()
+                Path(str(path)).unlink()
             except Exception:
                 pass
 
@@ -1420,7 +1423,7 @@ async def delete_anchor(anchor_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(update(LiveSessionRecord).where(LiveSessionRecord.anchor_id == anchor_id).values(anchor_id=None))
     selected = await db.get(AppSetting, "selected_anchor_id")
     if selected and selected.value == anchor_id:
-        selected.value = ""
+        setattr(selected, "value", "")
     await db.delete(record)
     await db.commit()
     return {"code": 0, "message": f"主播【{record.name}】已删除"}
@@ -1476,7 +1479,10 @@ async def get_avatar_gpu_runtime_status(db: AsyncSession = Depends(get_db)):
     local_info = probe_local_gpu()
 
     has_local_cuda = bool(local_info.cuda_available and local_info.vram_total_gb >= 2.0)
-    has_onnx_model = bool(global_neural_model_manager.find_model_path("wav2lip_onnx"))
+    has_onnx_model = bool(
+        global_neural_model_manager.find_model_path("onnx_lipsync")
+        or global_neural_model_manager.find_model_path("latentsync_onnx")
+    )
 
     use_cloud = plan.use_cloud
     cloud_gpu_data = plan.cloud_gpu or {}
@@ -1494,14 +1500,14 @@ async def get_avatar_gpu_runtime_status(db: AsyncSession = Depends(get_db)):
                 "badge_title": "⚡ 云端租赁 GPU 协同已调用",
                 "hardware_name": cloud_dev,
                 "hardware_detail": f"远端算力节点: {cloud_url}",
-                "engine_name": "MuseTalk / LiveTalking 云端高精神经引擎",
+                "engine_name": "ByteDance LatentSync 官方扩散模型 (云端高精)",
                 "latency_text": "网络往返 ~25ms · 25 FPS 达标",
                 "is_hardware_accelerated": True,
             }
         }
     elif has_local_cuda:
         vram_text = f"{local_info.vram_total_gb:.1f} GB" if local_info.vram_total_gb else "独显"
-        engine_title = "Wav2Lip-ONNX 真实神经唇形引擎" if has_onnx_model else "RealAvatarLite 本地硬件加速引擎"
+        engine_title = "LatentSync 真实神经唇形引擎" if has_onnx_model else "RealAvatarLite 本地硬件加速引擎"
         return {
             "code": 0,
             "data": {
@@ -1548,6 +1554,7 @@ class PreviewSpeechDriveRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=500, description="试听台词")
     provider_name: Optional[str] = Field(default=None, max_length=64)
     voice_name: Optional[str] = Field(default=None, max_length=128)
+    render_mode: Optional[str] = Field(default="latentsync", max_length=32, description="渲染模式: latentsync (官方扩散模型高精口型)")
 
 
 def _resolve_preview_provider(anchor: Anchor, voice_name: Optional[str]) -> str:
@@ -1565,7 +1572,7 @@ def _resolve_preview_provider(anchor: Anchor, voice_name: Optional[str]) -> str:
 @router.post("/{anchor_id}/avatar/preview-speech-drive")
 async def preview_speech_drive(anchor_id: str, req: PreviewSpeechDriveRequest):
     """
-    试播台词驱动：唤醒真实神经渲染引擎（本地 ONNX / 云端 Sidecar），
+    试播台词驱动：唤醒真实神经渲染引擎（本地 ONNX / 云端 Sidecar / LatentSync 批处理），
     逐帧重绘口型并回传帧地址与实测硬件遥测。
     """
     from server.core.audio.tts_preview_service import (
@@ -1602,11 +1609,54 @@ async def preview_speech_drive(anchor_id: str, req: PreviewSpeechDriveRequest):
         raise HTTPException(status_code=422, detail="台词长度必须为 1 到 500 字符")
 
     provider = (req.provider_name or "").strip() or _resolve_preview_provider(anchor, req.voice_name)
+    voice_name = (req.voice_name or anchor.voice_id or "").strip() or None
+
+    service = get_speech_drive_preview_service()
+
+    # 提速：同「主播+台词+音色+资产版本」的重复试听直接复用历史会话 (秒开)，
+    # 跳过 TTS 合成与数分钟的云端逐帧神经渲染；残缺会话不会命中，必须如实重渲。
+    # 资产 mtime 参与键：主播重新训练资产后旧缓存自动失效
+    import hashlib
+
+    try:
+        asset_version = int((ad / "coords.pkl").stat().st_mtime)
+    except OSError:
+        asset_version = 0
+    cache_key = hashlib.sha256(
+        f"{anchor_id}|{provider}|{voice_name or ''}|{text}|{req.render_mode or 'latentsync'}|{asset_version}".encode("utf-8")
+    ).hexdigest()
+
+    cached = service.get_cached_result(anchor_id, cache_key)
+    if cached is not None:
+        result = cached
+        logger.info(f"试播命中缓存: {anchor_id} 复用会话 {result.session_id} ({result.frame_count} 帧)")
+        base = f"/api/v1/anchors/{anchor_id}/preview-sessions/{result.session_id}"
+        video_exists = (PREVIEW_SESSION_ROOT / anchor_id / result.session_id / "preview.mp4").is_file()
+        return {
+            "code": 0,
+            "data": {
+                "engine": result.engine,
+                "mode": result.mode,
+                "device": result.device,
+                "providers": result.providers,
+                "mean_inference_ms": result.mean_inference_ms,
+                "total_inference_ms": result.total_inference_ms,
+                "fps": result.fps,
+                "frame_count": result.frame_count,
+                "audio_url": f"{base}/audio.mp3",
+                "video_url": f"{base}/preview.mp4" if video_exists else None,
+                "face_frames": [f"{base}/face/{i}.jpg" for i in range(result.frame_count)],
+                "full_frames": [f"{base}/full/{i}.jpg" for i in range(result.frame_count)],
+                "fallback_reason": result.fallback_reason,
+                "reused": True,
+            },
+        }
+
     try:
         audio_bytes, _media_type = await synthesize_preview_audio(
             PreviewSpeechParams(
                 provider_name=provider,
-                voice_name=(req.voice_name or anchor.voice_id or "").strip() or None,
+                voice_name=voice_name,
                 text=text,
             )
         )
@@ -1618,12 +1668,13 @@ async def preview_speech_drive(anchor_id: str, req: PreviewSpeechDriveRequest):
     if not audio_bytes:
         raise HTTPException(status_code=503, detail="语音引擎返回音频为空，请检查音色配置")
 
-    service = get_speech_drive_preview_service()
     try:
         result = await service.run(
             anchor_id=anchor_id,
             asset_dir=ad,
             audio_bytes=audio_bytes,
+            render_mode=getattr(req, "render_mode", "latentsync") or "latentsync",
+            cache_key=cache_key,
         )
     except PreviewHardwareError as e:
         # 硬件门槛不满足或真实渲染失败：直接禁止试播，如实弹出硬件不足提示，绝无降级
@@ -1631,9 +1682,11 @@ async def preview_speech_drive(anchor_id: str, req: PreviewSpeechDriveRequest):
         raise HTTPException(status_code=424, detail=str(e))
     except Exception as e:
         logger.warning(f"试播渲染失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="试播驱动失败，请重试")
+        err_msg = str(e).strip() or "未知错误"
+        raise HTTPException(status_code=500, detail=f"试播驱动失败: {err_msg[:200]}")
 
     base = f"/api/v1/anchors/{anchor_id}/preview-sessions/{result.session_id}"
+    video_exists = (PREVIEW_SESSION_ROOT / anchor_id / result.session_id / "preview.mp4").is_file()
     data: dict = {
         "engine": result.engine,
         "mode": result.mode,
@@ -1644,9 +1697,11 @@ async def preview_speech_drive(anchor_id: str, req: PreviewSpeechDriveRequest):
         "fps": result.fps,
         "frame_count": result.frame_count,
         "audio_url": f"{base}/audio.mp3",
+        "video_url": f"{base}/preview.mp4" if video_exists else None,
         "face_frames": [f"{base}/face/{i}.jpg" for i in range(result.frame_count)],
         "full_frames": [f"{base}/full/{i}.jpg" for i in range(result.frame_count)],
         "fallback_reason": result.fallback_reason,
+        "reused": False,
     }
     if result.vram_total_gb is not None:
         data["vram_total_gb"] = result.vram_total_gb
@@ -1658,6 +1713,11 @@ async def get_preview_session_audio(anchor_id: str, session_id: str):
     return _serve_preview_asset(anchor_id, session_id, None, "audio.mp3")
 
 
+@router.get("/{anchor_id}/preview-sessions/{session_id}/preview.mp4")
+async def get_preview_session_video(anchor_id: str, session_id: str):
+    return _serve_preview_asset(anchor_id, session_id, None, "preview.mp4")
+
+
 @router.get("/{anchor_id}/preview-sessions/{session_id}/{kind}/{idx}.jpg")
 async def get_preview_session_frame(anchor_id: str, session_id: str, kind: str, idx: str):
     if kind not in ("face", "full"):
@@ -1666,8 +1726,8 @@ async def get_preview_session_frame(anchor_id: str, session_id: str, kind: str, 
 
 
 def _preview_filename_invalid(filename: str) -> bool:
-    """帧文件名必须是 纯数字.jpg；音频固定为 audio.mp3"""
-    if filename == "audio.mp3":
+    """帧文件名必须是 纯数字.jpg；音频固定为 audio.mp3；视频固定为 preview.mp4"""
+    if filename in ("audio.mp3", "preview.mp4"):
         return False
     if not filename.endswith(".jpg"):
         return True
@@ -1682,7 +1742,7 @@ def _serve_preview_asset(anchor_id: str, session_id: str, kind: Optional[str], f
     if "/" in filename or "\\" in filename or filename.startswith("."):
         raise HTTPException(status_code=404, detail="资产不存在")
     if _preview_filename_invalid(filename):
-        raise HTTPException(status_code=404, detail="帧不存在")
+        raise HTTPException(status_code=404, detail="资产不存在")
 
     parts = [PREVIEW_SESSION_ROOT, anchor_id, session_id]
     if kind:
@@ -1690,5 +1750,10 @@ def _serve_preview_asset(anchor_id: str, session_id: str, kind: Optional[str], f
     target = Path(*parts) / filename
     if not target.is_file():
         raise HTTPException(status_code=404, detail="资产不存在")
-    media = "audio/mpeg" if filename.endswith(".mp3") else "image/jpeg"
+    if filename.endswith(".mp4"):
+        media = "video/mp4"
+    elif filename.endswith(".mp3"):
+        media = "audio/mpeg"
+    else:
+        media = "image/jpeg"
     return FileResponse(target.as_posix(), media_type=media)

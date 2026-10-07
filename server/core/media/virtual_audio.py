@@ -226,6 +226,8 @@ class VirtualAudioService:
                     "latency_sec": 0.0,
                     "status": "prepared" if generation_current else "rejected",
                     "is_finished": False,
+                    "input_final": False,
+                    "submitted_at": None,
                     "is_interrupted": not generation_current,
                     "is_rejected": not generation_current,
                     "reject_reason": None if generation_current else "stale_generation",
@@ -274,6 +276,8 @@ class VirtualAudioService:
         session_generation: Optional[int] = None,
         allow_raw_pcm: bool = False,
         audio_id: Optional[str] = None,
+        declared_samples: Optional[int] = None,
+        input_final: bool = True,
     ) -> bool:
         """提交已准备的游标并非阻塞入队；现有 cursor 只更新，绝不覆盖。"""
         if audio_id and audio_id not in self._cursors:
@@ -303,10 +307,16 @@ class VirtualAudioService:
         if audio_id:
             with self._cursor_lock:
                 cursor = self._cursors.get(audio_id)
-                if cursor is None or cursor.get("is_rejected") or cursor.get("status") != "prepared":
+                if cursor is None or cursor.get("is_rejected") or cursor.get("status") not in {"prepared", "queued", "playing", "draining"}:
                     return False
                 cursor["status"] = "queued"
                 cursor["sample_rate"] = int(fallback_sample_rate)
+                if declared_samples is not None:
+                    if int(declared_samples) <= 0:
+                        return False
+                    cursor["total_samples"] += int(declared_samples)
+                cursor["input_final"] = bool(input_final)
+                cursor["submitted_at"] = cursor.get("submitted_at") or time.monotonic()
                 cursor["last_update_at"] = time.monotonic()
 
         packet = (
@@ -318,6 +328,8 @@ class VirtualAudioService:
             session_generation,
             bool(allow_raw_pcm),
             audio_id,
+            int(declared_samples) if declared_samples is not None else None,
+            bool(input_final),
         )
         if not self._reserve_pending_bytes(len(audio_bytes)):
             self.dropped_chunks += 1
@@ -360,7 +372,46 @@ class VirtualAudioService:
             session_generation=first.session_generation,
             allow_raw_pcm=True,
             audio_id=first.audio_id,
+            declared_samples=sum(frame.duration_samples for frame in frame_list),
+            input_final=True,
         )
+        if accepted:
+            self.frame_batches_submitted += 1
+            self.frames_submitted += len(frame_list)
+            self.frame_pcm_bytes_submitted += sum(len(frame.data) for frame in frame_list)
+        return accepted
+
+    def play_frames_progressive(self, frames, *, is_final: bool = False) -> bool:
+        """按同一 audio_id 增量提交 PCM 帧，并保持连续 sequence/PTS 游标。"""
+        candidate_frames = tuple(frames or ())
+        if not candidate_frames:
+            return False
+        try:
+            frame_list = validate_audio_frame_batch(
+                candidate_frames,
+                require_complete=False,
+                allow_offset=True,
+                max_total_bytes=MAX_AUDIO_TRANSACTION_BYTES,
+            )
+        except ValueError:
+            self._reject_cursor(candidate_frames[0].audio_id, "invalid_progressive_frame_batch")
+            return False
+
+        first = frame_list[0]
+        accepted = True
+        for index, frame in enumerate(frame_list):
+            accepted = self.play_chunk(
+                frame.data,
+                fallback_sample_rate=frame.format.sample_rate,
+                codec=frame.format.codec,
+                channels=frame.format.channels,
+                audio_generation=frame.audio_generation,
+                session_generation=frame.session_generation,
+                allow_raw_pcm=True,
+                audio_id=frame.audio_id,
+                declared_samples=frame.duration_samples,
+                input_final=bool(is_final and index == len(frame_list) - 1),
+            ) and accepted
         if accepted:
             self.frame_batches_submitted += 1
             self.frames_submitted += len(frame_list)
@@ -388,7 +439,7 @@ class VirtualAudioService:
             # 保留旧测试/诊断直接设置 samples_played 的兼容语义。
             played = max(played, int(c.get("samples_played", 0) or 0))
             finished = bool(c.get("is_finished"))
-            if c.get("status") == "draining" and played >= int(c.get("total_samples", 0) or 0):
+            if c.get("status") == "draining" and c.get("input_final") and played >= int(c.get("total_samples", 0) or 0):
                 finished = True
                 cursor["is_finished"] = True
                 cursor["status"] = "finished"
@@ -401,6 +452,7 @@ class VirtualAudioService:
                 "submitted_samples": submitted,
                 "samples_played": played,
                 "total_samples": int(c.get("total_samples", 0) or 0),
+                "input_final": bool(c.get("input_final")),
                 "sample_rate": sample_rate,
                 "elapsed_sec": float(played) / float(sample_rate) if sample_rate > 0 else 0.0,
                 "latency_sec": float(c.get("latency_sec", 0.0) or 0.0),
@@ -447,7 +499,20 @@ class VirtualAudioService:
                     self._stream_refresh_event.clear()
                 try:
                     packet_item = self._queue.get(timeout=0.05)
-                    if len(packet_item) == 8:
+                    if len(packet_item) >= 10:
+                        (
+                            audio_bytes,
+                            fallback_sr,
+                            codec,
+                            channels,
+                            audio_generation,
+                            session_generation,
+                            allow_raw_pcm,
+                            audio_id,
+                            declared_samples,
+                            input_final,
+                        ) = packet_item
+                    elif len(packet_item) == 8:
                         (
                             audio_bytes,
                             fallback_sr,
@@ -458,6 +523,8 @@ class VirtualAudioService:
                             allow_raw_pcm,
                             audio_id,
                         ) = packet_item
+                        declared_samples = None
+                        input_final = True
                     else:
                         (
                             audio_bytes,
@@ -469,6 +536,8 @@ class VirtualAudioService:
                             allow_raw_pcm,
                         ) = packet_item
                         audio_id = None
+                        declared_samples = None
+                        input_final = True
                 except queue.Empty:
                     continue
                 self._release_pending_packet(packet_item)
@@ -508,7 +577,7 @@ class VirtualAudioService:
                             from server.core.media.rtmp_streamer import global_rtmp_streamer
                             if global_rtmp_streamer.is_streaming:
                                 int16_bytes = (samples.clip(-1.0, 1.0) * 32767.0).astype("int16").tobytes()
-                                global_rtmp_streamer.send_audio_pcm(int16_bytes)
+                                global_rtmp_streamer.send_audio_pcm(int16_bytes, sample_rate=sr)
                                 time.sleep(len(samples) / float(sr))
                         except Exception:
                             pass
@@ -530,17 +599,29 @@ class VirtualAudioService:
                         with self._cursor_lock:
                             c = self._cursors.get(audio_id)
                             if c:
-                                c["total_samples"] = len(samples)
+                                already_started = c.get("started_at") is not None
+                                if declared_samples is None and not c.get("total_samples"):
+                                    c["total_samples"] = len(samples)
                                 c["sample_rate"] = sr
-                                c["started_at"] = now + output_latency
+                                c["input_final"] = bool(c.get("input_final") or input_final)
+                                if not already_started:
+                                    c["started_at"] = now + output_latency
+                                    c["playback_anchor_at"] = now + output_latency
+                                    c["playback_anchor_samples"] = 0
+                                    c["latency_sec"] = output_latency
+                                    c["clock_source"] = (
+                                        "portaudio_latency_estimate" if output_latency > 0.0 else "host_write_estimate"
+                                    )
+                                    c["precision"] = "estimated"
+                                    try:
+                                        from server.core.media.av_sync import global_av_sync
+                                        if c.get("submitted_at") is not None:
+                                            global_av_sync.record_realtime_latency(
+                                                "playback_start_ms", c["submitted_at"]
+                                            )
+                                    except Exception:
+                                        pass
                                 c["last_update_at"] = now
-                                c["playback_anchor_at"] = now + output_latency
-                                c["playback_anchor_samples"] = 0
-                                c["latency_sec"] = output_latency
-                                c["clock_source"] = (
-                                    "portaudio_latency_estimate" if output_latency > 0.0 else "host_write_estimate"
-                                )
-                                c["precision"] = "estimated"
                                 c["status"] = "playing"
 
                     for start in range(0, len(samples), self.WRITE_SLICE_SAMPLES):
@@ -562,7 +643,7 @@ class VirtualAudioService:
                             from server.core.media.rtmp_streamer import global_rtmp_streamer
                             if global_rtmp_streamer.is_streaming:
                                 int16_bytes = (piece.clip(-1.0, 1.0) * 32767.0).astype("int16").tobytes()
-                                global_rtmp_streamer.send_audio_pcm(int16_bytes)
+                                global_rtmp_streamer.send_audio_pcm(int16_bytes, sample_rate=sr)
                         except Exception:
                             pass
                         if audio_id:

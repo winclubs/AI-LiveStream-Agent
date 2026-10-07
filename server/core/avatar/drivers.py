@@ -35,8 +35,8 @@ class LocalLiveTalkingDriver(BaseAvatarDriver):
         # 默认保持 127.0.0.1:8010 兼容老用户本地部署
         self.api_endpoint = (self.config.get("api_endpoint") or "http://127.0.0.1:8010").rstrip("/")
         self.session_id = self.config.get("session_id", "live_stream_session_0")
-        self.avatar_id = self.config.get("avatar_id", "wav2lip256_avatar1")
-        self.model_type = self.config.get("model_type", "wav2lip")
+        self.avatar_id = self.config.get("avatar_id", "latentsync_avatar1")
+        self.model_type = self.config.get("model_type", "latentsync")
         self.is_connected = False  # 恪守 ADR-16：未探活前绝不虚假标记为 True
         self.total_audio_chunks = 0
         self.total_audio_bytes = 0
@@ -462,8 +462,9 @@ class CloudSidecarDriver(BaseAvatarDriver):
 @register_avatar_driver("procedural")
 class Procedural2DDriver(BaseAvatarDriver):
     """
-    本地轻量免显卡 2D 程序化渲染驱动器 (纯 CPU 模式)
-    通过 Viseme 口型映射与真人待机呼吸切流，完全不吃独立显卡，轻薄本与老旧主机流畅开播。
+    本地轻量免显卡动作切片回放驱动器 (纯 CPU，仅存在于旧版驱动工厂路径)
+    仅回放动作状态机切片与待机画面，**不做任何唇形推理与口型模拟**（系统已禁止
+    CPU 假唇形冒充真实画面）；直播主链路 (MediaDriverRouter) 已强制真实神经唇形渲染。
     """
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)

@@ -41,6 +41,45 @@ def _reset_global_overlay_state():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _ready_neural_renderer(request):
+    """注入就绪的神经唇形渲染器。
+
+    硬性规约：开播必须走真实神经渲染，mouth_open 模拟驱动回退已彻底移除，
+    引擎未就绪时 /live/start 会如实返回 500。因此任何覆盖开播链路的用例都必须
+    面对一个"就绪"的引擎，否则会在启动前置校验处失败——这不是被掩盖的缺陷，
+    而是禁止模拟驱动的直接后果。
+
+    例外：需要断言"未就绪时如实上报 neural_lipsync=False"这类**架构诚实**契约的
+    用例，必须给注入让路，否则 mock 会让能力上报变成谎报。请加标记：
+        @pytest.mark.no_neural_mock
+    """
+    from unittest.mock import MagicMock
+    import numpy as np
+
+    if request.node.get_closest_marker("no_neural_mock"):
+        yield None
+        return
+
+    from server.adapters.media.musetalk_driver import global_musetalk_driver
+
+    mock_lip = MagicMock()
+    mock_lip.is_ready = True
+    mock_lip.has_anchor_assets = True
+    mock_lip.render_lip_frame.return_value = np.zeros((960, 720, 3), dtype=np.uint8)
+    real_renderer = global_musetalk_driver.lip_renderer
+    global_musetalk_driver.lip_renderer = mock_lip
+    yield mock_lip
+    global_musetalk_driver.lip_renderer = real_renderer
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "no_neural_mock: 该用例需断言神经引擎未就绪时的诚实上报，跳过全局 mock 注入",
+    )
+
+
 # 为纯单元测试 (不经 TestClient 启动 app) 预初始化隔离库表结构与种子数据，
 # 保证 test_core_engine.py 等文件可独立运行 (ADR-07 测试隔离)
 _db_mod.enable_test_isolation()

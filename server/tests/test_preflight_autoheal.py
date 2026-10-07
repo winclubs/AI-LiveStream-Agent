@@ -86,6 +86,46 @@ def test_preflight_auto_in_progress_flag_shape(client):
         assert isinstance(c.get("auto_in_progress"), bool)
 
 
+def test_preflight_never_claims_ready_while_neural_lipsync_unavailable(client):
+    """ADR-16：神经唇形不可用时，体检**任何一项**都不得宣称"就绪开播"。
+
+    历史缺陷：`lipsync_weight` 项已如实改为"无法开播"，但 `avatar_engine` 项
+    仍宣称"内置高保真微动态引擎 (RealAvatarLite) 就绪开播 / 零显存稳定开播"。
+    而真实开播路径 `ProceduralAvatarDriver.start()` 在 ONNX 权重或主播切片
+    缺失时**直接 raise 拒绝启动**，程序化渲染器也已按硬性规约移除出生产路径
+    （其帧从不上屏）。两套话术并存会让用户以为能开播、点下去却失败。
+
+    RealAvatarLite 已被移出渲染链路，因此其名字不应再出现在体检结论里。
+    """
+    from server.core.avatar.neural_model_manager import global_neural_model_manager
+
+    with patch.object(
+        global_neural_model_manager.__class__,
+        "get_model_status_matrix",
+        return_value={"has_neural_model": False},
+    ):
+        res = client.get("/api/v1/live/preflight")
+
+    assert res.status_code == 200
+    checks = res.json()["data"]["checks"]
+    engine_check = _check_by_key(checks, "avatar_engine")
+    assert engine_check is not None, "体检缺少 avatar_engine 项"
+
+    blob = " ".join(
+        str(engine_check.get(k) or "") for k in ("status", "title", "message", "fix_hint")
+    )
+    # 已移出渲染链路的程序化引擎不得再作为"开播就绪"的依据出现
+    assert "RealAvatarLite" not in blob, f"体检仍以已下线的 RealAvatarLite 宣称就绪: {blob}"
+    # 也不得出现这类"不影响开播"的暗示
+    for banned in ("就绪开播", "稳定开播", "直播不受影响"):
+        assert banned not in blob, f"体检含误导开播预期的话术 '{banned}': {blob}"
+
+    # 神经模型缺失时，这一项不允许是 pass
+    assert engine_check["status"] != "pass", (
+        f"无神经模型时 avatar_engine 不得判定 pass: {engine_check}"
+    )
+
+
 def test_asr_install_status_endpoint(client):
     res = client.get("/api/v1/live/asr/install-status")
     assert res.status_code == 200

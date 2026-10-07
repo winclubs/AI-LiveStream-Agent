@@ -298,3 +298,40 @@ async def test_interrupt_clears_pcm_cache_and_empty_pcm_defense():
     res = renderer.render_lip_frame(full_frame, 0, np.zeros(0, dtype=np.float32), mouth_open=0.0)
     assert res is None or np.array_equal(res, full_frame)
 
+
+def test_align_color_lab_matches_reference_lighting():
+    """验证 P2-2: LAB 色彩动态对齐将偏色/偏暗的生成人脸拉齐到原图皮肤色温"""
+    h, w = 120, 100
+    # 模拟真实目标人脸 (原图 ROI): 偏亮偏暖肤色
+    target = np.full((h, w, 3), (160, 180, 220), dtype=np.uint8)  # BGR
+    # 模拟生成人脸: 偏暗偏蓝 (光照偏差)
+    source = np.full((h, w, 3), (200, 130, 120), dtype=np.uint8)
+
+    aligned = NeuralLipRenderer._align_color_lab(source, target, ref_ratio=0.5)
+    assert aligned.shape == source.shape
+
+    # 对齐后在上半脸参考区的均值应高度逼近目标原图
+    ref_h = int(h * 0.5)
+    mean_aligned = np.mean(aligned[:ref_h, :], axis=(0, 1))
+    mean_target = np.mean(target[:ref_h, :], axis=(0, 1))
+    assert np.all(np.abs(mean_aligned - mean_target) < 5.0)
+
+
+def test_blend_back_smooth_mask_jaw_transition():
+    """验证 P2-1: _blend_back 融合后下颌与口周渐变过渡平滑无割裂断层"""
+    full_frame = np.full((400, 300, 3), 100, dtype=np.uint8)
+    rendered_face_256 = np.full((256, 256, 3), 180, dtype=np.uint8)
+    coord_box = (50, 300, 50, 250)
+
+    blended = NeuralLipRenderer._blend_back(full_frame.copy(), rendered_face_256, coord_box)
+    assert blended.shape == full_frame.shape
+    # 验证原图框外未被污染
+    assert np.array_equal(blended[:45, :], full_frame[:45, :])
+    assert np.array_equal(blended[305:, :], full_frame[305:, :])
+    # 验证融合中心区域有有效重绘
+    ymin, ymax, xmin, xmax = coord_box
+    cy = ymin + int((ymax - ymin) * 0.72)
+    cx = xmin + (xmax - xmin) // 2
+    assert blended[cy, cx, 0] > full_frame[cy, cx, 0]
+
+

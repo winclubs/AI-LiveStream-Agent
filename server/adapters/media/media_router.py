@@ -36,6 +36,7 @@ class MediaDriverRouter(BaseMediaDriver):
         self.avatar_orchestrator: Optional[AvatarProviderOrchestrator] = None
         self._sidecar_tasks: set[asyncio.Task] = set()
         self._orchestrator_start_task: Optional[asyncio.Task] = None
+        self._batch_prefetcher = None
 
     def attach_remote(self, driver):
         """挂载端云分离远程渲染驱动 (帧回传优先显示)"""
@@ -49,11 +50,13 @@ class MediaDriverRouter(BaseMediaDriver):
         """挂载 renderer-only v3 sidecar；本地 renderer 始终保留为 shadow fallback。"""
         self.avatar_orchestrator = None
         self.sidecar_driver = driver
+        self._detach_batch_prefetcher()
         logger.info("已挂载神经渲染 sidecar v3，程序化 renderer 保持 shadow 模式")
 
     def detach_sidecar(self):
         self.sidecar_driver = None
         self.avatar_orchestrator = None
+        self._detach_batch_prefetcher()
 
     def attach_avatar_orchestrator(
         self,
@@ -64,14 +67,61 @@ class MediaDriverRouter(BaseMediaDriver):
         """挂载多 Provider 编排器；sidecar_driver 保留为旧预览/诊断兼容视图。"""
         self.avatar_orchestrator = orchestrator
         self.sidecar_driver = preview_driver
+        self._attach_batch_prefetcher(orchestrator)
         logger.info(
-            "已挂载 %s 个远端 Avatar Provider，程序化 renderer 保持热 shadow",
+            "已挂载 %d 个远端 Avatar Provider，程序化 renderer 保持热 shadow",
             orchestrator.provider_count,
         )
 
     def detach_avatar_orchestrator(self) -> None:
         self.avatar_orchestrator = None
         self.sidecar_driver = None
+        self._detach_batch_prefetcher()
+
+    def _attach_batch_prefetcher(self, orchestrator: AvatarProviderOrchestrator) -> None:
+        """为支持 BATCH 的 Provider 挂载句级前瞻预取器 (P0-1)。
+
+        扩散模型 (LatentSync UNet3D) 单句渲染耗时通常超过音频时长，
+        必须靠「提前渲染下一句」把批处理延迟藏进播放窗口，否则必然音画失步。
+        无 BATCH Provider 时保持空转，不引入任何额外开销。
+        """
+        self._detach_batch_prefetcher()
+        providers = orchestrator.batch_providers()
+        if not providers:
+            return
+        from server.core.avatar.slice_prefetcher import SlicePrefetcher
+
+        # 单 Provider 时直接使用其自身；多 Provider 时以首个 BATCH Provider 作为预取目标，
+        # 实际派发仍由编排器按策略选择，预取命中与否只影响是否需要现算。
+        prefetcher = SlicePrefetcher(providers[0], lookahead_depth=2)
+        self._batch_prefetcher = prefetcher
+        orchestrator.attach_prefetcher(prefetcher)
+        logger.info(
+            "已为 %d 个批处理 Avatar Provider 挂载句级前瞻预取器", len(providers)
+        )
+
+    def _detach_batch_prefetcher(self) -> None:
+        if self._batch_prefetcher is not None:
+            try:
+                self._batch_prefetcher.close()
+            except Exception:
+                logger.debug("预取器关闭失败", exc_info=True)
+            self._batch_prefetcher = None
+        if self.avatar_orchestrator is not None:
+            self.avatar_orchestrator.detach_prefetcher()
+
+    async def prefetch_upcoming_sentence(self, frames) -> None:
+        """对外暴露的句级前瞻预取入口 (供 live.py 在播报当前句时提前渲染下一句)。"""
+        prefetcher = self._batch_prefetcher
+        if prefetcher is None or not frames:
+            return
+        try:
+            await prefetcher.prefetch_sentence(
+                frames[0].audio_id, frames, getattr(frames[0], "text", "") or ""
+            )
+        except Exception:
+            logger.debug("句级前瞻预取失败，保持本地 shadow", exc_info=True)
+
 
     def _track_sidecar_task(self, coroutine) -> asyncio.Task:
         task = asyncio.create_task(coroutine)
@@ -208,13 +258,32 @@ class MediaDriverRouter(BaseMediaDriver):
             **self._supported_metadata(target, metadata),
         )
 
-    async def feed_audio_frames(self, frames) -> None:
-        """优先向新驱动转发标准帧批次，旧驱动则合并为一次 PCM 调用。"""
-        frame_list = validate_audio_frame_batch(frames)
+    def supports_progressive_audio(self) -> bool:
+        """仅本地神经渲染驱动支持未知总时长的 PCM 增量提交。"""
+        return bool(
+            self.avatar_orchestrator is None
+            and self.sidecar_driver is None
+            and getattr(self.active_driver, "supports_progressive_audio", False)
+        )
+
+    async def feed_audio_frames(self, frames, *, is_final: bool = True) -> None:
+        """转发标准 PCM 帧；支持同一句非零 sequence 的增量批次。"""
+        candidate_frames = tuple(frames or ())
+        if not candidate_frames:
+            return
+        progressive = (not is_final) or candidate_frames[0].sequence != 0
+        frame_list = validate_audio_frame_batch(
+            candidate_frames,
+            require_complete=bool(is_final),
+            allow_offset=progressive,
+        )
         self.is_speaking = True
         batch_target = getattr(self.active_driver, "feed_audio_frames", None)
         if batch_target is not None:
-            await batch_target(frame_list)
+            await batch_target(
+                frame_list,
+                **self._supported_metadata(batch_target, {"is_final": bool(is_final)}),
+            )
         else:
             first = frame_list[0]
             target = self.active_driver.feed_audio_chunk
@@ -225,13 +294,18 @@ class MediaDriverRouter(BaseMediaDriver):
                 **self._supported_metadata(target, metadata),
             )
 
+        # 增量本地路径不启动 strict_totals 的 Sidecar v3 整句事务；
+        # 云端节点继续由原有完整事务路径处理，避免未知总时长破坏协议。
+        if progressive:
+            return
+
         # 编排器自身执行无排队并发保护；旧单 sidecar 继续沿用单任务兼容限制。
         if self.avatar_orchestrator is not None:
             self._track_sidecar_task(self._submit_sidecar_frames(frame_list))
         elif self.sidecar_driver is not None:
             active_tasks = [task for task in self._sidecar_tasks if not task.done()]
             if active_tasks:
-                logger.warning("神经渲染 sidecar 忙，当前句保持程序化 shadow")
+                logger.warning("神经渲染 sidecar 忙，当前句保持本地渲染")
             else:
                 self._track_sidecar_task(self._submit_sidecar_frames(frame_list))
 
@@ -249,12 +323,19 @@ class MediaDriverRouter(BaseMediaDriver):
         getter = getattr(selected, "get_media_capabilities", None)
         capabilities = dict(getter() if getter is not None else super().get_media_capabilities())
         capabilities["router_accepts_audio_frames"] = True
+        capabilities["progressive_audio"] = self.supports_progressive_audio()
         capabilities["selected_driver"] = selected_name
         capabilities["shadow_driver"] = self.driver_type
         return capabilities
 
     async def interrupt(self, reason: str = "Barge-in", **metadata):
         self.is_speaking = False
+        # 打断必须先清空预取缓存：已废弃的旧画面绝不允许在后续播放中复活。
+        if self._batch_prefetcher is not None:
+            try:
+                await self._batch_prefetcher.interrupt_and_clear()
+            except Exception:
+                logger.exception("前瞻预取缓存打断清理失败")
         target = self.active_driver.interrupt
         try:
             await target(reason, **self._supported_metadata(target, metadata))
@@ -298,6 +379,7 @@ class MediaDriverRouter(BaseMediaDriver):
 
     async def stop(self):
         self.is_speaking = False
+        self._detach_batch_prefetcher()
         try:
             start_task = self._orchestrator_start_task
             if start_task is not None and not start_task.done():
@@ -334,6 +416,12 @@ class MediaDriverRouter(BaseMediaDriver):
                 "clock_precision": "none",
                 "alignment_mode": "heuristic_uniform",
             }
+        # 帧发布总线实况：当前赢得租约的帧源 (云端/shadow)，用于诊断输出通道画面来源一致性
+        try:
+            from server.core.media.frame_bus import global_frame_bus
+            frame_bus_status = global_frame_bus.get_status()
+        except Exception:
+            frame_bus_status = {}
         caps = {
             "procedural_avatar": status.get("render_backend") == "procedural",
             "neural_lipsync": bool(status.get("neural_lipsync", False)),
@@ -379,6 +467,16 @@ class MediaDriverRouter(BaseMediaDriver):
             if key != "providers"
         }
         status["avatar_providers"] = provider_snapshot["providers"]
+        status["frame_bus"] = frame_bus_status
+        # 前瞻预取健康度：扩散模型批处理路径能否跟上实时直播的关键指标 (P0-1)
+        prefetcher = self._batch_prefetcher
+        orchestrator = self.avatar_orchestrator
+        status["slice_prefetch"] = {
+            "enabled": prefetcher is not None,
+            "ready_slices": prefetcher.ready_count if prefetcher else 0,
+            "rendering_slices": prefetcher.rendering_count if prefetcher else 0,
+            "prefetch_hits": orchestrator.prefetch_hits if orchestrator else 0,
+        }
         return status
 
     def get_preview_status(self) -> dict:

@@ -50,6 +50,12 @@ jobs:
         run: python -m pytest --collect-only -q server/tests
       - name: Test with branch coverage
         run: python -m pytest -q server/tests --cov=server --cov-branch --cov-report=term-missing --cov-report=xml
+      # 根 tests/ 与 server/tests/ 的用例此前从未被任何运行器执行（testpaths 只含
+      # server/tests，JS 仅做 node --check 语法校验）。统一入口补齐执行闭环。
+      - name: Root pytest suite (tests/)
+        run: python -m pytest -q --no-header tests
+      - name: Frontend assertion tests
+        run: python scripts/run_all_tests.py --js-only
       - uses: actions/upload-artifact@v4
         if: always()
         with:

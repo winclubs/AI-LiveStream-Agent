@@ -64,13 +64,8 @@ class EdgeTTSMediaDriver(BaseMediaDriver):
                 if chunk["type"] == "audio":
                     yield chunk["data"]
         except ImportError:
-            logger.warning("未检测到本地 edge-tts 库，使用模拟音频流回退")
-            # 模拟生成 5 个切片并支持打断检查
-            for i in range(5):
-                if getattr(self, "_is_interrupted", False):
-                    break
-                await asyncio.sleep(0.06)
-                yield b"\x00" * 3200
+            logger.error("未安装 edge-tts 依赖，无法执行语音合成；请执行: pip install edge-tts")
+            raise RuntimeError("未检测到本地 edge-tts 依赖库，语音合成已终止")
         except asyncio.CancelledError:
             logger.info("EdgeTTS 合成任务已被抢占打断(Cancelled)")
             raise

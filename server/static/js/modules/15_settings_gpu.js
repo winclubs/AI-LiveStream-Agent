@@ -1261,11 +1261,29 @@ async function checkCloudGpuConnection(options = {}) {
         if (errMsg) {
             errMsg = errMsg.replace(/\s*\(ConnectionResetError\)/g, "");
         }
+        // 云端 GPU 是否**真的**在跑推理（型号/显存正常不代表跑在 GPU 上：
+        // 节点可能 nvidia-smi 有 Tesla T4，但 onnxruntime 静默回退 CPUExecutionProvider）。
+        // gpu_runtime_verified 由后端从节点 capabilities.renderer_available /
+        // render_backends[].available 如实读取；null 表示旧节点未上报该能力。
+        const runtimeVerified = json.gpu_runtime_verified === true
+            ? true
+            : (json.gpu_runtime_verified === false ? false : null);
+        let gpuRuntimeText = "";
+        if (runtimeVerified === true) {
+            gpuRuntimeText = "真实跑在 GPU 上";
+        } else if (runtimeVerified === false) {
+            gpuRuntimeText = "⚠️ 未真实使用 GPU（实际跑在 CPU 上）";
+        } else {
+            gpuRuntimeText = "GPU 运行状态未验证（节点未上报）";
+        }
         const result = {
             success: isOk,
             latency_ms: isOk ? (json.latency_ms || 45) : 0,
             device: isOk ? (json.device || "NVIDIA 云端 GPU") : "",
+            gpu_name: isOk ? (json.gpu_name || "") : "",
             vram_gb: realVramGb,
+            gpu_runtime_verified: runtimeVerified,
+            gpu_runtime_text: gpuRuntimeText,
             error: errMsg,
             targetUrl: targetUrl
         };
@@ -1333,18 +1351,46 @@ async function testCurrentGpuAvatarConnection(isSilent = false) {
         const pingRes = await checkCloudGpuConnection({ base_url: targetUrl, isSilent });
 
         if (pingRes.success) {
+            // 云端显卡型号 / 显存 / 是否真的跑在 GPU 上（防 CPU 冒充）
+            const gpuModel = pingRes.gpu_name || pingRes.device || "";
+            const vramText = pingRes.vram_gb ? `${pingRes.vram_gb}GB 显存` : "";
+            const runtimeBadge = (() => {
+                if (pingRes.gpu_runtime_verified === true) {
+                    return `<span style="color:#34d399">✓ 真实跑在 GPU 上</span>`;
+                }
+                if (pingRes.gpu_runtime_verified === false) {
+                    return `<span style="color:#f87171">⚠️ 未真实使用 GPU（实际跑在 CPU 上）</span>`;
+                }
+                return `<span style="color:#fbbf24">⚠️ GPU 运行状态未验证</span>`;
+            })();
+            const gpuSummary = [
+                gpuModel ? `显卡: <b>${escapeHtml(gpuModel)}</b>` : "",
+                vramText ? `显存: <b>${escapeHtml(vramText)}</b>` : "",
+                runtimeBadge
+            ].filter(Boolean).join(" · ");
+
             if (inlineStatusEl) {
-                inlineStatusEl.style.color = "#34d399";
+                inlineStatusEl.style.color = pingRes.gpu_runtime_verified === false ? "#fbbf24" : "#34d399";
                 inlineStatusEl.innerHTML = `✓ 已连通 (延迟 ${pingRes.latency_ms}ms${pingRes.device ? ' · ' + escapeHtml(pingRes.device) : ''})`;
             }
             if (resultBox) {
-                resultBox.style.background = "rgba(16, 185, 129, 0.15)";
-                resultBox.style.color = "#10B981";
-                resultBox.style.border = "1px solid rgba(16, 185, 129, 0.35)";
-                resultBox.innerHTML = `🟢 配合达标！云端握手成功，延迟: ${pingRes.latency_ms}ms ${pingRes.device ? '(远端识别硬件: <b>' + escapeHtml(pingRes.device) + '</b>)' : ''}，本地主控与云端 GPU 协同就绪！`;
+                const boxOk = pingRes.gpu_runtime_verified !== false;
+                resultBox.style.background = boxOk ? "rgba(16, 185, 129, 0.15)" : "rgba(251, 191, 36, 0.15)";
+                resultBox.style.color = boxOk ? "#10B981" : "#fbbf24";
+                resultBox.style.border = `1px solid ${boxOk ? "rgba(16, 185, 129, 0.35)" : "rgba(251, 191, 36, 0.35)"}`;
+                resultBox.innerHTML = `🟢 云端握手成功，延迟: ${pingRes.latency_ms}ms`
+                    + (gpuSummary ? `<br/>${gpuSummary}` : "")
+                    + (boxOk
+                        ? `<br/>本地主控与云端 GPU 协同就绪！`
+                        : `<br/>⚠️ 云端硬件参数正常但未真实使用 GPU，请检查云端 PyTorch CUDA / GPU 驱动是否安装并生效。`);
             }
             if (!isSilent) {
-                showToast(`端云协同达标！${pingRes.device ? '云端硬件: ' + pingRes.device : ''}（延迟: ${pingRes.latency_ms}ms）`, "success");
+                showToast(
+                    pingRes.gpu_runtime_verified === false
+                        ? `已连通，但云端未真实使用 GPU（${gpuModel || "远端节点"}）`
+                        : `端云协同达标！${gpuModel ? '云端显卡: ' + gpuModel : ''}${vramText ? ' · ' + vramText : ''}（延迟: ${pingRes.latency_ms}ms，真实 GPU 推理）`,
+                    pingRes.gpu_runtime_verified === false ? "warning" : "success"
+                );
             }
         } else {
             const err = pingRes.error || "通信握手未成功";

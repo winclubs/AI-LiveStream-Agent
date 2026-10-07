@@ -18,15 +18,83 @@
           </span>
         </div>
         <div style="font-size: 13px; color: #94a3b8; margin-top: 5px; line-height: 1.8;">
-          制作逼真数字人其实只需 <strong>1 段 30秒~1分钟 的绿幕视频 (最长支持2分钟)</strong>。以下为您解答核心准备疑问及标准化配置步骤：
+          系统采用 <strong>ByteDance LatentSync 工业级扩散模型</strong>。只需 <strong>1 段 30秒~1分钟 的出镜视频</strong>，即可生成影视级高清口播数字人：
         </div>
       </div>
       <div style="display: flex; gap: 8px;">
         <button class="btn btn-sm" onclick="openShootingGuideModal()"
           style="border-color: rgba(52, 211, 153, 0.4); color: #34d399;" title="绿幕 3 段式视频录制实战 SOP 指南">
-          🎬 查看详细绿幕实拍 SOP
+          🎬 查看详细实拍 SOP
         </button>
       </div>
+    </div>
+
+    <!-- ByteDance LatentSync 官方源素材 4 大核心指标速查卡片 (根据官方手册与实战标准定制) -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px;">
+      <!-- 指标 1：视频时长 -->
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 12px 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span style="font-size: 13px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+            <span>⏱️</span> 视频时长要求
+          </span>
+          <span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 1px 6px; border-radius: 4px;">建议 30s~1min</span>
+        </div>
+        <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.6;">
+          • <strong>最佳时长：30秒 ~ 1分钟</strong>（最长支持2分钟）。<br>
+          • 官方按 5~10 秒微段对齐特征；30秒即可形成自然呼吸微动闭环，避免超长视频增加传输与切片开销。
+        </div>
+      </div>
+
+      <!-- 指标 2：镜头远近与景别 -->
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 8px; padding: 12px 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span style="font-size: 13px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 6px;">
+            <span>📐</span> 镜头远近与景别
+          </span>
+          <span style="font-size: 11px; background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 1px 6px; border-radius: 4px;">胸部以上半身</span>
+        </div>
+        <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.6;">
+          • <strong>标准景别：胸部以上半身中景</strong>，正对镜头。<br>
+          • 人脸在画幅中高度占比建议 <strong>25% ~ 40%</strong>（面部不低于 256px）；严禁全身远景（脸小模糊）或特写出画。
+        </div>
+      </div>
+
+      <!-- 指标 3：是否需要绿幕 -->
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px; padding: 12px 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span style="font-size: 13px; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
+            <span>🟩</span> 是否需要绿幕？
+          </span>
+          <span style="font-size: 11px; background: rgba(251, 191, 36, 0.15); color: #fbbf24; padding: 1px 6px; border-radius: 4px;">实战强推绿幕</span>
+        </div>
+        <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.6;">
+          • <strong>算法层面</strong>：实景/绿幕均可直接重绘嘴唇。<br>
+          • <strong>带货实战</strong>：强烈建议<strong>平整纯绿幕</strong>，便于 OBS / 抖音伴侣一键抠像并自由贴合商品展台与促销挂件。
+        </div>
+      </div>
+
+      <!-- 指标 4：是否需要真人说话 -->
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(248, 113, 113, 0.3); border-radius: 8px; padding: 12px 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span style="font-size: 13px; font-weight: 700; color: #f87171; display: flex; align-items: center; gap: 6px;">
+            <span>🤐</span> 是否需要真人说话？
+          </span>
+          <span style="font-size: 11px; background: rgba(248, 113, 113, 0.15); color: #f87171; padding: 1px 6px; border-radius: 4px; font-weight:700;">严禁开口说话</span>
+        </div>
+        <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.6;">
+          • <strong>【黄金铁律】：全程闭口、自然微笑！</strong><br>
+          • 系统仅由 AI 局部重绘口型。若录制时说话张嘴，原视频下巴拉长与 AI 新语音打架，会导致<strong>双重嘴唇叠影翻车</strong>！
+        </div>
+      </div>
+    </div>
+
+    <!-- 官方工业规格注脚条 -->
+    <div style="background: rgba(0, 0, 0, 0.25); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 8px 14px; margin-bottom: 16px; font-size: 12px; color: #94a3b8; display: flex; flex-wrap: wrap; gap: 16px;">
+      <span>📌 <strong>官方标准规格：</strong></span>
+      <span>• 画面帧率：<strong>恒定 25 FPS (强制必须)</strong></span>
+      <span>• 推荐分辨率：<strong>1080P (1080×1920 竖屏 或 1920×1080 横屏)</strong></span>
+      <span>• 音频采样率：<strong>16,000 Hz 单声道</strong></span>
+      <span>• 面部视角：<strong>水平正对镜头 (仰俯/侧脸偏差 &le; 20&deg;)</strong></span>
     </div>
 
     <!-- 三大高频困惑 FAQ 白话解答卡片 (默认折叠答案，点击展开) -->
@@ -245,7 +313,7 @@
         </div>
         <div style="font-size:13.5px; color:#e2e8f0; line-height: 1.85;">
           <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">核心算法：</strong>PyTorch CUDA 深度学习神经网络
-            (Wav2Lip / MuseTalk 25 FPS)</div>
+            (ByteDance LatentSync / 扩散重绘 25 FPS)</div>
           <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">硬件要求：</strong>NVIDIA 显卡显存 &gt;= 4GB/6GB (支持
             CUDA) 或 <span style="color:#38bdf8; font-weight:600;">远端租赁 GPU</span></div>
           <div style="margin-bottom:8px;">• <strong style="color:#94a3b8;">实机状态：</strong><span id="hw-streaming-current"
@@ -493,6 +561,64 @@
   </div>
 
   <!-- ========================================================== -->
+  <!-- 形象资产记录 (训练产出登记簿 · 可查看与清理) -->
+  <!-- ========================================================== -->
+  <div class="panel-card" id="avatar-assets-card" style="margin-top: 24px; border: 1px solid rgba(56, 189, 248, 0.25);">
+    <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
+          <svg class="icon" viewBox="0 0 24 24" style="color: #38bdf8;">
+            <path d="M3 7h18v13H3z" />
+            <path d="M3 7l3-4h12l3 4" />
+          </svg>
+          🗂️ 形象资产记录 (训练产出登记簿)
+        </span>
+        <span class="badge-recommend"
+          style="font-size:11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
+          每次切片训练自动登记 · 可清理冗余记录
+        </span>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <span id="avatar-assets-summary" style="font-size: 11.5px; color: var(--text-muted);"></span>
+        <button class="btn btn-sm" onclick="loadAvatarAssets()">
+          <svg class="icon-sm" viewBox="0 0 24 24">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          刷新资产记录
+        </button>
+      </div>
+    </div>
+
+    <div
+      style="padding: 10px 14px; background: rgba(56, 189, 248, 0.06); border: 1px dashed rgba(56, 189, 248, 0.25); border-radius: 8px; font-size: 13px; color: #cbd5e1; margin-bottom: 16px; line-height: 1.85;">
+      💡 <strong>这是什么：</strong>每完成一次数字人切片训练，系统都会在这里自动登记一条形象资产记录，便于回溯"训练过什么、资产还在不在"。<br>
+      <strong>与【全部主播档案】的关系：</strong>只有被正式加入主播档案的资产才会参与开播；这里的记录<strong>不参与直播渲染</strong>，可安全清理测试期间产生的冗余条目。标记为「资产缺失」的记录说明磁盘文件已被移除，仅剩一条空壳登记。
+    </div>
+
+    <!-- 形象资产记录列表 -->
+    <div style="overflow-x: auto;">
+      <table class="data-table" style="margin-bottom: 16px; width: 100%; min-width: 900px;">
+        <thead>
+          <tr>
+            <th style="width: 30%; min-width: 240px;">名称 / 标识</th>
+            <th style="width: 8%; min-width: 70px;">类型</th>
+            <th style="width: 12%; min-width: 100px;">来源</th>
+            <th style="width: 12%; min-width: 100px;">资产状态</th>
+            <th style="width: 16%; min-width: 140px;">登记时间</th>
+            <th style="width: 22%; min-width: 180px; white-space: nowrap;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="avatar-assets-tbody">
+          <tr>
+            <td colspan="6" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载形象资产记录...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
   <!-- 阶段三：互动特定动作库 (进阶可选 · 让数字人能指商品、鞠躬致谢) -->
   <!-- ========================================================== -->
   <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(245, 158, 11, 0.25);">
@@ -662,248 +788,292 @@
   </div>
 
   <!-- ========================================================== -->
+  <!-- ========================================================== -->
   <!-- 数字人资产沉浸式预览模态框 (Modal) - LiveTalking 工业级对齐与切片透视 -->
   <!-- ========================================================== -->
   <div id="modal-avatar-preview"
-    style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:99999; justify-content:center; align-items:center; -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);">
+    style="display:none; position:fixed; inset:0; width:100vw; height:100vh; background:rgba(3,7,18,0.88); z-index:99999; justify-content:center; align-items:center; -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); padding:16px; box-sizing:border-box; overflow-y:auto;">
     <div
-      style="background:#0f172a; border:1px solid rgba(56,189,248,0.28); border-radius:14px; width:95%; max-width:1030px; max-height:94vh; overflow-y:auto; box-shadow:0 24px 65px -10px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06); padding:24px; position:relative;">
-      <!-- 弹窗头部 -->
+      style="background:linear-gradient(180deg, #0b1220 0%, #070b14 100%); border:1px solid rgba(56,189,248,0.22); border-radius:14px; width:100%; max-width:1120px; max-height:calc(100vh - 32px); display:flex; flex-direction:column; box-shadow:0 25px 70px -10px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.06); position:relative; overflow:hidden; margin:auto; box-sizing:border-box;">
+      
+      <!-- 弹窗固定头部 -->
       <div
-        style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:14px; margin-bottom:16px;">
-        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-          <span
-            style="font-size:16px; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
-            🎬 <span id="modal-avatar-title">数字人模型与切片资产预览</span>
-          </span>
-          <span id="modal-avatar-badge" class="badge-recommend"
-            style="font-size: 12px; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3); padding:3px 10px; border-radius:20px;">
-            ● 25 FPS 唇形驱动模型就绪
-          </span>
+        style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding:14px 20px; background:rgba(15,23,42,0.45); flex-shrink:0;">
+        <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
+          <div style="width:32px; height:32px; border-radius:8px; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0;">🎬</div>
+          <div style="min-width:0; display:flex; align-items:center; gap:10px; flex-wrap:nowrap;">
+            <h3 id="modal-avatar-title" style="margin:0; font-size:15px; font-weight:700; color:#f8fafc; letter-spacing:0.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">数字人模型与切片资产</h3>
+            <span id="modal-avatar-badge"
+              style="font-size:11.5px; background:rgba(16,185,129,0.12); color:#34d399; border:1px solid rgba(16,185,129,0.28); padding:3px 10px; border-radius:20px; font-weight:600; display:inline-flex; align-items:center; gap:5px; flex-shrink:0; white-space:nowrap;">
+              <span style="width:6px; height:6px; border-radius:50%; background:#10b981; box-shadow:0 0 8px #10b981;"></span>
+              <span>25 FPS 唇形驱动模型就绪</span>
+            </span>
+          </div>
         </div>
-        <button class="btn btn-sm" onclick="closeAvatarPreviewModal()" style="padding:4px 12px; font-size:13px;"
+        <button class="btn btn-sm" onclick="closeAvatarPreviewModal()"
+          style="padding:4px 12px; font-size:12.5px; border-radius:6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#94a3b8; transition:all 0.15s; flex-shrink:0; cursor:pointer;"
           title="关闭预览">✕ 关闭</button>
       </div>
 
-      <!-- 视图模式切换选项卡 (默认优先展示：神经切片与面部坐标透视) -->
+      <!-- 视图模式切换选项卡 (固定栏) -->
       <div
-        style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; gap:14px; flex-wrap:nowrap;">
+        style="display:flex; justify-content:space-between; align-items:center; padding:10px 20px; border-bottom:1px solid rgba(255,255,255,0.06); background:rgba(0,0,0,0.2); gap:12px; flex-shrink:0;">
         <div style="display:flex; gap:8px; flex-shrink:0;">
           <button id="tab-btn-preview-slices" class="btn btn-sm btn-primary" onclick="switchPreviewSubTab('slices')"
-            style="font-size:13px; font-weight:500; display:flex; align-items:center; gap:6px; padding:6px 14px; border-radius:6px;">
-            <span>🔬</span> 神经切片与人脸追踪透视
+            style="font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px; padding:5px 14px; border-radius:6px;">
+            <span>🔬</span> 神经切片与人脸动态追踪
           </button>
           <button id="tab-btn-preview-video" class="btn btn-sm" onclick="switchPreviewSubTab('video')"
-            style="font-size:13px; font-weight:500; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.05); padding:6px 14px; border-radius:6px;">
+            style="font-size:12.5px; font-weight:500; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.05); padding:5px 14px; border-radius:6px; color:#cbd5e1;">
             <span>🎬</span> 出镜母轨原片 (原始录像参考)
           </button>
         </div>
-        <div style="flex-shrink:0; text-align:right;">
+        <div style="min-width:0; text-align:right; flex:1; overflow:hidden;">
           <span id="preview-tab-desc"
-            style="font-size:12px; color:#38bdf8; white-space:nowrap; display:inline-flex; align-items:center; gap:4px; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); padding:4px 10px; border-radius:20px;">
+            style="font-size:11.5px; color:#38bdf8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:inline-flex; align-items:center; gap:4px; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); padding:3px 10px; border-radius:20px; max-width:100%;">
             ● 已默认呈现 25 FPS 连续切片与 coords.pkl 动态人脸定位跟踪
           </span>
         </div>
       </div>
 
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; align-items:stretch;">
-        <!-- 左侧视窗区 -->
-        <div style="display:flex; flex-direction:column; height:100%;">
-          <!-- 视图 1 (默认展示): 神经切片特征透视 (含人脸框与 256px 对齐图，支持 25fps 连续动态播放) -->
-          <div id="preview-box-slices"
-            style="display:flex; flex-direction:column; justify-content:space-between; height:100%; background:rgba(0,0,0,0.5); border-radius:10px; overflow:hidden; border:1px solid rgba(56,189,248,0.25); padding:14px; box-sizing:border-box;">
-            <!-- 上半部分：主次分明反转设计 (主监视器: 256px高清人脸切片主角位；副监视器: 母轨全局对齐配角位) -->
-            <div style="display:grid; grid-template-columns: 1fr 170px; gap:12px; align-items:stretch;">
-              <!-- 主监视舱：256px 标准对齐人脸切片卡片 (主角位：放大为大尺寸高清特写，让嘴唇发音与五官纤毫毕现) -->
-              <div
-                style="display:flex; flex-direction:column; justify-content:space-between; height:360px; box-sizing:border-box; background:rgba(0,0,0,0.35); border:1px solid rgba(56,189,248,0.3); border-radius:10px; padding:10px 12px; position:relative; box-shadow: inset 0 0 20px rgba(0,0,0,0.4);">
-                <!-- 顶部标题与 GPU 硬件调度实况指示徽章 -->
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
-                  <div style="font-size:12px; color:var(--text-primary); font-weight:700; display:flex; align-items:center; gap:5px;">
-                    <span>👄</span> <span>神经口型高清主监视舱</span>
-                  </div>
-                  <!-- 动态显卡算力调度指示胶囊 -->
-                  <div id="slice-face-gpu-badge"
-                    style="font-size:10.5px; padding:2px 8px; border-radius:12px; font-weight:600; display:flex; align-items:center; gap:4px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); white-space:nowrap;"
-                    title="当前数字人实时口型驱动调用的显卡算力通道">
-                    ⚡ 正在研判显卡算力通道...
-                  </div>
-                </div>
-
-                <!-- 核心大画幅人脸切片视窗 (居中大尺寸完整展现) -->
+      <!-- 弹窗可滚动主体区 -->
+      <div style="flex:1; overflow-y:auto; overflow-x:hidden; padding:16px 20px; box-sizing:border-box;">
+        <div style="display:grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap:16px; align-items:stretch; min-width:0;">
+          
+          <!-- 左侧视窗区 (神经切片/原片监视) -->
+          <div style="display:flex; flex-direction:column; min-width:0;">
+            <!-- 视图 1 (默认展示): 神经切片特征透视 -->
+            <div id="preview-box-slices"
+              style="display:flex; flex-direction:column; justify-content:space-between; height:100%; background:rgba(0,0,0,0.45); border-radius:10px; border:1px solid rgba(56,189,248,0.22); padding:12px; box-sizing:border-box; min-width:0;">
+              
+              <!-- 上半部分：主次分明反转设计 (主监视器: 人脸切片主角位；副监视器: 母轨全局对齐配角位) -->
+              <div style="display:grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap:12px; align-items:stretch; min-width:0;">
+                
+                <!-- 主监视舱：256px 标准对齐人脸切片特写卡片 -->
                 <div
-                  style="width:280px; height:280px; background:#05070a; border:1px solid rgba(56,189,248,0.35); border-radius:10px; overflow:hidden; margin:0 auto; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 18px rgba(0,0,0,0.6); position:relative;">
-                  <img id="slice-face-img" src="" alt="人脸特征切片" style="width:100%; height:100%; object-fit:contain; display:block; position:absolute; top:0; left:0; border-radius:9px;">
-                  <div id="slice-face-sync-badge" style="display:none; position:absolute; top:6px; left:6px; font-size:10px; background:rgba(16,185,129,0.9); color:#fff; font-weight:700; padding:2px 6px; border-radius:4px; z-index:3; box-shadow:0 0 10px rgba(16,185,129,0.7);">
-                    ● 唇形驱动中
+                  style="display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box; background:rgba(0,0,0,0.38); border:1px solid rgba(56,189,248,0.28); border-radius:10px; padding:10px 12px; position:relative; box-shadow:inset 0 0 25px rgba(0,0,0,0.5); min-width:0;">
+                  <!-- 顶部标题与 GPU 硬件调度实况指示徽章 -->
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:6px; min-width:0;">
+                    <div style="font-size:12px; color:#f1f5f9; font-weight:700; display:flex; align-items:center; gap:5px; flex-shrink:0;">
+                      <span>👄</span> <span>人脸神经切片</span>
+                    </div>
+                    <!-- 动态显卡算力调度指示胶囊 (严格限制最大宽度与文本折叠，绝不撑破) -->
+                    <div id="slice-face-gpu-badge"
+                      style="font-size:10px; padding:2px 8px; border-radius:12px; font-weight:600; display:inline-flex; align-items:center; gap:4px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-shrink:1;"
+                      title="当前数字人实时口型驱动调用的显卡算力通道">
+                      ⚡ 正在研判算力通道...
+                    </div>
+                  </div>
+
+                  <!-- 核心人脸切片视窗 (居中高精视准画幅) -->
+                  <div
+                    style="width:100%; max-width:250px; aspect-ratio:1/1; background:#030712; border:1px solid rgba(56,189,248,0.3); border-radius:8px; overflow:hidden; margin:0 auto; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(0,0,0,0.7); position:relative;">
+                    <img id="slice-face-img" src="" alt="人脸特征切片" style="width:100%; height:100%; object-fit:contain; display:block; position:absolute; top:0; left:0; border-radius:7px;">
+                    <!-- 视准角标装饰 (专业影视级监视器) -->
+                    <div style="position:absolute; top:4px; left:4px; width:8px; height:8px; border-top:2px solid rgba(56,189,248,0.7); border-left:2px solid rgba(56,189,248,0.7); pointer-events:none;"></div>
+                    <div style="position:absolute; top:4px; right:4px; width:8px; height:8px; border-top:2px solid rgba(56,189,248,0.7); border-right:2px solid rgba(56,189,248,0.7); pointer-events:none;"></div>
+                    <div style="position:absolute; bottom:4px; left:4px; width:8px; height:8px; border-bottom:2px solid rgba(56,189,248,0.7); border-left:2px solid rgba(56,189,248,0.7); pointer-events:none;"></div>
+                    <div style="position:absolute; bottom:4px; right:4px; width:8px; height:8px; border-bottom:2px solid rgba(56,189,248,0.7); border-right:2px solid rgba(56,189,248,0.7); pointer-events:none;"></div>
+
+                    <div id="slice-face-sync-badge" style="display:none; position:absolute; top:8px; left:8px; font-size:10px; background:rgba(16,185,129,0.92); color:#fff; font-weight:700; padding:2px 7px; border-radius:4px; z-index:3; box-shadow:0 0 10px rgba(16,185,129,0.6); letter-spacing:0.3px;">
+                      ● 唇形驱动中
+                    </div>
+                  </div>
+
+                  <!-- 底部开合度与发音频段指示条 (自适应换行，彻底消除横向拉伸) -->
+                  <div id="slice-face-tip"
+                    style="font-size:11px; color:#cbd5e1; line-height:1.45; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); padding:5px 8px; border-radius:6px; text-align:center; transition:all 0.2s; margin-top:8px; word-break:break-all; box-sizing:border-box;">
+                    开播时，神经网络实时在此区域形变替换嘴唇咬合
                   </div>
                 </div>
 
-                <!-- 底部开合度与发音频段指示条 -->
-                <div id="slice-face-tip"
-                  style="font-size:11px; color:#cbd5e1; line-height: 1.4; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); padding:4px 8px; border-radius:6px; text-align:center; transition:all 0.2s;">
-                  开播时，神经网络每次实时在此区域进行嘴型形变替换
+                <!-- 副监视窗：母轨全景联动 (辅助参考窗，叠加动态平滑包围盒) -->
+                <div
+                  style="display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px; text-align:center; min-width:0;">
+                  <div style="font-size:11.5px; color:#94a3b8; font-weight:600; margin-bottom:6px; display:flex; align-items:center; justify-content:center; gap:4px; white-space:nowrap;">
+                    <span>🎬</span> <span>母轨全景联动</span>
+                  </div>
+                  <div
+                    style="position:relative; width:100%; height:250px; background:#030712; border-radius:8px; overflow:hidden; display:flex; justify-content:center; align-items:center; border:1px solid rgba(255,255,255,0.06); box-shadow:inset 0 0 15px rgba(0,0,0,0.6);">
+                    <img id="slice-full-img" src="" alt="切片全景"
+                      style="max-width:100%; max-height:100%; display:block; object-fit:contain;">
+                    <video id="slice-preview-video" src="" playsinline
+                      style="display:none; max-width:100%; max-height:100%; object-fit:contain;"></video>
+                    <!-- 人脸包围盒指示层 -->
+                    <div id="slice-bbox-box"
+                      style="position:absolute; border:2px dashed #10b981; background:rgba(16,185,129,0.18); border-radius:3px; pointer-events:none; box-sizing:border-box; transition:all 0.04s linear;">
+                      <span
+                        style="position:absolute; top:-16px; left:0; font-size:9px; background:#10b981; color:#000; font-weight:700; padding:1px 4px; border-radius:2px; white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.3);">
+                        🎯 coords 对齐
+                      </span>
+                    </div>
+                  </div>
+                  <div style="font-size:10.5px; color:#64748b; line-height:1.3; margin-top:6px;">
+                    身体体态背景随帧联动
+                  </div>
                 </div>
               </div>
 
-              <!-- 副监视窗：连续切片母轨全图 (配角位：缩为辅助联动参考窗，叠加绿色平滑包围盒) -->
-              <div
-                style="display:flex; flex-direction:column; justify-content:space-between; height:360px; box-sizing:border-box; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px; text-align:center;">
-                <div style="font-size:11px; color:var(--text-muted); font-weight:600; margin-bottom:4px; display:flex; align-items:center; justify-content:center; gap:3px;">
-                  <span>🎬</span> <span>母轨全景联动</span>
-                </div>
-                <div
-                  style="position:relative; width:100%; height:290px; background:#05070a; border-radius:6px; overflow:hidden; display:flex; justify-content:center; align-items:center; border:1px solid rgba(255,255,255,0.06);">
-                  <img id="slice-full-img" src="" alt="切片全景"
-                    style="max-width:100%; max-height:100%; display:block; object-fit:contain;">
-                  <!-- 人脸包围盒指示层 -->
-                  <div id="slice-bbox-box"
-                    style="position:absolute; border:2px dashed #10b981; background:rgba(16,185,129,0.18); border-radius:3px; pointer-events:none; box-sizing:border-box; transition:all 0.04s linear;">
-                    <span
-                      style="position:absolute; top:-16px; left:0; font-size:9px; background:#10b981; color:#000; font-weight:700; padding:1px 3px; border-radius:2px; white-space:nowrap;">
-                      🎯 coords 对齐
-                    </span>
-                  </div>
-                </div>
-                <div style="font-size:10px; color:var(--text-muted); line-height:1.3; margin-top:4px;">
-                  身体体态跟随
-                </div>
-              </div>
-            </div>
-
-            <!-- 25 FPS 连续动态播放与抽样帧控制条 -->
-            <div style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                <div style="display:flex; align-items:center; gap:8px;">
+              <!-- 25 FPS 连续动态播放与抽样帧控制条 -->
+              <div style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px; min-width:0;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px;">
                   <button id="btn-toggle-slice-play" class="btn btn-sm btn-primary" onclick="toggleSliceAnimationPlay()"
-                    style="font-size: 12px; padding:4px 12px; display:flex; align-items:center; gap:5px; border-radius:6px;">
+                    style="font-size:12px; padding:4px 12px; display:flex; align-items:center; gap:5px; border-radius:6px; flex-shrink:0;">
                     <span id="slice-play-icon">▶️</span> <span id="slice-play-text">连续动效播放</span>
                   </button>
+                  <span id="slice-play-badge"
+                    style="font-size:11px; color:#34d399; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); padding:2px 8px; border-radius:4px; white-space:nowrap;">
+                    ● 25 FPS 神经母轨序列
+                  </span>
                 </div>
-                <span id="slice-play-badge"
-                  style="font-size:11px; color:#34d399; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); padding:2px 8px; border-radius:4px;">
-                  ● 25 FPS 神经母轨序列
-                </span>
-              </div>
 
-              <!-- 样本帧快捷点击跳转按钮 -->
-              <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">代表帧快速定位：</div>
-              <div id="slice-frames-selector" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
-            </div>
-          </div>
-
-          <!-- 视图 2 (备选参考): 原始出镜母轨视频播放器 -->
-          <div id="preview-box-video"
-            style="display:none; background:rgba(0,0,0,0.5); border-radius:10px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); text-align:center; height:100%; box-sizing:border-box; flex-direction:column; justify-content:space-between;">
-            <video id="modal-avatar-video" controls loop playsinline
-              style="width:100%; height:320px; object-fit:contain; background:#000; display:block;">
-              <source id="modal-avatar-video-src" src="" type="video/mp4">
-              您的浏览器暂不支持内置视频播放
-            </video>
-            <div id="modal-avatar-thumb-box" style="display:none; padding:20px; height:320px; box-sizing:border-box;">
-              <img id="modal-avatar-thumb-img" src="" alt="切片代表帧"
-                style="max-width:100%; max-height:100%; border-radius:6px; object-fit:contain;">
-            </div>
-            <div
-              style="padding:10px 14px; font-size:12px; color:var(--text-muted); border-top:1px solid rgba(255,255,255,0.05); text-align:center; line-height: 1.7;">
-              💡 <strong>原始录像仅供参考：</strong>数字人成品是左侧已被拆解的 25 FPS 神经切片画卷与 coords.pkl 坐标。开播时由神经网络在此基底上实时形变嘴唇输出推流。
-            </div>
-          </div>
-        </div>
-
-        <!-- 右侧技术指标与驱动说明区 -->
-        <div style="display:flex; flex-direction:column; gap:14px; height:100%; justify-content:space-between; box-sizing:border-box;">
-          <!-- 参数指标 -->
-          <div
-            style="background:rgba(15,23,42,0.5); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; box-sizing:border-box;">
-            <div
-              style="font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:10px; display:flex; align-items:center; justify-content:space-between;">
-              <span style="display:flex; align-items:center; gap:6px;"><span>📐</span> 数字人切片核心技术指标</span>
-              <span style="font-size:11px; color:#34d399; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); padding:1px 8px; border-radius:10px;">标准工业级 25 FPS</span>
-            </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:11px;">
-              <div
-                style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px;">
-                <span style="color:var(--text-muted); display:block; font-size:11px; margin-bottom:2px;">切片总帧数 (full_imgs/)</span>
-                <strong id="modal-spec-frames" style="color:#34d399; font-size:13px; font-weight:600;">- 帧</strong>
-              </div>
-              <div
-                style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px;">
-                <span style="color:var(--text-muted); display:block; font-size:11px; margin-bottom:2px;">视频原生分辨率</span>
-                <strong id="modal-spec-resolution" style="color:#38bdf8; font-size:13px; font-weight:600;">-</strong>
-              </div>
-              <div
-                style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px;">
-                <span style="color:var(--text-muted); display:block; font-size:11px; margin-bottom:2px;">口型校准坐标 (coords.pkl)</span>
-                <strong id="modal-spec-coords" style="color:#fbbf24; font-size:13px; font-weight:600;">- 组</strong>
-              </div>
-              <div
-                style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px;">
-                <span style="color:var(--text-muted); display:block; font-size:11px; margin-bottom:2px;">面部对齐特征 (face_imgs/)</span>
-                <strong id="modal-spec-faceimgs" style="color:#a78bfa; font-size:13px; font-weight:600;">- 帧</strong>
-              </div>
-            </div>
-            <div
-              style="margin-top:10px; font-size:11.5px; color:var(--text-muted); border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px;">
-              <span style="color:#94a3b8;">资产存储路径：</span>
-              <code id="modal-spec-path"
-                style="color:#cbd5e1; font-size:11.5px; font-family:ui-monospace, monospace; word-break:break-all; background:rgba(0,0,0,0.35); padding:3px 6px; border-radius:4px; display:inline-block; margin-top:2px;">-</code>
-            </div>
-          </div>
-
-          <!-- 🎤 试听主播发音 & 口型驱动原理演示 (对齐 LiveTalking) -->
-          <div
-            style="background:rgba(56,189,248,0.03); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:14px; font-size:13px; display:flex; flex-direction:column; justify-content:space-between; flex:1; box-sizing:border-box;">
-            <div>
-              <div
-                style="font-size:13px; font-weight:600; color:#38bdf8; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-                <span style="display:flex; align-items:center; gap:6px;">🎤 主播试讲台词 & 实时驱动演示</span>
-                <span id="preview-voice-name"
-                  style="font-size: 11.5px; font-weight:normal; color:#94a3b8; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:2px 8px; border-radius:10px;">音色: 加载中</span>
-              </div>
-              <div style="display:flex; flex-direction:column; gap:8px;">
-                <textarea id="preview-speech-text" class="form-control" rows="3"
-                  style="font-size:12.5px; resize:none; padding:8px 10px; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.1); border-radius:6px; line-height:1.6; min-height:64px;"
-                  placeholder="输入测试台词...">大家好，我是山本五十六，欢迎来到我的直播间！今天为大家带来超值精选好物，记得点赞关注哦！</textarea>
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-                  <span id="preview-speech-status" style="font-size:12px; color:var(--text-muted);">点击右侧测试主播发音</span>
-                  <button id="btn-preview-speech" class="btn btn-sm btn-primary" onclick="testAnchorSpeechDemo()"
-                    style="font-size: 12px; padding:4px 14px; display:flex; align-items:center; gap:5px; border-radius:6px; flex-shrink:0;">
-                    <span>🔊</span> 试听台词驱动
-                  </button>
+                <!-- 神经渲染与试播实时状态监视面板 (左侧专属高亮展示去噪渲染进程) -->
+                <div id="preview-render-status-box"
+                  style="margin-top:6px; padding:8px 12px; border-radius:8px; background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.22); font-size:11.5px; color:#cbd5e1; display:flex; align-items:center; gap:8px; line-height:1.5; min-width:0; box-shadow:inset 0 0 15px rgba(0,0,0,0.3);">
+                  <span id="preview-render-status-icon" style="font-size:13px; flex-shrink:0;">⚡</span>
+                  <div id="preview-render-status-text" style="flex:1; min-width:0; word-break:break-all;">
+                    数字人就绪 · 待命中 (在右侧点击“试听台词驱动”可实时体验高精口型)
+                  </div>
                 </div>
               </div>
             </div>
-            <!-- 驱动链路说明图解 -->
-            <div
-              style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.05); padding:10px 12px; border-radius:6px; font-size: 11px; color:#94a3b8; line-height: 1.6; margin-top:10px;">
-              <div
-                style="color:#e2e8f0; font-weight:600; margin-bottom:6px; display:flex; align-items:center; justify-content:space-between;">
-                <span style="display:flex; align-items:center; gap:6px;"><span>🔄</span> 实时驱动闭环流水线</span>
-                <span style="font-size:10px; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:1px 6px; border-radius:4px;">全自动音画对齐</span>
+
+            <!-- 视图 2 (备选参考): 原始出镜母轨视频播放器 -->
+            <div id="preview-box-video"
+              style="display:none; background:rgba(0,0,0,0.5); border-radius:10px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); text-align:center; height:100%; box-sizing:border-box; flex-direction:column; justify-content:space-between; min-width:0;">
+              <video id="modal-avatar-video" controls loop playsinline
+                style="width:100%; height:320px; object-fit:contain; background:#000; display:block;">
+                <source id="modal-avatar-video-src" src="" type="video/mp4">
+                您的浏览器暂不支持内置视频播放
+              </video>
+              <div id="modal-avatar-thumb-box" style="display:none; padding:20px; height:320px; box-sizing:border-box;">
+                <img id="modal-avatar-thumb-img" src="" alt="切片代表帧"
+                  style="max-width:100%; max-height:100%; border-radius:6px; object-fit:contain;">
               </div>
-              <div style="display:flex; align-items:center; justify-content:space-between; gap:4px; text-align:center;">
-                <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#cbd5e1;">① 音频合成<br><span style="color:#94a3b8; font-size:9.5px;">TTS 生成</span></div>
-                <span style="color:#64748b; font-size:10px;">➔</span>
-                <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#cbd5e1;">② 提取特征<br><span style="color:#94a3b8; font-size:9.5px;">梅尔频谱</span></div>
-                <span style="color:#64748b; font-size:10px;">➔</span>
-                <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#cbd5e1;">③ 口型形变<br><span style="color:#a78bfa; font-size:9.5px;">face_imgs</span></div>
-                <span style="color:#64748b; font-size:10px;">➔</span>
-                <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#cbd5e1;">④ 坐标缝合<br><span style="color:#34d399; font-size:9.5px;">coords 回贴</span></div>
-                <span style="color:#64748b; font-size:10px;">➔</span>
-                <div style="flex:1; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:4px; padding:4px 2px; font-size:10.5px; color:#34d399;">⑤ 实时推流<br><span style="color:#34d399; font-size:9.5px;">25 FPS</span></div>
+              <div
+                style="padding:10px 14px; font-size:12px; color:var(--text-muted); border-top:1px solid rgba(255,255,255,0.05); text-align:center; line-height: 1.7;">
+                💡 <strong>原始录像仅供参考：</strong>数字人成品是左侧已被拆解的 25 FPS 神经切片画卷与 coords.pkl 坐标。开播时由神经网络在此基底上实时形变嘴唇输出推流。
               </div>
             </div>
+          </div>
+
+          <!-- 右侧技术指标与驱动说明区 -->
+          <div style="display:flex; flex-direction:column; gap:12px; height:100%; justify-content:space-between; box-sizing:border-box; min-width:0;">
+            
+            <!-- 参数指标卡片 -->
+            <div
+              style="background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px 14px; box-sizing:border-box; min-width:0;">
+              <div
+                style="font-size:12.5px; font-weight:600; color:#e2e8f0; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                <span style="display:flex; align-items:center; gap:6px;"><span>📐</span> 核心切片技术指标</span>
+                <span style="font-size:10.5px; color:#34d399; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); padding:1px 8px; border-radius:10px; flex-shrink:0;">标准 25 FPS</span>
+              </div>
+              
+              <!-- 4 宫格技术指标卡片 -->
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:11px; min-width:0;">
+                <div
+                  style="background:rgba(0,0,0,0.32); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px; min-width:0;">
+                  <span style="color:#94a3b8; display:block; font-size:10.5px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">切片总帧数 (full_imgs)</span>
+                  <div id="modal-spec-frames" style="color:#34d399; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">- 帧</div>
+                </div>
+                <div
+                  style="background:rgba(0,0,0,0.32); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px; min-width:0;">
+                  <span style="color:#94a3b8; display:block; font-size:10.5px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">视频原生分辨率</span>
+                  <div id="modal-spec-resolution" style="color:#38bdf8; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">-</div>
+                </div>
+                <div
+                  style="background:rgba(0,0,0,0.32); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px; min-width:0;">
+                  <span style="color:#94a3b8; display:block; font-size:10.5px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">口型校准 (coords.pkl)</span>
+                  <div id="modal-spec-coords" style="color:#fbbf24; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">- 组</div>
+                </div>
+                <div
+                  style="background:rgba(0,0,0,0.32); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px; min-width:0;">
+                  <span style="color:#94a3b8; display:block; font-size:10.5px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">面部对齐 (face_imgs)</span>
+                  <div id="modal-spec-faceimgs" style="color:#a78bfa; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">- 帧</div>
+                </div>
+              </div>
+
+              <!-- 资产存储路径 (单行溢出保护 + 一键复制) -->
+              <div
+                style="margin-top:10px; font-size:11px; color:#94a3b8; border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px; display:flex; align-items:center; gap:6px; min-width:0;">
+                <span style="flex-shrink:0;">资产目录:</span>
+                <code id="modal-spec-path"
+                  style="color:#cbd5e1; font-size:11px; font-family:ui-monospace, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:rgba(0,0,0,0.35); padding:3px 8px; border-radius:4px; flex:1; min-width:0; border:1px solid rgba(255,255,255,0.06);"
+                  title="点击可复制路径" onclick="navigator.clipboard.writeText(this.innerText);alert('已复制路径到剪贴板！');">-</code>
+              </div>
+            </div>
+
+            <!-- 🎤 试听主播发音 & 口型驱动演示 (对齐 LiveTalking) -->
+            <div
+              style="background:rgba(56,189,248,0.02); border:1px solid rgba(56,189,248,0.2); border-radius:10px; padding:12px 14px; font-size:13px; display:flex; flex-direction:column; justify-content:space-between; flex:1; box-sizing:border-box; min-width:0;">
+              <div>
+                <div
+                  style="font-size:12.5px; font-weight:600; color:#38bdf8; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                  <span style="display:flex; align-items:center; gap:5px;">🎤 主播试讲台词 & 实时驱动演示</span>
+                  <span id="preview-voice-name"
+                    style="font-size:11px; font-weight:normal; color:#94a3b8; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:2px 8px; border-radius:10px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">音色: 加载中</span>
+                </div>
+                
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  <!-- 核心引擎徽章 -->
+                  <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.22); padding:5px 10px; border-radius:6px; gap:6px; min-width:0;">
+                    <span style="font-size:11px; color:#cbd5e1; font-weight:500; flex-shrink:0;">渲染引擎:</span>
+                    <div style="display:flex; align-items:center; gap:5px; min-width:0; overflow:hidden;">
+                      <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#10b981; box-shadow:0 0 6px #10b981; flex-shrink:0;"></span>
+                      <span style="font-size:11px; color:#34d399; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="ByteDance LatentSync 官方潜在扩散模型 (SyncNet顶尖拟人口型)">💎 ByteDance LatentSync (官方扩散模型 · SyncNet)</span>
+                    </div>
+                  </div>
+
+                  <textarea id="preview-speech-text" class="form-control" rows="2"
+                    style="font-size:12px; resize:none; padding:6px 10px; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.1); border-radius:6px; line-height:1.5; min-height:54px; color:#f1f5f9;"
+                    placeholder="输入测试台词...">大家好，我是小琴琴，欢迎来到我的直播间！今天为大家带来超值精选好物，记得点赞关注哦！</textarea>
+                  
+                  <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; min-width:0;">
+                    <span id="preview-speech-status" style="font-size:11.5px; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">点击右侧测试主播发音</span>
+                    <button id="btn-preview-speech" class="btn btn-sm btn-primary" onclick="testAnchorSpeechDemo()"
+                      style="font-size:12px; padding:4px 12px; display:flex; align-items:center; gap:5px; border-radius:6px; flex-shrink:0;">
+                      <span>🔊</span> 试听台词驱动
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 驱动链路说明图解 (5 步极简流程) -->
+              <div
+                style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px; font-size:11px; color:#94a3b8; margin-top:8px;">
+                <div
+                  style="color:#cbd5e1; font-weight:600; margin-bottom:5px; display:flex; align-items:center; justify-content:space-between;">
+                  <span style="display:flex; align-items:center; gap:5px;"><span>🔄</span> 实时驱动闭环流水线</span>
+                  <span style="font-size:9.5px; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:1px 5px; border-radius:4px;">全自动音画对齐</span>
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:2px; text-align:center;">
+                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color:#cbd5e1;">① 音频合成<br><span style="color:#64748b; font-size:9px;">TTS生成</span></div>
+                  <span style="color:#475569; font-size:9px;">➔</span>
+                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color:#cbd5e1;">② 提取特征<br><span style="color:#64748b; font-size:9px;">梅尔频谱</span></div>
+                  <span style="color:#475569; font-size:9px;">➔</span>
+                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color:#cbd5e1;">③ 口型形变<br><span style="color:#a78bfa; font-size:9px;">face_imgs</span></div>
+                  <span style="color:#475569; font-size:9px;">➔</span>
+                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color:#cbd5e1;">④ 坐标缝合<br><span style="color:#34d399; font-size:9px;">coords回贴</span></div>
+                  <span style="color:#475569; font-size:9px;">➔</span>
+                  <div style="flex:1; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:4px; padding:3px 2px; font-size:10px; color:#34d399;">⑤ 实时推流<br><span style="color:#34d399; font-size:9px;">25 FPS</span></div>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
 
-      <!-- 弹窗底部关闭 -->
+      <!-- 弹窗底部固定底栏 -->
       <div
-        style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px; border-top:1px solid rgba(255,255,255,0.08); padding-top:14px;">
+        style="display:flex; justify-content:space-between; align-items:center; padding:10px 20px; border-top:1px solid rgba(255,255,255,0.08); background:rgba(15,23,42,0.45); flex-shrink:0;">
+        <span style="font-size:11.5px; color:#64748b;">
+          💡 提示：本预览基于主播真实底模视频与 coords.pkl 坐标驱动，开播时将采用所选算力通道实时去噪合成。
+        </span>
         <button class="btn btn-sm" onclick="closeAvatarPreviewModal()"
-          style="padding:5px 16px; font-size:13px; border-radius:6px;">关闭预览</button>
+          style="padding:4px 16px; font-size:12.5px; border-radius:6px; background:rgba(255,255,255,0.08); color:#f1f5f9; cursor:pointer;">完成浏览</button>
       </div>
+
     </div>
   </div>
 
@@ -930,12 +1100,40 @@
         <!-- 核心原则 -->
         <div
           style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:12px;">
-          <strong style="color:#fbbf24;">⚡ 黄金三大黄金铁律（避免返工）：</strong>
-          <ul style="margin:6px 0 0 18px; padding:0;">
-            <li><strong>全程闭口不说话：</strong>嘴唇自然微合，严禁开口张嘴或大笑（嘴型开合由 AI 神经引擎根据语音实时形变驱动）；</li>
-            <li><strong>纯绿幕与轮廓光：</strong>平整纯色绿幕布（人距幕布 1.5 米防溢色），打亮发丝轮廓光；</li>
-            <li><strong>恒定 25 FPS：</strong>推荐手机后置镜头 1080P/4K 录制，禁用动态模糊或过度防抖滤镜。</li>
+          <strong style="color:#fbbf24;">⚡ ByteDance LatentSync 官方素材核心铁律（避免翻车）：</strong>
+          <ul style="margin:6px 0 0 18px; padding:0; line-height: 1.8;">
+            <li><strong>全程闭口绝对不说话：</strong>嘴唇自然轻合、面带亲和微笑，严禁开口张嘴或大笑（嘴型开合完全由 AI 扩散去噪实时生成；若原片说话张嘴，将导致双重嘴唇叠影与下巴抽搐翻车）；</li>
+            <li><strong>镜头景别与面部占比：</strong>采用<strong>胸部以上半身中景</strong>，正对镜头（仰俯角 &le; 20&deg;），人脸高度占画幅约 <strong>25% ~ 40%</strong>，确保面部有效像素充足；</li>
+            <li><strong>平整纯绿幕与轮廓光：</strong>人距绿幕 1.5 米防溢色，打亮发丝轮廓光，便于 OBS / 直播伴侣无缝抠像叠加商品展台；</li>
+            <li><strong>恒定 25 FPS 帧率：</strong>官方必须 25fps 恒定帧率（禁用 30/60fps 动态变帧），推荐 1080P 录制，禁用动态模糊或过度美颜变形滤镜。</li>
           </ul>
+        </div>
+
+        <!-- 官方源素材 4 维标准与避坑指南 -->
+        <div style="background:rgba(15, 23, 42, 0.6); border:1px solid rgba(56, 189, 248, 0.2); border-radius:8px; padding:12px;">
+          <div style="color:#38bdf8; font-weight:700; margin-bottom:8px;">📋 ByteDance LatentSync 官方手册规格标准：</div>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:10px; font-size:12.5px;">
+            <div style="background:rgba(0,0,0,0.25); padding:8px 10px; border-radius:6px;">
+              <span style="color:#94a3b8;">1. 视频时长</span><br>
+              <strong>30 秒 ~ 1 分钟 (最长 2 分钟)</strong><br>
+              <span style="color:#64748b;">官方 5~10 秒微段对齐；30 秒足以闭环循环。</span>
+            </div>
+            <div style="background:rgba(0,0,0,0.25); padding:8px 10px; border-radius:6px;">
+              <span style="color:#94a3b8;">2. 镜头远近</span><br>
+              <strong>半身中景 (胸部以上至头顶)</strong><br>
+              <span style="color:#64748b;">人脸高度占 25%~40%，严禁全身远景或大特写。</span>
+            </div>
+            <div style="background:rgba(0,0,0,0.25); padding:8px 10px; border-radius:6px;">
+              <span style="color:#94a3b8;">3. 是否需要绿幕</span><br>
+              <strong>实战强烈建议平整纯绿幕</strong><br>
+              <span style="color:#64748b;">算法不限背景，但直播需抠像叠展台贴片。</span>
+            </div>
+            <div style="background:rgba(0,0,0,0.25); padding:8px 10px; border-radius:6px;">
+              <span style="color:#94a3b8;">4. 是否需要说话</span><br>
+              <strong style="color:#f87171;">【铁律】绝对不能说话！全程微笑微合唇</strong><br>
+              <span style="color:#64748b;">纯动作录制，AI 全权掌控下颌开合与吐字。</span>
+            </div>
+          </div>
         </div>
 
         <!-- 3段式分镜 -->

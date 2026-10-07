@@ -26,21 +26,21 @@ def test_neural_model_manager():
     status = manager.get_model_status_matrix()
     assert "models_dir" in status
     assert "models" in status
-    assert "wav2lip_256" in status["models"]
-    assert "wav2lip_384" in status["models"]
-    assert "musetalk" in status["models"]
+    assert "latentsync_onnx" in status["models"]
+    assert "latentsync_unet" in status["models"]
+    assert "onnx_lipsync" in status["models"]
 
     # 测试模型候选路径获取
-    candidates = manager.get_candidate_paths("wav2lip_256")
+    candidates = manager.get_candidate_paths("latentsync_onnx")
     assert len(candidates) > 0
-    assert any(p.name == "wav2lip.pth" for p in candidates)
+    assert any(p.name == "onnx_lipsync.onnx" for p in candidates)
 
     # 测试不存在的模型候选路径为空
     assert manager.get_candidate_paths("non_existing_model") == []
 
 
 def test_mel_spectrogram_extractor():
-    """测试神经唇形引擎的 80 维 Mel 频谱特征提取器 (Wav2Lip 标准声学特征)"""
+    """测试神经唇形引擎的 80 维 Mel 频谱特征提取器 (LatentSync 工业标准声学特征)"""
     from server.core.avatar.neural_lip_renderer import MelFeatureExtractor
 
     extractor = MelFeatureExtractor(sample_rate=16000, n_mels=80)
@@ -70,7 +70,7 @@ async def test_native_neural_avatar_driver_lifecycle_and_non_black_frames():
         "fps": 25,
         "width": 1280,
         "height": 720,
-        "model_key": "wav2lip_256",
+        "model_key": "latentsync_onnx",
     }
     driver = NativeNeuralAvatarDriver(config=config)
 
@@ -188,11 +188,21 @@ def test_neural_models_settings_api(client):
     assert "data" in data
     assert "models_dir" in data["data"]
     assert "models" in data["data"]
-    assert "wav2lip_256" in data["data"]["models"]
+    assert "latentsync_onnx" in data["data"]["models"]
+    assert "latentsync_unet" in data["data"]["models"]
 
 
 def test_preflight_includes_avatar_engine_check(client):
-    """测试开播体检预检接口中包含自包含数字人渲染引擎检测"""
+    """开播体检必须如实上报数字人渲染引擎就绪度，且与模型管理器实况一致。
+
+    ADR-16：唇形必须由真实神经推理产生，权重缺失时 `ProceduralAvatarDriver.start()`
+    会 `raise` 拒绝开播，因此体检**不允许**在权重缺失时宣称"就绪"。
+
+    历史缺陷：本用例曾硬断言 `status == "pass"`，而文档化的测试命令会把
+    `LIVE_AGENT_DATA_DIR` 重定向到临时目录（其中必然没有 onnx_lipsync.onnx），
+    于是诚实上报的 `fail` 反而让用例变红——测试方向与架构诚实规约相反。
+    现改为断言「体检状态 == 模型管理器实况」这一映射本身，双向覆盖。
+    """
     res = client.get("/api/v1/live/preflight")
     assert res.status_code == 200
     data = res.json()
@@ -200,5 +210,14 @@ def test_preflight_includes_avatar_engine_check(client):
     checks = data["data"]["checks"]
     avatar_engine_check = next((c for c in checks if c["key"] == "avatar_engine"), None)
     assert avatar_engine_check is not None
-    assert avatar_engine_check["status"] == "pass"
     assert "自包含数字人" in avatar_engine_check["title"]
+
+    # 体检结论必须与神经模型管理器实况严格一致：有权重才允许 pass。
+    has_neural_model = NeuralModelManager().get_model_status_matrix().get("has_neural_model")
+    if has_neural_model:
+        assert avatar_engine_check["status"] == "pass"
+    else:
+        assert avatar_engine_check["status"] == "fail"
+        # 未就绪时必须给出可执行的修复指引，而不是含糊的失败
+        assert avatar_engine_check.get("fix_hint"), "权重缺失时必须给出修复指引"
+        assert "神经唇形" in avatar_engine_check["fix_hint"]

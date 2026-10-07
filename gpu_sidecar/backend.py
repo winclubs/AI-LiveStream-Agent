@@ -1,4 +1,4 @@
-"""经授权 Wav2Lip 兼容插件的延迟加载 backend。"""
+"""经授权 LatentSync / 神经渲染兼容插件的延迟加载 backend。"""
 
 from __future__ import annotations
 
@@ -1337,3 +1337,7 @@ class Wav2LipBackend:
                 return True
             current = current.__cause__ or current.__context__
         return False
+
+
+# 现代 LatentSync 别名映射 (向前兼容旧名称)
+LatentSyncBackend = Wav2LipBackend

@@ -42,9 +42,32 @@ except ImportError:
 _latest_frame: Optional[np.ndarray] = None
 _latest_frame_time: float = 0.0
 
-# 全局音频缓冲 (采样率 24000Hz / 48000Hz, s16le)
+# 全局音频缓冲 (统一重采样至 48000Hz / s16le 后写入，消除 TTS 原生采样率不一致)
 _audio_buffer: bytearray = bytearray()
 _audio_lock = asyncio.Lock()
+
+# 注入侧声明的输入采样率；未声明时按 48000 处理 (无重采样)
+_input_sample_rate: int = 48000
+
+
+def _resample_s16le(pcm_bytes: bytes, from_rate: int, to_rate: int) -> bytes:
+    """线性插值重采样 s16le 单声道 PCM；同速率时原样返回。"""
+    if not pcm_bytes or from_rate <= 0 or to_rate <= 0:
+        return pcm_bytes
+    if from_rate == to_rate:
+        return pcm_bytes
+    try:
+        samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32)
+    except Exception:
+        return pcm_bytes
+    if samples.size == 0:
+        return pcm_bytes
+    # 线性插值：按采样比缩放采样点数，保持时长一致
+    ratio = to_rate / from_rate
+    out_len = max(1, int(round(samples.size * ratio)))
+    indices = np.linspace(0, samples.size - 1, out_len, dtype=np.float32)
+    resampled = np.interp(indices, np.arange(samples.size, dtype=np.float32), samples)
+    return resampled.astype(np.int16).tobytes()
 
 
 def set_latest_avatar_frame(frame: np.ndarray):
@@ -54,14 +77,20 @@ def set_latest_avatar_frame(frame: np.ndarray):
     _latest_frame_time = time.time()
 
 
-def push_avatar_audio_pcm(pcm_bytes: bytes):
-    """全局注入伴音音频 PCM 数据 (16-bit 线性 PCM)"""
-    global _audio_buffer
+def push_avatar_audio_pcm(pcm_bytes: bytes, sample_rate: int = 48000):
+    """全局注入伴音音频 PCM 数据 (16-bit 线性 PCM)
+
+    修复前：注入的是 TTS 原生采样率 (如 EdgeTTS 24kHz)，而轨道固定 48kHz，
+    直接写入导致变调/变速。现在按声明采样率统一重采样至 48kHz。
+    """
+    global _audio_buffer, _input_sample_rate
     if pcm_bytes:
         # 限制缓冲区最大堆积 5 秒音频 (以 48kHz 单声道为例约 48000 * 2 * 5 = 480KB)
         if len(_audio_buffer) > 480000:
             _audio_buffer = _audio_buffer[-240000:]
-        _audio_buffer.extend(pcm_bytes)
+        _input_sample_rate = int(sample_rate) if sample_rate and sample_rate > 0 else 48000
+        resampled = _resample_s16le(pcm_bytes, _input_sample_rate, 48000)
+        _audio_buffer.extend(resampled)
 
 
 class AvatarVideoTrack(VideoStreamTrack):
@@ -69,7 +98,7 @@ class AvatarVideoTrack(VideoStreamTrack):
 
     kind = "video"
 
-    def __init__(self, fps: int = 25, width: int = 640, height: int = 480):
+    def __init__(self, fps: int = 25, width: int = 720, height: int = 960):
         if WEBRTC_AVAILABLE:
             super().__init__()
         self.fps = fps
@@ -165,18 +194,16 @@ class WebRTCStreamManager:
 
     def __init__(self):
         self.pcs: Dict[str, Any] = {}
-        self.relay = MediaRelay() if WEBRTC_AVAILABLE else None
-        self.default_track = AvatarVideoTrack(fps=25)
 
     def push_frame(self, frame_bgr: np.ndarray):
         """推送数字人画面帧到 WebRTC 分发通道"""
         if frame_bgr is not None:
             set_latest_avatar_frame(frame_bgr)
 
-    def push_audio(self, pcm_bytes: bytes):
-        """推送数字人伴音音频到 WebRTC 音频分发通道"""
+    def push_audio(self, pcm_bytes: bytes, sample_rate: int = 48000):
+        """推送数字人伴音音频到 WebRTC 音频分发通道 (按声明采样率重采样至 48kHz)"""
         if pcm_bytes:
-            push_avatar_audio_pcm(pcm_bytes)
+            push_avatar_audio_pcm(pcm_bytes, sample_rate=sample_rate)
 
     async def handle_whep_offer(self, sdp_offer: str) -> Tuple[str, str]:
         """

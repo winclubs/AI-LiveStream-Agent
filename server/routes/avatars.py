@@ -22,9 +22,28 @@ AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.get("/list")
 async def list_avatars(db: AsyncSession = Depends(get_db)):
-    """获取所有已录入的主播数字人形象"""
-    result = await db.execute(select(Avatar))
+    """获取所有已录入的主播数字人形象
+
+    每条记录附带两个便于治理的派生字段：
+      - `asset_exists`：磁盘资产是否仍存在。切片训练产物可能被手动清理，
+        届时表里会留下指向不存在路径的"空壳记录"，列表必须能让用户分辨。
+      - `origin`：`task` 表示由 `task_manager` 在切片训练完成时自动登记，
+        `manual` 表示经`/avatars/create` 手动上传。
+    按创建时间倒序返回，最新资产在最前。
+    """
+    result = await db.execute(select(Avatar).order_by(Avatar.created_at.desc(), Avatar.id.desc()))
     avatars = result.scalars().all()
+
+    def _asset_exists(rec) -> bool:
+        for raw in (rec.source_file_path, rec.preprocessed_cache_path):
+            if raw:
+                try:
+                    if Path(raw).exists():
+                        return True
+                except OSError:
+                    continue
+        return False
+
     return {
         "code": 0,
         "total": len(avatars),
@@ -35,10 +54,12 @@ async def list_avatars(db: AsyncSession = Depends(get_db)):
                 "avatar_type": a.avatar_type,
                 "source_file_path": a.source_file_path,
                 "preprocessed_cache_path": a.preprocessed_cache_path,
-                "created_at": a.created_at.isoformat() if a.created_at else ""
+                "asset_exists": _asset_exists(a),
+                "origin": "task" if str(a.id).startswith("avatar_task_") else "manual",
+                "created_at": a.created_at.isoformat() if a.created_at else "",
             }
             for a in avatars
-        ]
+        ],
     }
 
 @router.post("/create")

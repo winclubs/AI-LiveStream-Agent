@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""经授权 Wav2Lip 兼容插件 sidecar 的薄启动入口。"""
+"""经授权 LatentSync / 神经渲染兼容插件 sidecar 的薄启动入口。"""
 
 from __future__ import annotations
 
@@ -13,16 +13,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from gpu_sidecar.backend import Wav2LipBackend  # noqa: E402
+from gpu_sidecar.backend import LatentSyncBackend, Wav2LipBackend  # noqa: E402
 from gpu_sidecar.config import SidecarConfig  # noqa: E402
 from gpu_sidecar.server import serve  # noqa: E402
 
-logger = logging.getLogger("LiveAgent.Wav2LipSidecarCLI")
+logger = logging.getLogger("LiveAgent.LatentSyncSidecarCLI")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="加载用户提供且已获授权的 Wav2Lip 兼容插件；不会下载或内置源码/权重",
+        description="加载用户提供且已获授权的 LatentSync / 神经渲染兼容插件；不会下载或内置源码/权重",
     )
     parser.add_argument("--config", required=True, help="sidecar JSON 配置")
     parser.add_argument("--license", required=True, help="人工批准的 license manifest JSON")

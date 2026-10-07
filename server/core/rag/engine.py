@@ -257,12 +257,20 @@ class KnowledgeBaseEngine:
         return ONNX_BACKEND_MIN_SCORE if self._embedder.backend == "onnx" else HASH_BACKEND_MIN_SCORE
 
     def get_status(self) -> Dict[str, Any]:
-        """RAG 引擎运行态 (向量后端/维度/分块数/阈值)"""
+        """RAG 引擎运行态 (向量后端/真实语义判定/维度/分块数/阈值)"""
+        is_real_semantic = (self._embedder.backend == "onnx")
         return {
             "vector_backend": self._embedder.backend,
+            "is_real_semantic": is_real_semantic,
+            "semantic_model": "BGE-small-zh (ONNX)" if is_real_semantic else "MD5 词法散列投影 (离线词袋模式，非真语义)",
             "dim": self._embedder.dim,
             "chunks": len(self._docs),
             "min_score": self.min_score,
+            "hint": (
+                "已启用 BGE 真实深度语义检索"
+                if is_real_semantic
+                else "当前为零依赖离线词法散列投影（基于 token MD5 局部拓扑，仅支持字面重叠匹配）。如需语义泛化理解，可运行 `python scripts/download_weights.py --models bge-small-zh` 下载 BGE 真实语义权重。"
+            ),
         }
 
     def clear(self):

@@ -10,6 +10,7 @@ from server.core.avatar.drivers import (
     Procedural2DDriver,
     MockAvatarDriver,
 )
+from server.core.avatar.native_neural_driver import NativeNeuralAvatarDriver
 
 from server.core.avatar.task_manager import (
     AvatarTaskManager,
@@ -45,6 +46,7 @@ __all__ = [
     "CloudSidecarDriver",
     "Procedural2DDriver",
     "MockAvatarDriver",
+    "NativeNeuralAvatarDriver",
     "get_active_avatar_driver",
     "set_active_avatar_driver",
     "AvatarTaskManager",

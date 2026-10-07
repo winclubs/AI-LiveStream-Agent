@@ -11,6 +11,7 @@ import inspect
 import wave
 import psutil
 from collections import deque
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Response, Request, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -39,6 +40,9 @@ from server.adapters.obs.obs_client import global_obs_client
 
 logger = logging.getLogger("LiveAgent.LiveController")
 router = APIRouter(prefix="/live", tags=["直播控场与调度"])
+
+# 句级切分标点 (前瞻播报与串行播报共用同一口径)
+_SENTENCE_DELIMITERS = re.compile(r'([，。！？；\n]+)')
 
 OBS_SETTING_HOST = "obs_websocket_host"
 OBS_SETTING_PORT = "obs_websocket_port"
@@ -289,6 +293,8 @@ class LiveSessionController:
             "guardrail_hits": 0,
             "flash_sales": 0
         })
+        # 每场直播独立统计首 chunk/首帧/播放启动延迟，避免跨场次污染分位数。
+        global_av_sync.reset()
 
     def _refresh_viewer_count(self):
         """单步场观采集：仅采信真实人气数据源，无数据源时保持 0，绝不伪造数据"""
@@ -1039,7 +1045,7 @@ class LiveSessionController:
         """核心业务循环：取事件 -> 弹幕聚合 -> 角色大脑(LLM+RAG+MCP) -> 违禁词过滤 -> 人类化 -> TTS -> 广播"""
         from server.routes.ws_live import ws_manager
         from server.core.queue.priority_queue import LiveEventItem
-        sentence_delimiters = re.compile(r'([，。！？；\n]+)')
+        sentence_delimiters = _SENTENCE_DELIMITERS
 
         while self.is_live:
             try:
@@ -1123,59 +1129,62 @@ class LiveSessionController:
                         else stream_or_coro
                     )
 
-                    async for raw_chunk in stream:
-                        # 检查是否中途被更高优先级的 P0 打断
-                        if self.event_queue.is_cancelled():
-                            logger.info("当前播报已被更高优先级抢占打断")
-                            break
+                    # P0-1 前瞻预取：仅当已挂载批处理 Provider 时启用并发前瞻路径。
+                    # 扩散模型单句渲染耗时通常超过音频时长，必须在「当前句仍在播报时」
+                    # 就把下一句提前渲染好；串行 await 会让 LLM 流被播报阻塞，
+                    # 根本不存在提前量。批处理路径不存在时保持原串行逻辑不变。
+                    prefetcher = getattr(global_media_driver, "_batch_prefetcher", None)
+                    if prefetcher is not None:
+                        full_reply = await self._speak_with_lookahead(
+                            stream, active_role, event
+                        )
+                    else:
+                        async for raw_chunk in stream:
+                            # 检查是否中途被更高优先级的 P0 打断
+                            if self.event_queue.is_cancelled():
+                                logger.info("当前播报已被更高优先级抢占打断")
+                                break
 
-                        text_buffer += raw_chunk
-                        parts = sentence_delimiters.split(text_buffer)
+                            text_buffer += raw_chunk
+                            parts = sentence_delimiters.split(text_buffer)
 
-                        # 优先研判是否满足断句输出条件 (标准标点断句 或 首句微块极速开嗓)
-                        ready_sentence = None
-                        if len(parts) >= 3:
-                            ready_sentence = parts[0] + parts[1]
-                            text_buffer = "".join(parts[2:])
-                        elif is_first_sentence and len(text_buffer) >= 6:
-                            # 首句微块切片机制：前 6~12 字快速寻找断句点，将首字延迟压缩至 300ms 内
-                            for punc in ("，", "！", "？", " ", "、", "。"):
-                                if punc in text_buffer:
-                                    idx = text_buffer.find(punc)
-                                    if idx >= 3:  # 确保微块至少 4 字，避免单个字断句过碎
-                                        ready_sentence = text_buffer[: idx + 1]
-                                        text_buffer = text_buffer[idx + 1 :]
-                                        break
-                            if not ready_sentence and len(text_buffer) >= 12:
-                                ready_sentence = text_buffer[:10]
-                                text_buffer = text_buffer[10:]
+                            # 优先研判是否满足断句输出条件 (标准标点断句 或 首句微块极速开嗓)
+                            ready_sentence = None
+                            if len(parts) >= 3:
+                                ready_sentence = parts[0] + parts[1]
+                                text_buffer = "".join(parts[2:])
+                            elif is_first_sentence and len(text_buffer) >= 6:
+                                # 首句微块切片机制：前 6~12 字快速寻找断句点，将首字延迟压缩至 300ms 内
+                                for punc in ("，", "！", "？", " ", "、", "。"):
+                                    if punc in text_buffer:
+                                        idx = text_buffer.find(punc)
+                                        if idx >= 3:  # 确保微块至少 4 字，避免单个字断句过碎
+                                            ready_sentence = text_buffer[: idx + 1]
+                                            text_buffer = text_buffer[idx + 1 :]
+                                            break
+                                if not ready_sentence and len(text_buffer) >= 12:
+                                    ready_sentence = text_buffer[:10]
+                                    text_buffer = text_buffer[10:]
 
-                        if ready_sentence:
-                            is_first_sentence = False
-                            complete_sentence = ready_sentence
-                            speak_text, is_dropped, hits = await self._sanitize_and_humanize(
-                                complete_sentence, active_role
+                            if ready_sentence:
+                                is_first_sentence = False
+                                speak_text = await self._prepare_sentence(
+                                    ready_sentence, active_role
+                                )
+                                if not speak_text:
+                                    continue
+
+                                full_reply += speak_text
+                                await self._speak_sentence(speak_text, active_role)
+
+                        # 处理缓冲区剩余的尾句
+                        if text_buffer.strip() and not self.event_queue.is_cancelled():
+                            speak_text = await self._prepare_sentence(
+                                text_buffer, active_role
                             )
-                            if hits:
-                                self._track_task(self._log_guardrail_hits(
-                                    complete_sentence, speak_text, hits, is_dropped, self.session_id
-                                ))
-                            if is_dropped or not speak_text.strip():
-                                continue
-
-                            full_reply += speak_text
-                            await self._speak_sentence(speak_text, active_role)
-
-                    # 处理缓冲区剩余的尾句
-                    if text_buffer.strip() and not self.event_queue.is_cancelled():
-                        speak_text, is_dropped, hits = await self._sanitize_and_humanize(text_buffer, active_role)
-                        if hits:
-                            self._track_task(self._log_guardrail_hits(
-                                text_buffer, speak_text, hits, is_dropped, self.session_id
-                            ))
-                        if not is_dropped and speak_text.strip():
-                            full_reply += speak_text
-                            await self._speak_sentence(speak_text, active_role)
+                            if speak_text:
+                                full_reply += speak_text
+                                await self._speak_sentence(speak_text, active_role)
                 finally:
                     # 无论正常结束、打断 break 还是异常，强制广播复位平息态
                     await ws_manager.broadcast("speaking_state", {"is_speaking": False})
@@ -1204,6 +1213,169 @@ class LiveSessionController:
             except Exception as e:
                 logger.error(f"直播主循环异常: {e}", exc_info=True)
                 await asyncio.sleep(0.5)
+
+    async def _prepare_sentence(self, sentence: str, active_role) -> str:
+        """违禁词过滤 + 电商价格审计 + 拟人化；被熔断或空句返回 ""。"""
+        complete_sentence = sentence
+        speak_text, is_dropped, hits = await self._sanitize_and_humanize(
+            complete_sentence, active_role
+        )
+        if hits:
+            self._track_task(self._log_guardrail_hits(
+                complete_sentence, speak_text, hits, is_dropped, self.session_id
+            ))
+        if is_dropped or not speak_text.strip():
+            return ""
+        return speak_text
+
+    async def _speak_with_lookahead(self, stream, active_role, event) -> str:
+        """批处理 Provider 前瞻播报：LLM 流与播报并发，提前渲染下一句。
+
+        为什么必须并发：扩散模型 (LatentSync UNet3D) 单句渲染耗时通常超过音频时长。
+        串行 `await _speak_sentence()` 会让 LLM 流被播报阻塞，下一句的文本在当前句
+        播完之前根本不存在 —— 预取永远拿不到 ahead 时间，批处理路径必然音画失步。
+
+        本实现把 LLM 流作为生产者协程，与播报消费者解耦：
+            生产者：断句 -> 合规过滤 -> 入队 -> 立即为该句发起前瞻预渲染
+            消费者：出队播报；命中预取缓存即零延迟上屏
+
+        打断语义完全沿用既有 `event_queue.is_cancelled()`；预取与播报解耦后，
+        被打断的句子由 `interrupt_and_clear()` 统一清空，绝不会播出旧画面。
+        """
+        sentence_queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+        SENTENCE_END = object()
+        full_reply = ""
+        loop = asyncio.get_running_loop()
+
+        async def producer() -> None:
+            """LLM 流生产者：断句、合规、入队，并对每句发起前瞻预渲染。"""
+            nonlocal full_reply
+            text_buffer = ""
+            is_first_sentence = True
+            try:
+                async for raw_chunk in stream:
+                    if self.event_queue.is_cancelled():
+                        logger.info("当前播报已被更高优先级抢占打断")
+                        break
+                    text_buffer += raw_chunk
+                    parts = _SENTENCE_DELIMITERS.split(text_buffer)
+                    ready_sentence = None
+                    if len(parts) >= 3:
+                        ready_sentence = parts[0] + parts[1]
+                        text_buffer = "".join(parts[2:])
+                    elif is_first_sentence and len(text_buffer) >= 6:
+                        for punc in ("，", "！", "？", " ", "、", "。"):
+                            if punc in text_buffer:
+                                idx = text_buffer.find(punc)
+                                if idx >= 3:
+                                    ready_sentence = text_buffer[: idx + 1]
+                                    text_buffer = text_buffer[idx + 1 :]
+                                    break
+                        if not ready_sentence and len(text_buffer) >= 12:
+                            ready_sentence = text_buffer[:10]
+                            text_buffer = text_buffer[10:]
+
+                    if ready_sentence:
+                        is_first_sentence = False
+                        speak_text = await self._prepare_sentence(
+                            ready_sentence, active_role
+                        )
+                        if not speak_text:
+                            continue
+                        full_reply += speak_text
+                        await sentence_queue.put(speak_text)
+                        self._track_task(self._prefetch_sentence(speak_text))
+
+                if text_buffer.strip() and not self.event_queue.is_cancelled():
+                    speak_text = await self._prepare_sentence(text_buffer, active_role)
+                    if speak_text:
+                        full_reply += speak_text
+                        await sentence_queue.put(speak_text)
+                        self._track_task(self._prefetch_sentence(speak_text))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("前瞻播报生产者异常，提前结束")
+            finally:
+                with_loop = loop.create_task(sentence_queue.put(SENTENCE_END))
+                with_loop.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+
+        async def consumer() -> None:
+            """播报消费者：按序出队播报，优先命中预取缓存。"""
+            nonlocal full_reply
+            while True:
+                item = await sentence_queue.get()
+                if item is SENTENCE_END:
+                    return
+                if self.event_queue.is_cancelled():
+                    # 已被抢占：丢弃剩余句子，不再播报
+                    continue
+                await self._speak_sentence(item, active_role)
+
+        producer_task = asyncio.create_task(producer())
+        consumer_task = asyncio.create_task(consumer())
+        try:
+            await consumer_task
+        finally:
+            for task in (producer_task, consumer_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(producer_task, consumer_task, return_exceptions=True)
+        return full_reply
+
+    def _prefetch_sentence(self, speak_text: str):
+        """把一句文本提前渲染成云端切片（TTS + 批处理），best-effort。
+
+        走独立协程：预取是加速层，任何失败都不得阻塞或影响播报主链路。
+        """
+
+        async def _run() -> None:
+            try:
+                driver = self.tts_driver
+                if driver is None:
+                    return
+                frames = await self._build_pcm_frames_for_prefetch(speak_text)
+                if not frames:
+                    return
+                await global_media_driver.prefetch_upcoming_sentence(frames)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.debug("句级前瞻预取失败，保持本地 shadow", exc_info=True)
+
+        return _run()
+
+    async def _build_pcm_frames_for_prefetch(self, speak_text: str):
+        """为预取合成标准 PCM 帧；不可用时返回 None（跳过预取而非报错）。"""
+        try:
+            driver = self.tts_driver
+            if driver is None:
+                return None
+            synth_started = time.time()
+            audio = await self._collect_tts_sentence(driver, speak_text)
+            if not audio:
+                return None
+            from server.core.media.incremental_audio import global_incremental_audio_pipeline
+
+            tx = global_incremental_audio_pipeline.open_transaction(
+                sample_rate=int(getattr(driver, "audio_sample_rate", 24000)),
+                channels=int(getattr(driver, "audio_channels", 1)),
+                audio_id=f"pf_{self.session_id or 'local'}_{self._audio_generation}_{uuid.uuid4().hex[:8]}",
+                audio_generation=self._audio_generation,
+                session_generation=self._session_generation,
+                text=speak_text,
+            )
+            tx.append(audio)
+            tx.finish()
+            frames = list(tx.drain_frames())
+            if frames:
+                global_av_sync.measure(synth_started)
+            return frames
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("预取音频合成失败，跳过该句预取", exc_info=True)
+            return None
 
     async def _sanitize_and_humanize(self, sentence: str, active_role):
         """违禁词扫描平替 -> 电商价格防幻觉双重审计 -> 语音防机械感人类化 (规划 §14.2 / §14.3)"""
@@ -1277,8 +1449,183 @@ class LiveSessionController:
         self.tts_driver = fallback
         return fallback
 
+    def _supports_progressive_pcm_tts(self, driver) -> bool:
+        codec = str(getattr(driver, "audio_codec", "") or "").lower()
+        supports_pcm = codec in {"pcm_s16le", "pcm16", "s16le"}
+        supports_renderer = bool(
+            getattr(global_media_driver, "supports_progressive_audio", lambda: False)()
+        )
+        return supports_pcm and supports_renderer
+
+    async def _speak_pcm_streaming_sentence(self, speak_text: str, active_role, driver) -> None:
+        """CosyVoice PCM 流的边生成边播放路径。"""
+        from server.routes.ws_live import ws_manager
+        from server.core.media.incremental_audio import global_incremental_audio_pipeline
+        from server.core.media.shared_playback_clock import global_shared_playback_clock
+
+        audio_generation = self._audio_generation
+        session_generation = self._session_generation
+        audio_id = f"{self.session_id or 'local'}_{audio_generation}_{uuid.uuid4().hex[:8]}"
+        wall_started = time.time()
+        realtime_started = time.monotonic()
+        sample_rate = int(getattr(driver, "audio_sample_rate", 24000))
+        channels = int(getattr(driver, "audio_channels", 1))
+        tx = global_incremental_audio_pipeline.open_transaction(
+            sample_rate=sample_rate,
+            channels=channels,
+            audio_id=audio_id,
+            audio_generation=audio_generation,
+            session_generation=session_generation,
+            text=speak_text,
+        )
+        prepare = getattr(global_virtual_audio, "prepare_playback", None)
+        cursor_prepared = False
+        if prepare is not None:
+            cursor_prepared = _call_sync_compat(
+                prepare,
+                audio_id,
+                fallback_sample_rate=sample_rate,
+                audio_generation=audio_generation,
+                session_generation=session_generation,
+            ) is not False
+            if not cursor_prepared:
+                tx.abort("playback_cursor_rejected")
+                return
+
+        first_chunk = False
+        first_frame = False
+        first_pts_ms = int(global_shared_playback_clock.now_ms())
+        action_applied = False
+
+        def current() -> bool:
+            return (
+                not self.event_queue.is_cancelled()
+                and audio_generation == self._audio_generation
+                and session_generation == self._session_generation
+            )
+
+        async def emit_frames(frame_batch, *, is_final: bool) -> None:
+            nonlocal first_frame, action_applied
+            if not frame_batch or not current():
+                return
+            if not first_frame:
+                global_av_sync.record_realtime_latency("audio_first_frame_ms", realtime_started)
+                first_frame = True
+
+            await _call_async_compat(
+                global_media_driver.feed_audio_frames,
+                frame_batch,
+                is_final=is_final,
+            )
+            play_progressive = getattr(global_virtual_audio, "play_frames_progressive", None)
+            if play_progressive is not None:
+                _call_sync_compat(play_progressive, frame_batch, is_final=is_final)
+
+            raw_pcm = b"".join(frame.data for frame in frame_batch)
+            if not action_applied:
+                try:
+                    from server.core.avatar import get_active_avatar_driver, get_action_state_machine
+                    avatar_driver = get_active_avatar_driver()
+                    action_code = get_action_state_machine().evaluate_text(speak_text)
+                    if avatar_driver and avatar_driver.is_active and action_code is not None:
+                        await avatar_driver.set_custom_state(action_code, source="speech_text")
+                    action_applied = True
+                except Exception:
+                    logger.debug("增量音频动作联动失败", exc_info=True)
+
+            try:
+                from server.core.avatar import get_active_avatar_driver
+                avatar_driver = get_active_avatar_driver()
+                if avatar_driver and avatar_driver.is_active:
+                    await avatar_driver.push_audio_chunk(
+                        raw_pcm,
+                        {"sample_rate": sample_rate, "text": speak_text if not action_applied else ""},
+                    )
+            except Exception:
+                logger.debug("增量音频数字人驱动联动失败", exc_info=True)
+
+            try:
+                from server.core.media.webrtc_streamer import get_webrtc_stream_manager
+                get_webrtc_stream_manager().push_audio(raw_pcm, sample_rate=sample_rate)
+            except Exception:
+                pass
+            try:
+                from server.core.media.recorder import get_record_manager
+                rec_mgr = get_record_manager()
+                if rec_mgr and getattr(rec_mgr, "is_recording", lambda: False)():
+                    rec_mgr.feed_audio(raw_pcm, sample_rate=sample_rate)
+            except Exception:
+                pass
+
+            first = frame_batch[0]
+            browser_audio = _pcm_s16le_to_wav(raw_pcm, sample_rate, channels)
+            await ws_manager.broadcast("AUDIO_CHUNK", {
+                "audio_base64": base64.b64encode(browser_audio).decode("utf-8"),
+                "text": speak_text if first.sequence == 0 else "",
+                "speaker": active_role.role_name,
+                "codec": "wav",
+                "source_codec": "pcm_s16le",
+                "mime_type": "audio/wav",
+                "sample_rate": sample_rate,
+                "channels": channels,
+                "audio_id": audio_id,
+                "sequence": first.sequence,
+                "is_first": first.is_first,
+                "is_final": bool(is_final and frame_batch[-1].is_final),
+                "audio_generation": audio_generation,
+                "session_generation": session_generation,
+                "delay_ms": int(max(0, min(300, global_av_sync.recommended_delay_ms))),
+                "pts_ms": first_pts_ms + int(first.pts_ms),
+                "pts_samples": int(first.pts_samples),
+                "wallclock_ms": int(time.time() * 1000),
+            })
+
+        try:
+            stream = driver.synthesize_stream(speak_text)
+            async for chunk in stream:
+                if not current():
+                    tx.abort("generation_changed")
+                    return
+                if chunk:
+                    if not first_chunk:
+                        global_av_sync.record_realtime_latency("tts_first_chunk_ms", realtime_started)
+                        first_chunk = True
+                    tx.append(chunk)
+                    await emit_frames(tx.drain_frames(), is_final=False)
+
+            tx.finish()
+            await emit_frames(tx.drain_frames(), is_final=True)
+            if not first_chunk or not first_frame:
+                raise RuntimeError("增量 PCM TTS 未产生有效音频帧")
+            global_av_sync.measure(wall_started)
+        except asyncio.CancelledError:
+            if tx.state == "open":
+                tx.abort("task_cancelled")
+            raise
+        except Exception:
+            if tx.state == "open":
+                tx.abort("stream_error")
+            if cursor_prepared:
+                reject = getattr(global_virtual_audio, "reject_playback", None)
+                if reject is not None:
+                    _call_sync_compat(reject, audio_id, reason="stream_error")
+            logger.exception("增量 PCM TTS 提交失败，已丢弃当前句")
+
     async def _speak_sentence(self, speak_text: str, active_role):
-        """完整合成后一次性提交音频，并在每个关键 await 后复核双代际。TTS 生成创建独立子任务，绝不污染长期 Worker。"""
+        """完整合成后一次性提交音频；PCM 流式驱动在能力满足时走增量路径。"""
+        driver = self.tts_driver
+        if self._supports_progressive_pcm_tts(driver):
+            stream_task = asyncio.create_task(
+                self._speak_pcm_streaming_sentence(speak_text, active_role, driver)
+            )
+            self.current_tts_task = stream_task
+            try:
+                await stream_task
+            finally:
+                if self.current_tts_task is stream_task:
+                    self.current_tts_task = None
+            return
+
         from server.routes.ws_live import ws_manager
 
         synth_started = time.time()
@@ -1544,14 +1891,14 @@ class LiveSessionController:
                 if pcm_for_stream:
                     try:
                         from server.core.media.webrtc_streamer import get_webrtc_stream_manager
-                        get_webrtc_stream_manager().push_audio(pcm_for_stream)
+                        get_webrtc_stream_manager().push_audio(pcm_for_stream, sample_rate=sample_rate)
                     except Exception:
                         pass
                     try:
                         from server.core.media.recorder import get_record_manager
                         rec_mgr = get_record_manager()
                         if rec_mgr and getattr(rec_mgr, "is_recording", lambda: False)():
-                            rec_mgr.feed_audio(pcm_for_stream)
+                            rec_mgr.feed_audio(pcm_for_stream, sample_rate=sample_rate)
                     except Exception:
                         pass
         except Exception:
@@ -1800,6 +2147,58 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         except Exception as e:
             logger.warning(f"挂载切片数字人驱动异常，保持默认驱动: {e}")
 
+    # 神经唇形算力预检：把「本地 CPU 跑不到 25fps」这个结构性缺陷前移到开播前告知，
+    # 而不是让用户开播后自己撞上持续掉帧。实测优先（跑真实推理测延迟），不估算。
+    # 只告知不阻断 —— 是否开播是产品决策，算力模块不越权。
+    lipsync_preflight: Dict[str, Any] = {}
+    asset_health: Dict[str, Any] = {}
+    if has_video_avatar:
+        # 先查资产健康：人脸切片里存在无人脸帧时，唇形必然是噪声，
+        # 此时再谈算力没有意义。
+        try:
+            from server.core.avatar.asset_health import check_and_enforce, AssetUnusableError
+
+            asset_health_obj = check_and_enforce(avatar_asset_dir)
+            asset_health = asset_health_obj.to_dict()
+            logger.info(
+                "开播资产健康: %s (判定来源: %s)",
+                asset_health.get("status"), asset_health.get("source"),
+            )
+        except AssetUnusableError as e:
+            logger.error("数字人资产严重损坏，阻断开播: %s", e)
+            raise HTTPException(
+                status_code=400,
+                detail=str(e),
+            )
+        except Exception as e:
+            logger.warning("资产健康检查异常: %s", e)
+            asset_health = {"status": "unknown", "reason": str(e)}
+
+        try:
+            from server.core.avatar.lipsync_preflight import probe_async
+
+            _probe_renderer = None
+            if not compute_plan.use_cloud:
+                try:
+                    from server.core.avatar import get_active_avatar_driver
+
+                    _drv = get_active_avatar_driver()
+                    _probe_renderer = getattr(_drv, "lip_renderer", None)
+                except Exception:
+                    _probe_renderer = None
+
+            _pf = await probe_async(renderer=_probe_renderer)
+            lipsync_preflight = _pf.to_dict()
+            if not _pf.ok:
+                logger.warning("神经唇形算力预检未达标: %s", _pf.summary())
+                for _h in _pf.hints:
+                    logger.warning("  · %s", _h)
+            else:
+                logger.info("神经唇形算力预检: %s", _pf.summary())
+        except Exception as e:
+            logger.warning("神经唇形算力预检异常（不阻断开播）: %s", e)
+            lipsync_preflight = {"level": "unavailable", "ok": False, "reason": str(e)}
+
     session_record = LiveSessionRecord(
         session_id=session_id,
         platform=platform,
@@ -1887,8 +2286,12 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         "obs_linked": obs_linked,
         "degraded": obs_degraded,
         "obs_error": obs_error_msg,
-        "local_source": {"status": "running", "preview": "/api/v1/live/stream/preview"},
+"local_source": {"status": "running", "preview": "/api/v1/live/stream/preview"},
         "external_publish": _build_external_publish_status(),
+        # 神经唇形算力预检结论：让前端能如实提示「本地仅适合预览」，
+        # 而不是让用户开播后自己发现持续掉帧。
+        "lipsync_preflight": lipsync_preflight,
+        "avatar_asset_health": asset_health,
         "message": f"本地直播源已成功启动 ({platform}, 模式 {live_mode})；外部平台发布需人工验收"
     }
 
@@ -2295,140 +2698,30 @@ async def inject_mock_event(req: MockEventRequest):
 # ---------------------------------------------------------------------------
 # 硬件探测与运行档位推荐 (规划 §8.1)
 # ---------------------------------------------------------------------------
-import shutil
-import subprocess
-from pathlib import Path
-
-# nvidia-smi 常见安装位置 (Windows 驱动默认不在 PATH 中)
-_NVIDIA_SMI_CANDIDATES = [
-    r"C:\Windows\System32\nvidia-smi.exe",
-    r"C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe",
-    r"C:\Program Files\NVIDIA Corporation\Driver\nvidia-smi.exe",
-    "/usr/bin/nvidia-smi",
-    "/usr/local/bin/nvidia-smi",
-]
-
-# 探测结果缓存：torch 只尝试导入一次，WMI 只查询一次 (避免 5s 轮询开销)
-_GPU_PROBE_CACHE: Dict[str, Any] = {
-    "torch_checked": False, "torch": None,
-    "wmi_checked": False, "wmi_info": None,
-}
-
-
-def _get_torch() -> Any:
-    """惰性导入 torch (未安装时快速失败且不重复尝试)"""
-    if not _GPU_PROBE_CACHE["torch_checked"]:
-        _GPU_PROBE_CACHE["torch_checked"] = True
-        try:
-            import importlib
-            _GPU_PROBE_CACHE["torch"] = importlib.import_module("torch")
-        except Exception:
-            _GPU_PROBE_CACHE["torch"] = None
-    return _GPU_PROBE_CACHE["torch"]
-
-
-def _find_nvidia_smi() -> Optional[str]:
-    """定位 nvidia-smi 可执行文件"""
-    which = shutil.which("nvidia-smi")
-    if which:
-        return which
-    for cand in _NVIDIA_SMI_CANDIDATES:
-        if Path(cand).exists():
-            return cand
-    return None
-
-
-def _wmi_gpu_probe() -> dict:
-    """WMI 兜底探测显卡 (仅查询一次并缓存)：过滤虚拟显卡，取显存最大的真实物理显卡"""
-    default_info = {"gpu_name": None, "vram_total_gb": 0.0}
-    if _GPU_PROBE_CACHE["wmi_checked"]:
-        cached = _GPU_PROBE_CACHE.get("wmi_info")
-        return cached if isinstance(cached, dict) else default_info
-    _GPU_PROBE_CACHE["wmi_checked"] = True
-    _GPU_PROBE_CACHE["wmi_info"] = dict(default_info)
-    try:
-        ps_cmd = "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion | ConvertTo-Json"
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_cmd],
-            capture_output=True, text=True, timeout=8
-        )
-        if out.returncode == 0 and out.stdout.strip():
-            raw_data = json.loads(out.stdout)
-            items = raw_data if isinstance(raw_data, list) else [raw_data]
-            ignore_keywords = {"oray", "virtual", "basic display", "idddriver", "remote", "microsoft 基本显示"}
-            valid_gpus = []
-            for item in items:
-                name = (item.get("Name") or "").strip()
-                if not name or any(k in name.lower() for k in ignore_keywords):
-                    continue
-                ram = item.get("AdapterRAM") or 0
-                valid_gpus.append((ram, name))
-
-            if valid_gpus:
-                valid_gpus.sort(key=lambda x: x[0], reverse=True)
-                best_ram, best_name = valid_gpus[0]
-                info = {"gpu_name": best_name, "vram_total_gb": 0.0}
-                if 0 < best_ram <= 4 * (1024 ** 3):
-                    info["vram_total_gb"] = round(best_ram / (1024 ** 3), 2)
-                _GPU_PROBE_CACHE["wmi_info"] = info
-    except Exception:
-        pass
-    cached = _GPU_PROBE_CACHE.get("wmi_info")
-    return cached if isinstance(cached, dict) else default_info
-
-
-
 def _probe_gpu() -> dict:
+    """本机 GPU 探测 —— 委托 `gpu_capability.probe_local_gpu` 单一事实源。
+
+    历史缺陷：本函数曾自带一套完整的 torch → nvidia-smi → WMI 三级探测
+    (`_get_torch` / `_find_nvidia_smi` / `_wmi_gpu_probe`)，与
+    `core/hardware/gpu_capability.probe_local_gpu` 并存。两套实现口径一旦
+    不一致，就会出现「预检说硬件达标、开播时说不够」的矛盾，且探测逻辑需改
+    两处极易漏改。现已统一：探测事实源只有gpu_capability 一处。
+
+    保留本函数（而非让调用方直接引用 gpu_capability）有两个原因：
+      1. `_hardware_payload` 需要把它卸载到线程池执行（子进程探测会阻塞事件循环）；
+      2. 测试以 patch 本模块 `_probe_gpu` 的方式注入假硬件数据。
+
+    返回结构固定为既有 4 键契约，不得增减字段。
     """
-    三级探测本机 GPU：
-      1. PyTorch CUDA (最精确，实时显存)
-      2. nvidia-smi (自动搜索常见安装路径，实时显存)
-      3. WMI Win32_VideoController (兜底识别物理显卡型号)
-    """
-    info: Dict[str, Any] = {"gpu_name": None, "vram_total_gb": 0.0, "vram_used_gb": 0.0, "cuda_available": False}
+    from server.core.hardware.gpu_capability import probe_local_gpu
 
-    # 1. PyTorch CUDA
-    torch = _get_torch()
-    if torch is not None:
-        try:
-            if torch.cuda.is_available():
-                props = torch.cuda.get_device_properties(0)
-                used, total = torch.cuda.mem_get_info(0)
-                info.update(
-                    gpu_name=props.name,
-                    vram_total_gb=round(total / (1024 ** 3), 2),
-                    vram_used_gb=round((total - used) / (1024 ** 3), 2),
-                    cuda_available=True
-                )
-                return info
-        except Exception:
-            pass
-
-    # 2. nvidia-smi (含 Windows 驱动常见安装路径)
-    smi = _find_nvidia_smi()
-    if smi:
-        try:
-            out = subprocess.run(
-                [smi, "--query-gpu=name,memory.total,memory.used", "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=4
-            )
-            if out.returncode == 0 and out.stdout.strip():
-                line = out.stdout.strip().splitlines()[0]
-                name, total, used = [x.strip() for x in line.split(",")]
-                info.update(
-                    gpu_name=name,
-                    vram_total_gb=round(float(total) / 1024, 2),
-                    vram_used_gb=round(float(used) / 1024, 2)
-                )
-                return info
-        except Exception:
-            pass
-
-    # 3. WMI 兜底 (识别物理显卡型号，无实时显存)
-    wmi_info = _wmi_gpu_probe()
-    if wmi_info["gpu_name"]:
-        info.update(gpu_name=wmi_info["gpu_name"], vram_total_gb=wmi_info["vram_total_gb"])
-    return info
+    gpu = probe_local_gpu()
+    return {
+        "gpu_name": gpu.gpu_name,
+        "vram_total_gb": gpu.vram_total_gb,
+        "vram_used_gb": gpu.vram_used_gb,
+        "cuda_available": gpu.cuda_available,
+    }
 
 def _resolve_landmarks_for_avatar(avatar_path: str) -> str:
     """
@@ -2754,7 +3047,7 @@ async def get_live_stats(db: AsyncSession = Depends(get_db)):
     anchor_id = None
     res = await db.execute(select(AppSetting).where(AppSetting.key == SETTING_KEY_LIVE_MODE))
     row = res.scalar_one_or_none()
-    raw_mode = row.value if row else None
+    raw_mode: Optional[str] = str(row.value) if (row and row.value is not None) else None
 
     from server.routes.settings import normalize_live_mode, LIVE_MODES
     norm_mode = normalize_live_mode(raw_mode)
@@ -2762,14 +3055,14 @@ async def get_live_stats(db: AsyncSession = Depends(get_db)):
 
     res2 = await db.execute(select(AppSetting).where(AppSetting.key == SETTING_KEY_ANCHOR_ID))
     row2 = res2.scalar_one_or_none()
-    anchor_id = row2.value if row2 else None
+    anchor_id: Optional[str] = str(row2.value) if (row2 and row2.value is not None) else None
 
-    anchor_name = None
+    anchor_name: Optional[str] = None
     if anchor_id:
         res3 = await db.execute(select(Anchor).where(Anchor.id == anchor_id))
         anchor = res3.scalar_one_or_none()
-        if anchor:
-            anchor_name = anchor.name
+        if anchor and anchor.name is not None:
+            anchor_name = str(anchor.name)
 
     active_role = global_role_manager.get_active_role()
     duration_sec = int(time.time() - stats["start_ts"]) if (is_live and stats["start_ts"]) else 0
@@ -3137,7 +3430,7 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
     checks = []
 
     # 1. 直播模式
-    from server.routes.settings import normalize_live_mode, LIVE_MODES
+    from server.routes.settings import normalize_live_mode
     norm_mode = normalize_live_mode(mode)
     mode_info = LIVE_MODES.get(norm_mode)
     if mode_info:
@@ -3157,9 +3450,9 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
     # 5. OBS 仅探测本机组件，不代表平台已收流
     checks.append(_pf_obs_check())
     checks.append(_pf(
-        "warn", "external_publish", "外部平台发布验收",
-        "系统只启动本地直播源，不管理 OBS/直播伴侣的平台发布；平台是否有声有画尚未验证",
-        "请在 OBS 或平台直播伴侣中选择本机视频/音频源，并人工确认平台预览与回看", None,
+        "warn", "external_publish", "外部平台发布验收 (人工确认)",
+        "系统负责提供高拟真音画源与智能互动，不托管平台伴侣开播按钮（合规防封要求）；平台是否有声有画需由人工最后确认",
+        "启动本地源后，请在抖音伴侣/快手伴侣中选择【添加摄像头】或【窗口捕获】，确认音画正常后，人工在伴侣中点击【开始直播】", None,
     ))
 
     # 6. 带货主播必须有商品
@@ -3227,21 +3520,78 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             f"本地显卡（{cap_plan.local_gpu.get('gpu_name')}，显存 {cap_plan.local_gpu.get('vram_total_gb')}GB）显存充足，支持高性能运行",
         ))
 
-    # 11. 自包含数字人渲染引擎检测 (恪守 ADR-16 架构诚实)
+    # 11. 数字人渲染引擎就绪度 (恪守 ADR-16 架构诚实)
+    #     注意：程序化"微动态"引擎 (RealAvatarLite) 已被移出渲染链路 —— 其 reload_source()
+    #     仍在调用但产出的帧从不上屏。唇形硬性规约要求真实神经推理，引擎未就绪时
+    #     `ProceduralAvatarDriver.start()` 直接 raise 拒绝启动。因此这里**不得**再以
+    #     RealAvatarLite 为由宣称"就绪开播 / 零显存稳定开播"，否则用户点开播必然失败。
     from server.core.avatar.neural_model_manager import global_neural_model_manager
     model_status = global_neural_model_manager.get_model_status_matrix()
     if model_status.get("has_neural_model"):
         checks.append(_pf(
             "pass", "avatar_engine", "自包含数字人渲染引擎",
-            "内置高保真微动态引擎 (RealAvatarLite) 就绪开播；检测到模型权重资产，处于挂载就绪状态",
+            "真实神经唇形引擎已就绪 (NeuralLipRenderer)：唇形由 ONNX 深度推理实时重绘，"
+            "口型由音频特征驱动，不存在程序化假唇形回退",
         ))
     else:
         checks.append(_pf(
-            "pass", "avatar_engine", "自包含数字人渲染引擎",
-            "内置高保真微动态引擎 (RealAvatarLite) 就绪，零显存稳定开播；可在 data/models/ 挂载扩展模型资产",
+            "fail", "avatar_engine", "自包含数字人渲染引擎",
+            "未检测到神经唇形引擎权重，开播必须具备真实神经推理能力，当前无法开播；"
+            "系统已禁用程序化微动态回退（其产出帧不上屏，冒充真实唇形属架构禁止项）",
+            "请先完成 ONNX 神经唇形权重下载与当前主播的切片资产生成，随后重新体检",
+            None,
         ))
 
-    # 12. 核心带货动作切片完整性 (缺失会如实告警并给出一键补齐指引)
+    # 12. 数字人切片资产健康度检查 (杜绝损坏切片与无人脸坏帧带病开播)
+    try:
+        from server.config import DATA_DIR
+        from server.core.avatar.asset_health import check_asset_health, STATUS_OK, STATUS_DEGRADED, STATUS_UNUSABLE
+        from server.routes.settings import _get_setting
+        anchor_id = await _get_setting(db, "selected_anchor_id")
+        avatar_dir = None
+        if anchor_id:
+            p = DATA_DIR / "avatars" / anchor_id
+            if p.exists() and p.is_dir():
+                avatar_dir = str(p)
+        if not avatar_dir:
+            avatars_root = DATA_DIR / "avatars"
+            if avatars_root.exists():
+                for sub in avatars_root.iterdir():
+                    if sub.is_dir() and ((sub / "coords.pkl").exists() or (sub / "face_imgs").exists()):
+                        avatar_dir = str(sub)
+                        break
+
+        if avatar_dir:
+            a_health = check_asset_health(avatar_dir, allow_sampled=True)
+            allow_unusable = os.getenv("LIVE_AGENT_ALLOW_UNUSABLE_ASSETS", "0").lower() in ("1", "true", "yes")
+            if a_health.status == STATUS_UNUSABLE:
+                if not allow_unusable:
+                    checks.append(_pf(
+                        "fail", "asset_health", "主播切片资产健康度",
+                        f"当前主播资产严重损坏：{a_health.reason}。切片中存在过多非人脸/损坏帧，送入神经重绘模型会导致剧烈抽搐与闪烁，已禁止开播",
+                        "请在控制台重新切片生成，或配置环境变量 LIVE_AGENT_ALLOW_UNUSABLE_ASSETS=1 强制跳过", "anchors"
+                    ))
+                else:
+                    checks.append(_pf(
+                        "warn", "asset_health", "主播切片资产健康度",
+                        f"资产损坏：{a_health.reason}；已配置允许强制使用，画面可能偶发严重畸变",
+                        "建议重新切片生成高质量底模", "anchors"
+                    ))
+            elif a_health.status == STATUS_DEGRADED:
+                checks.append(_pf(
+                    "warn", "asset_health", "主播切片资产健康度",
+                    f"资产质量次优：{a_health.reason}，可能偶发微小跳变",
+                    "建议重新上传无遮挡清晰视频重新切片", "anchors"
+                ))
+            elif a_health.status == STATUS_OK:
+                checks.append(_pf(
+                    "pass", "asset_health", "主播切片资产健康度",
+                    f"人脸切片健康度达标 (检出率 {a_health.detect_rate:.1%})，支持真人高保真重绘"
+                ))
+    except Exception:
+        logger.debug("预体检资产健康度检查异常", exc_info=True)
+
+    # 13. 核心带货动作切片完整性 (缺失会如实告警并给出一键补齐指引)
     from server.core.avatar.action_state_machine import get_action_state_machine
     action_sm = get_action_state_machine()
     try:
@@ -3279,13 +3629,13 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             progress = dl_status.get("progress", 0)
             checks.append(_pf(
                 "warn", "lipsync_weight", "神经唇形权重",
-                f"后台下载进行中 ({progress}%)：{dl_status.get('message', '')}；下载完成前保持 RealAvatarLite 微动态渲染",
-                "下载全自动进行，无需操作；可稍后重新体检确认结果", None, True,
+                f"后台下载进行中 ({progress}%)：{dl_status.get('message', '')}；下载完成前无法开播，请等待下载就绪",
+                "下载全自动进行，无需操作；完成后即可正常开播，可稍后重新体检确认结果", None, True,
             ))
         elif dl_status.get("state") == "failed" and not auto_download_enabled():
             checks.append(_pf(
-                "warn", "lipsync_weight", "神经唇形权重",
-                f"神经唇形权重下载失败：{dl_status.get('message', '')}；当前使用 RealAvatarLite 形变级渲染，直播不受影响",
+                "fail", "lipsync_weight", "神经唇形权重",
+                f"神经唇形权重下载失败：{dl_status.get('message', '')}；开播必须具备神经唇形权重，当前无法开播",
                 "网络恢复后重新体检将自动重试下载 (约45MB，ModelScope 源)", None,
             ))
         else:
@@ -3294,8 +3644,8 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             checks.append(_pf(
                 "warn", "lipsync_weight", "神经唇形权重",
                 "未检测到 ONNX 神经唇形权重 (onnx_lipsync.onnx)，已自动触发后台下载 (约45MB，ModelScope 源)；"
-                "当前使用 RealAvatarLite 形变级渲染，下载完成后自动升级为真实神经唇形重绘",
-                "下载在后台自动进行，无需操作；可稍后重新体检确认下载结果", None, True,
+                "开播必须具备真实神经唇形权重，下载完成前无法开播",
+                "下载在后台自动进行，无需操作；完成后即可正常开播，可稍后重新体检确认下载结果", None, True,
             ))
     except Exception:
         logger.debug("预体检神经唇形权重检查异常", exc_info=True)
@@ -3372,6 +3722,7 @@ class RtmpStartRequest(BaseModel):
     height: Optional[int] = Field(960, ge=240, le=3840)
     fps: Optional[int] = Field(25, ge=15, le=60)
     bitrate_kbps: Optional[int] = Field(2500, ge=500, le=12000)
+    audio_sample_rate: Optional[int] = Field(24000, ge=8000, le=96000)
 
 
 @router.post("/rtmp/start", summary="启动内置 RTMP 直推引擎")
@@ -3385,6 +3736,7 @@ async def start_rtmp_streaming(req: RtmpStartRequest):
         height=req.height or 960,
         fps=req.fps or 25,
         bitrate_kbps=req.bitrate_kbps or 2500,
+        audio_sample_rate=req.audio_sample_rate or 24000,
     )
     if not success:
         return {"code": 400, "message": msg, "data": global_rtmp_streamer.get_status()}
@@ -3621,10 +3973,21 @@ async def websocket_asr_endpoint(websocket: WebSocket):
         except Exception:
             pass
 
+    # P1-5: VAD 打断接入控制器级代际栅栏，与运营手动打断走同一条 _on_barge_in 通路，
+    # 推进 _audio_generation 并清空 virtual_audio/媒体驱动/TTS，杜绝打断拖尾竞态。
+    def _trigger_barge_in():
+        try:
+            if getattr(global_live_controller, "is_live", False):
+                return global_live_controller._on_barge_in("现场语音打断")
+        except Exception:
+            logger.exception("VAD 打断控制器栅栏回调失败")
+        return None
+
     session = manager.get_or_create_session(
         session_id=session_id,
         on_interrupt=_notify_interrupt,
         on_transcribe=_notify_transcribe,
+        on_barge_in=_trigger_barge_in,
     )
 
     try:

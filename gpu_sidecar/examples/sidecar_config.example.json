@@ -1,5 +1,5 @@
 {
-  "backend_id": "authorized-wav2lip-plugin",
+  "backend_id": "authorized-latentsync-plugin",
   "model_version": "replace-with-authorized-model-version",
   "fps": 25,
   "device": "cuda",

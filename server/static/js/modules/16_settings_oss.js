@@ -505,16 +505,7 @@ function notifyUser(msg, type = "info") {
     }
 }
 
-// 辅助转义 HTML 防止 XSS
-function escapeHtml(str) {
-    if (!str) return "";
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
+
 
 // 挂载到 window 供导航器调用
 window.initOssSettingsPage = initOssSettingsPage;

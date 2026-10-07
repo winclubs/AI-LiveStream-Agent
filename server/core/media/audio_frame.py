@@ -132,11 +132,16 @@ def validate_audio_frame_batch(
     frames: Iterable[AudioFrame],
     *,
     require_complete: bool = True,
+    allow_offset: bool = False,
     max_total_bytes: int = DEFAULT_MAX_FRAME_BATCH_BYTES,
     max_frames: int = DEFAULT_MAX_FRAME_BATCH_FRAMES,
     max_duration_seconds: int = DEFAULT_MAX_FRAME_BATCH_SECONDS,
 ) -> tuple[AudioFrame, ...]:
-    """统一校验帧批次的身份、代际、时序、终止标记和容量。"""
+    """统一校验帧批次的身份、代际、时序、终止标记和容量。
+
+    ``allow_offset=True`` 用于同一句 PCM 的增量批次：后续批次可以从非零
+    sequence/PTS 开始，但批次内部仍必须连续，不能跨越或重排时间线。
+    """
     frame_list = tuple(frames or ())
     if not frame_list:
         raise ValueError("AudioFrame 批次不能为空")
@@ -144,7 +149,8 @@ def validate_audio_frame_batch(
         raise ValueError(f"帧数 {len(frame_list)} 超过上限 {max_frames}")
 
     first = frame_list[0]
-    expected_pts = 0
+    expected_sequence = first.sequence if allow_offset else 0
+    expected_pts = first.pts_samples if allow_offset else 0
     total_bytes = 0
     last_index = len(frame_list) - 1
     for index, frame in enumerate(frame_list):
@@ -155,12 +161,13 @@ def validate_audio_frame_batch(
             or frame.session_generation != first.session_generation
         ):
             raise ValueError("帧批次的格式、audio_id 和 generation 必须一致")
-        if frame.sequence != index or frame.pts_samples != expected_pts:
+        if frame.sequence != expected_sequence or frame.pts_samples != expected_pts:
             raise ValueError("帧批次必须按 sequence 和 PTS 连续排列")
-        if frame.is_first != (index == 0):
-            raise ValueError("帧批次只能在 sequence=0 标记首帧")
+        if frame.is_first != (frame.sequence == 0):
+            raise ValueError("只有 sequence=0 可以标记首帧")
         if frame.is_final and index != last_index:
             raise ValueError("只有批次最后一帧可以标记终帧")
+        expected_sequence += 1
         expected_pts += frame.duration_samples
         total_bytes += len(frame.data)
         if total_bytes > max_total_bytes:
@@ -168,7 +175,7 @@ def validate_audio_frame_batch(
 
     if require_complete and not frame_list[-1].is_final:
         raise ValueError("完整帧批次的最后一帧必须标记终帧")
-    if expected_pts > first.format.sample_rate * max_duration_seconds:
+    if expected_pts - first.pts_samples > first.format.sample_rate * max_duration_seconds:
         raise ValueError(f"帧批次时长超过 {max_duration_seconds} 秒")
     return frame_list
 

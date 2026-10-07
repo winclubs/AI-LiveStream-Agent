@@ -51,14 +51,17 @@ def test_modelscope_mirror_conversion(dw):
 
 
 def test_single_file_source_fallback_order(dw):
-    """modelscope 源应镜像优先 + HF 权威兜底；huggingface 源保持原始地址"""
+    """modelscope 源应镜像优先 + HF 权威兜底；huggingface 源保持原始地址 (含 hf-mirror 加速镜像)"""
     cfg = dw.MODELS_CONFIG["onnx-lipsync"]
     ms_order = dw._resolve_single_file_urls(cfg, "modelscope")
     hf_order = dw._resolve_single_file_urls(cfg, "huggingface")
 
+    # modelscope 源：首个必须是 modelscope 镜像，末尾必须是 HF 权威兜底
     assert ms_order[0].startswith("https://modelscope.cn/")
     assert ms_order[-1].startswith("https://huggingface.co/")
-    assert all(u.startswith("https://huggingface.co/") for u in hf_order)
+    # huggingface 源：保持配置原始地址顺序，且必含 HF 权威源作为兜底
+    assert hf_order == list(cfg["urls"])
+    assert any(u.startswith("https://huggingface.co/") for u in hf_order)
 
 
 def test_existing_weight_skips_download(dw, tmp_path):

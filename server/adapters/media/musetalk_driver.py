@@ -1,16 +1,11 @@
 """
-程序化实时数字人渲染驱动 (规划 §4.2 / §7 / §15.1)
+真实神经唇形实时数字人渲染驱动 (遵循 ADR-16 架构诚实规约)
 
-说明（能力边界，避免命名误导）：
-- 本驱动为 **零权重程序化数字人渲染器**：基于 OpenCV 在主播底图上合成待机微呼吸、
-  周期眨眼与由音频能量驱动的唇形开合，并以 25fps 输出连续视频帧。
-- 它 **不加载 MuseTalk/UNet 等神经唇形模型**，口型为音频能量开合而非音素级对齐；
-  真正的 MuseTalk 权重推理通道预留于 `RENDER_BACKEND=musetalk` 分支（需另行部署）。
-- 默认开启本地虚拟摄像头输出 (pyvirtualcam / OBS DirectShow)，未安装则平滑软降级。
+说明（能力边界与门禁规则）：
+- 本驱动基于 OpenCV 承载主播视频帧渲染循环，并集成 NeuralLipRenderer 执行真实的 ONNX 深度学习唇形重绘；
+- 恪守硬性规约：开播必须走真实神经渲染，杜绝 mouth_open 模拟驱动回退；若神经权重缺失或主播资产未就绪，开播时直接拒绝启动；
+- 支持本地虚拟摄像头输出 (pyvirtualcam / OBS DirectShow)，未安装则平滑软降级；
 - 提供最新 JPEG 图像帧流，供给前端 Web 大屏实时监视器。
-
-依赖缺失时（未安装 numpy/opencv）本模块仍可安全导入，但渲染能力自动关闭，
-由 media_router 回退到仿真媒体驱动，保证核心服务永不因缺失可选依赖而启动失败。
 """
 
 from __future__ import annotations
@@ -23,7 +18,7 @@ import queue
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple, cast
 
 from server.adapters.media.base_driver import BaseMediaDriver
 from server.core.media.audio_frame import validate_audio_frame_batch
@@ -53,6 +48,8 @@ RENDER_BACKEND = _os.getenv("LIVE_AGENT_RENDER_BACKEND", "procedural").lower()
 logger = logging.getLogger("LiveAgent.ProceduralAvatar")
 
 class ProceduralAvatarDriver(BaseMediaDriver):
+    supports_progressive_audio = True
+
     def __init__(self, avatar_source_path: str = "", landmarks_cache: Optional[str] = None):
         super().__init__()
         self.avatar_source_path = avatar_source_path
@@ -106,7 +103,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         self.total_frames_rendered = 0
         self.start_ts = 0.0
 
-        # 真实神经唇形重绘驱动引擎 (Wav2Lip ONNX + coords 动态羽化回贴)
+        # 真实神经唇形重绘驱动引擎 (LatentSync ONNX + coords 动态羽化回贴)
         self.lip_renderer = None
         try:
             from server.core.avatar.neural_lip_renderer import NeuralLipRenderer
@@ -283,12 +280,26 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             transactional_sentence=True,
             supports_cancel=True,
             supports_shared_clock=True,
-            extra={"frame_batch_mode": "coalesced_transaction"},
+            extra={
+                "frame_batch_mode": "coalesced_transaction",
+                "progressive_audio": True,
+            },
         ).to_dict()
 
-    async def feed_audio_frames(self, frames) -> None:
-        """消费标准帧批次，并复用现有整句 G2P/播放 cursor 对齐算法。"""
-        frame_list = validate_audio_frame_batch(frames)
+    async def feed_audio_frames(self, frames, *, is_final: bool = True) -> None:
+        """消费标准 PCM 帧；本地神经渲染支持同一句的增量提交。"""
+        candidate_frames = tuple(frames or ())
+        if not candidate_frames:
+            return
+        progressive = (not is_final) or candidate_frames[0].sequence != 0
+        frame_list = validate_audio_frame_batch(
+            candidate_frames,
+            require_complete=bool(is_final),
+            allow_offset=progressive,
+        )
+        if progressive:
+            await self._feed_progressive_audio_frames(frame_list, is_final=is_final)
+            return
         first = frame_list[0]
         await self.feed_audio_chunk(
             b"".join(frame.data for frame in frame_list),
@@ -300,6 +311,62 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             session_generation=first.session_generation,
             audio_id=first.audio_id,
         )
+
+    async def _feed_progressive_audio_frames(self, frames, *, is_final: bool) -> None:
+        """将 PCM 增量追加到同一 audio_id，保持唇形时间线和音频 PTS 一致。"""
+        if not self.cv_available or np is None:
+            return
+        first = frames[0]
+        if not self._generation_is_current(first.audio_generation, first.session_generation):
+            return
+
+        viseme_values = []
+        pcm_parts = []
+        for frame in frames:
+            raw = np.frombuffer(frame.data, dtype="<i2").astype(np.float32) / 32768.0
+            if frame.format.channels > 1:
+                raw = raw.reshape(-1, frame.format.channels).mean(axis=1)
+            from server.core.media.procedural_renderer import audio_samples_to_viseme
+            viseme_values.append(audio_samples_to_viseme(raw))
+            pcm_parts.append(raw)
+
+        samples = np.concatenate(pcm_parts) if pcm_parts else np.zeros(0, dtype=np.float32)
+        if first.format.sample_rate != 16000 and len(samples) > 0:
+            target_len = max(1, int(len(samples) * 16000 / first.format.sample_rate))
+            x_orig = np.linspace(0, 1, len(samples), endpoint=False)
+            x_target = np.linspace(0, 1, target_len, endpoint=False)
+            samples_16k = np.interp(x_target, x_orig, samples).astype(np.float32)
+        else:
+            samples_16k = samples.astype(np.float32, copy=False)
+
+        with self._sentence_lock:
+            sentence = next(
+                (item for item in self._active_sentences if item.get("audio_id") == first.audio_id),
+                None,
+            )
+            if sentence is None:
+                sentence = {
+                    "audio_id": first.audio_id,
+                    "audio_generation": first.audio_generation,
+                    "session_generation": first.session_generation,
+                    "visemes": [],
+                    "pcm_16k": None,
+                    "stream_final": False,
+                }
+                self._active_sentences.append(sentence)
+                self._active_sentence = self._active_sentences[0]
+            sentence["visemes"].extend(viseme_values)
+            previous_pcm = sentence.get("pcm_16k")
+            if samples_16k.size:
+                sentence["pcm_16k"] = (
+                    samples_16k
+                    if previous_pcm is None
+                    else np.concatenate((previous_pcm, samples_16k)).astype(np.float32, copy=False)
+                )
+            if is_final:
+                sentence["stream_final"] = True
+        self.is_speaking = True
+
 
     async def feed_audio_chunk(
         self,
@@ -594,9 +661,10 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 else max(0.0, time.monotonic() - self._latest_pcm_time)
             )
             if np is not None and active_pcm is not None and len(active_pcm) > 0:
-                center_sample = int(active_elapsed * 16000)
-                win_start = center_sample - 1600
-                win_end = center_sample + 1600
+                visual_lead = int(_os.environ.get("LIPSYNC_VISUAL_LEAD_SAMPLES", "640"))
+                center_sample = int(active_elapsed * 16000) + visual_lead
+                win_start = center_sample - 3200
+                win_end = center_sample + 3200
                 pad_left = max(0, -win_start)
                 act_start = max(0, win_start)
                 act_end = min(len(active_pcm), win_end)
@@ -608,7 +676,7 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                         slice_data = np.pad(slice_data, (pad_left, pad_right), mode="constant")
                     current_pcm_window = slice_data
                 else:
-                    current_pcm_window = np.zeros(3200, dtype=np.float32)
+                    current_pcm_window = np.zeros(6400, dtype=np.float32)
 
             # 2. 生成当前合成视频帧 (神经唇形重绘；模拟驱动已按硬性规约移除)
             render_started = time.time()
@@ -662,58 +730,26 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             time.sleep(max(0.001, target_sleep))
 
     def _publish_frame(self, frame_rgb: "np.ndarray") -> None:
-        """Compose once, then fan the same publish frame out to camera, RTMP, WebRTC and recorder."""
-        # 共享单调时钟：视频帧发布时打 PTS (音画漂移补偿的视频侧锚点)
-        try:
-            global_shared_playback_clock.stamp_video(self.current_frame_id)
-        except Exception:
-            pass
-        publish_frame = compose_scene_overlays(
+        """通过统一发布总线扇出帧：云端帧活跃时本地 shadow 帧被租约仲裁抑制。
+
+        修复前的缺陷：本地 shadow 无条件向 RTMP/WebRTC/录制器发布帧，导致云端
+        渲染模式下公网推流与录制仍是本地 CPU 低质画面。现在全部帧源经由
+        global_frame_bus 的短租约仲裁，云端帧持续到达时自动抑制 shadow。
+        """
+        from server.core.media.frame_bus import global_frame_bus
+
+        published, composed_frame = global_frame_bus.publish_frame(
             frame_rgb,
-            global_scene_overlay_state.snapshot(),
-            enable_anti_recording=True,
-            timestamp=time.time(),
+            owner="procedural_shadow",
+            priority=1,
+            frame_index=self.current_frame_id,
         )
-        bgr_frame = cv2.cvtColor(publish_frame, cv2.COLOR_RGB2BGR) if (CV_AVAILABLE and publish_frame is not None) else None
-
-        # 1. 投递至虚拟摄像头
-        if global_virtual_cam.is_active:
-            global_virtual_cam.send_frame(publish_frame)
-
-        # 2. 投递至 RTMP 推流引擎
-        try:
-            from server.core.media.rtmp_streamer import global_rtmp_streamer
-            if global_rtmp_streamer.is_streaming:
-                global_rtmp_streamer.send_video_frame(publish_frame)
-        except Exception:
-            pass
-
-        # 3. 投递至 WebRTC (WHEP) 视窗 (P0-2 帧注入)
-        try:
-            from server.core.media.webrtc_streamer import get_webrtc_stream_manager
-            if bgr_frame is not None:
-                get_webrtc_stream_manager().push_frame(bgr_frame)
-        except Exception:
-            pass
-
-        # 4. 投递至短视频与带货切片录制器
-        try:
-            from server.core.media.recorder import get_record_manager
-            rec_mgr = get_record_manager()
-            if rec_mgr and getattr(rec_mgr, "is_recording", lambda: False)():
-                rec_mgr.feed_frame(publish_frame)
-        except Exception:
-            pass
-
-        # 5. 生成最新 JPEG 供 MJPEG 预览拉取
-        if bgr_frame is not None:
-            ok, buf = cv2.imencode(
-                ".jpg",
-                bgr_frame,
-                [cv2.IMWRITE_JPEG_QUALITY, 80],
-            )
-            if ok:
-                self.latest_jpeg_frame = buf.tobytes()
+        # 生成最新 JPEG 供 MJPEG 预览拉取；用总线返回的合成帧编码，
+        # 保证预览画面 (含优惠券/商品画层) 与 RTMP/虚拟摄像头完全一致。
+        if published and composed_frame is not None:
+            jpeg = global_frame_bus.encode_jpeg(composed_frame)
+            if jpeg:
+                self.latest_jpeg_frame = jpeg
 
     def _synthesize_frame(
         self,
@@ -773,7 +809,9 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             raise RuntimeError(f"神经唇形重绘失败，已禁止模拟驱动回退: {e}") from e
         if neural_frame is None:
             raise RuntimeError("神经唇形重绘返回空帧，已禁止模拟驱动回退")
-        return neural_frame
+        if isinstance(neural_frame, tuple):
+            neural_frame = neural_frame[0]
+        return cast("np.ndarray", neural_frame)
 
     def get_latest_jpeg(self) -> bytes:
         """获取最新的 JPEG 视频帧供前端推流"""
@@ -794,7 +832,9 @@ class ProceduralAvatarDriver(BaseMediaDriver):
                 "self_contained": True,
                 "neural_lipsync": neural_lip_active,  # 恪守 ADR-16：动态如实声明神经推理模型是否真正就绪
                 "viseme_lipsync": True,
-                "g2p_aligned": False,  # 启发式均分非严格音素强制对齐
+                # 架构诚实声明 (ADR-16)：viseme 模式音素持续时间为 pypinyin 启发式均分，非声学强制对齐 (MFA)；
+                # 工业级高拟真口型推荐收敛至 LatentSync 官方扩散架构 (直接由 Whisper 音素嵌入驱动，无需均分)。
+                "g2p_aligned": False,
                 "alignment_mode": "heuristic_uniform",
                 "phoneme_source": "pypinyin_or_builtin",
                 "forced_alignment": False,

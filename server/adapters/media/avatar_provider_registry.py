@@ -162,6 +162,30 @@ class CustomAvatarConfig(_StrictModel):
     ssh_config: SSHConfig = Field(default_factory=SSHConfig)
 
 
+class _LatentSyncPolicyConfig(_StrictModel):
+    mode: Literal["primary", "fallback", "shadow", "disabled"] = "primary"
+    priority: int = Field(default=100, ge=-1_000_000, le=1_000_000)
+    max_concurrency: Literal[1] = 1
+    render_mode: Literal["batch", "realtime"] = "batch"
+    timeouts: _TimeoutsConfig = Field(default_factory=lambda: _TimeoutsConfig(request_ms=300_000))
+    circuit_breaker: _CircuitBreakerConfig = Field(default_factory=_CircuitBreakerConfig)
+    quota: _QuotaConfig = Field(default_factory=_QuotaConfig)
+
+
+class LatentSyncBatchConfig(_StrictModel):
+    """LatentSync 批处理高精预渲染配置 (路径二专用)。"""
+
+    adapter: Literal["latentsync_batch"]
+    avatar_provider: _LatentSyncPolicyConfig = Field(default_factory=_LatentSyncPolicyConfig)
+    title: str | None = Field(default=None, min_length=1, max_length=128)
+    avatar_id: str = Field(default="default", max_length=128)
+    guidance_scale: float = Field(default=1.0, ge=0.1, le=10.0)
+    inference_steps: int = Field(default=20, ge=1, le=50)
+    seed: int = Field(default=1247)
+    custom_official_url: str = Field(default="", max_length=1024)
+
+
+
 @dataclass(frozen=True, slots=True)
 class AvatarProviderDescriptor:
     adapter_id: str
@@ -530,6 +554,68 @@ _PROVIDER_REGISTRY = MappingProxyType(
             ),
             official_url="https://github.com/winclubs/AI-LiveStream-Agent",
         ),
+        "latentsync_batch": AvatarProviderDescriptor(
+            adapter_id="latentsync_batch",
+            display_name="选项 4 · LatentSync 顶尖口型预渲染（路径二 · 扩散模型高精批处理）",
+            availability=AvatarProviderAvailability.AVAILABLE,
+            tagline="SyncNet 顶尖同步度 · 扩散模型 UNet3D · 前瞻异步预渲染",
+            description="路径二专用高精方案：结合 Whisper 50Hz 语义特征与 UNet3D 扩散模型，具备业界天花板级别的唇形拟真度与闭唇准确率。通过段落前瞻异步预渲染，完美解决扩散模型多步去噪无法纯逐帧推流的问题，直播零等待、画质与口型极度逼真。",
+            target_audience="追求广播级、影视级发音口型自然度与牙齿发丝细节的专业直播间",
+            visual_style="影视级高清真人质感，辅音闭唇完全合拢，元音发音饱满自然，完全消除机械开合与抖动",
+            cost_hardware="需配备独立显卡服务器（A100 / RTX 4090 或 Colab GPU 节点）",
+            plain_explanation="💡 什么是“LatentSync 批处理预渲染”？传统口型微动方案机械且僵硬，而目前效果最好的官方潜在扩散模型（ByteDance LatentSync）单帧去噪需要十几步，纯流式推流会卡死。系统采用“双轨制前瞻预渲染”：在主播讲第1句话时，后台就提前把第2句的音频发给云端GPU跑完完整的高精视频并存入缓存池，到播第2句时瞬间播放，既有天花板级别的口型精度，又完全不卡顿！",
+            credential_mode="single_secret",
+            configuration_mode="instance",
+            config_model=LatentSyncBatchConfig,
+            capabilities={
+                "renderer_only": True,
+                "render_modes": ["batch", "realtime"],
+                "input_codecs": ["pcm_s16le"],
+                "max_safe_concurrency": 2,
+            },
+            ui_fields=(
+                {
+                    "path": "base_url",
+                    "label": "LatentSync 节点连接地址 (HTTP/HTTPS):",
+                    "type": "url",
+                    "required": True,
+                    "tip": "运行 LatentSync 批处理服务的 GPU 云主机地址，例如 https://gpu.gongying.bond 或 http://127.0.0.1:8010",
+                    "pills": [
+                        {"text": "专属隧道: https://gpu.gongying.bond", "val": "https://gpu.gongying.bond"},
+                        {"text": "本机本地: http://127.0.0.1:8010", "val": "http://127.0.0.1:8010"}
+                    ],
+                },
+                {
+                    "path": "api_key",
+                    "label": "访问密码 / Token (选填):",
+                    "type": "secret",
+                    "required": False,
+                    "tip": "服务端启动时设置的安全口令（AUTH_TOKEN），若未设密码留空即可。",
+                },
+                {
+                    "path": "extra_params.avatar_id",
+                    "label": "数字人形象代号 (Avatar ID):",
+                    "type": "text",
+                    "default": "default",
+                    "tip": "形象素材编号，默认 default。",
+                },
+                {
+                    "path": "extra_params.inference_steps",
+                    "label": "扩散去噪步数 (Inference Steps):",
+                    "type": "number",
+                    "default": 20,
+                    "tip": "扩散模型采样步数，推荐 15~20 步。步数越高质量越好，耗时稍长。",
+                },
+                {
+                    "path": "extra_params.guidance_scale",
+                    "label": "引导系数 (Guidance Scale):",
+                    "type": "number",
+                    "default": 1.0,
+                    "tip": "文本/音频引导系数，默认 1.0。",
+                },
+            ),
+            official_url="https://github.com/bytedance/LatentSync",
+        ),
     }
 )
 
@@ -676,6 +762,11 @@ def normalize_avatar_provider_config(
                 raise ValueError(
                     "custom_avatar base_url 必须是合法的 ws://, wss://, http://, https:// 或 rtmp:// 地址"
                 )
+        elif adapter_id == "latentsync_batch":
+            if parsed.scheme not in {"http", "https"} or not hostname:
+                raise ValueError(
+                    "latentsync_batch base_url 必须是合法的 http:// 或 https:// 地址"
+                )
         else:  # pragma: no cover - 已实现 adapter 必须显式声明 endpoint 规则
             raise ValueError(f"Avatar Provider {adapter_id!r} 缺少 endpoint 校验规则")
 
@@ -819,6 +910,26 @@ def create_avatar_provider(
             driver=driver,
         )
         return provider, policy
+
+    if adapter_id == "latentsync_batch":
+        from server.adapters.media.latentsync_batch_provider import (
+            LatentSyncBatchAvatarProvider,
+        )
+
+        batch_provider: RemoteAvatarProvider = LatentSyncBatchAvatarProvider(
+            provider_id=f"neural_renderer:{provider_instance_id}",
+            display_name=display_name,
+            node_url=base_url,
+            auth_token=credential,
+            avatar_id=str(canonical.get("avatar_id") or "default"),
+            guidance_scale=float(canonical.get("guidance_scale") or 1.0),
+            inference_steps=int(canonical.get("inference_steps") or 20),
+            seed=int(canonical.get("seed") or 1247),
+            connect_timeout=policy.timeouts.connect_seconds,
+            message_timeout=policy.timeouts.message_seconds,
+            request_timeout=policy.timeouts.request_seconds,
+        )
+        return batch_provider, policy
 
     raise ValueError(f"Avatar Provider {adapter_id!r} 尚无可用 factory")
 

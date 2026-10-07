@@ -1,3 +1,5 @@
+import types
+
 import pytest
 from fastapi.testclient import TestClient
 from server.app import app
@@ -8,30 +10,22 @@ def client():
         yield c
 
 
+@pytest.fixture(autouse=True)
+def _reset_live_session(client):
+    """每个测试前后强制收敛直播会话状态，防止 module 级 client 复用导致 is_live 泄漏。
+
+    根因：client fixture 为 module 作用域，某个测试调用 /live/start 后未 stop，
+    会让后续依赖「未开播」前置条件的用例拿到 is_live=True 而失败。
+    """
+    yield
+    try:
+        client.post("/api/v1/live/stop")
+    except Exception:
+        pass
+
+
 def _png_bytes(width=1, height=1):
     import io
-@pytest.fixture(scope="module", autouse=True)
-def _ready_neural_renderer():
-    """模块级注入就绪的神经唇形渲染器。
-
-    硬性规约：开播必须走真实神经渲染，mouth_open 模拟驱动回退已移除，因此未就绪时
-    /live/start 会如实返回 500。测试环境中本无 ONNX 权重与主播切片资产，若不注入，
-    所有开播类测试都会失败，且依赖开播广播的 WebSocket 测试会因收不到广播而永久阻塞。
-    """
-    from unittest.mock import MagicMock
-    import numpy as np
-    from server.adapters.media.musetalk_driver import global_musetalk_driver
-
-    mock_lip = MagicMock()
-    mock_lip.is_ready = True
-    mock_lip.has_anchor_assets = True
-    mock_lip.render_lip_frame.return_value = np.zeros((960, 720, 3), dtype=np.uint8)
-    real_renderer = global_musetalk_driver.lip_renderer
-    global_musetalk_driver.lip_renderer = mock_lip
-    yield mock_lip
-    global_musetalk_driver.lip_renderer = real_renderer
-
-
     from PIL import Image
     output = io.BytesIO()
     Image.new("RGB", (width, height), color=(30, 60, 90)).save(output, format="PNG")
@@ -234,6 +228,48 @@ def test_avatars_api(client):
     assert del_res.status_code == 200
     assert del_res.json()["code"] == 0
 
+def test_avatars_list_exposes_asset_state_and_origin(client):
+    """形象资产列表必须暴露"资产是否还在"与"记录来源"，否则无法判断哪些是陈旧垃圾。
+
+    背景：`task_manager` 每完成一次数字人切片训练就往`avatars` 表写一条记录，
+    而前端此前没有任何界面能看到这张表 —— 垃圾记录只增不减且无法清理。接入
+    列表页后，用户必须能一眼分辨：
+      - `asset_exists`：磁盘资产是否仍存在（区分"有效资产"与"文件早已被清掉的空壳记录"）
+      - `origin`：记录来自"训练任务自动登记"还是"手动上传"
+    并且最新记录排在最前，便于查看刚训练完的资产。
+    """
+    res = client.get("/api/v1/avatars/list")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["code"] == 0
+
+    rows = data["data"]
+    assert len(rows) >= 1
+
+    for row in rows:
+        # 必备字段（新增字段不破坏既有契约）
+        for key in ("id", "name", "avatar_type", "created_at"):
+            assert key in row, f"列表项缺少字段 {key}: {row}"
+        # 新增：资产存在性与来源
+        assert isinstance(row["asset_exists"], bool), (
+            f"asset_exists 必须为布尔值以区分空壳记录: {row}"
+        )
+        assert row["origin"] in ("task", "manual"), (
+            f"origin 必须标明记录来源 (task/manual): {row}"
+        )
+
+    # 倒序：created_at 应非递增
+    times = [r.get("created_at") or "" for r in rows]
+    assert times == sorted(times, reverse=True), f"列表未按创建时间倒序: {times}"
+
+    # 任务自动登记的记录（avatar_task_* 前缀）必须被标注为 task 来源
+    task_rows = [r for r in rows if r["id"].startswith("avatar_task_")]
+    for row in task_rows:
+        assert row["origin"] == "task", (
+            f"avatar_task_* 记录应标注为训练任务来源: {row['id']}"
+        )
+
+
 def test_voices_api(client):
     """测试音色克隆样本上传与列表管理"""
     # 1. 获取音色列表
@@ -258,7 +294,6 @@ def test_voices_api(client):
     del_res = client.delete(f"/api/v1/voices/{voice_id}")
     assert del_res.status_code == 200
     assert del_res.json()["code"] == 0
-
 
 
 def test_guardrails_audit_logs(client):
@@ -412,7 +447,6 @@ def test_settings_api(client):
         assert len(preview_cosy_preset.content) > 500
 
 
-
 def test_console_ui_endpoint(client):
     """测试中控控制台 HTML 页面能够正常返回"""
     res = client.get("/console")
@@ -536,10 +570,6 @@ def test_role_upsert_rejects_unknown_role_type(client):
     assert "非法类型角色" not in names
     from server.core.roles.role_manager import global_role_manager
     assert all("非法类型角色" != r.role_name for r in global_role_manager._roles.values())
-
-
-
-
 
 
 def test_knowledge_upload_search_and_delete(client):
@@ -1054,7 +1084,9 @@ def test_products_full_management_and_flash_sale(client):
     stats_res = client.get("/api/v1/live/stats")
     stats = stats_res.json()["data"]
     assert stats["is_live"] is True
-    assert stats["mode"] == "B"
+    # mode 为可读名称 (如"智能带货端云混合")，档位代号归一化后 mode_code == "hybrid" (B 档)
+    assert stats["mode_code"] == "hybrid"
+    assert stats["mode"]
     assert stats["anchor_name"]
     assert stats["flash_sales"] >= 1
     assert "duration_sec" in stats and "network" in stats
@@ -1715,7 +1747,6 @@ def test_douyin_cookie_encryption_contract(client):
     assert "••••" in data["ms_token"]
 
 
-
 def test_anchor_update_can_clear_optional_fields(client):
     """回归：主播更新表单显式空值应解除音色绑定并清空备注。"""
     created = client.post(
@@ -1766,6 +1797,14 @@ def test_console_critical_operation_contracts():
     assert "switchPreviewSubTab('slices');\n    // 试播期间由 rAF 音频时钟帧循环独占" in js
     assert "stopSliceAnimationPlay();" in js
     assert "startSliceAnimationPlay();" in js
+    # 回归: 试听台词驱动必须带客户端超时。历史缺陷是裸 fetch 且无 AbortController,
+    # 云端资产上传在弱速隧道上要跑十几分钟, 期间状态条一直显示「正在唤醒…」,
+    # 用户既无法取消也无法得知真实进度, 只能干等到服务端最终报错。
+    assert "PREVIEW_DRIVE_TIMEOUT_MS" in js
+    assert "AbortController" in js
+    assert "preview-speech-drive" in js
+    # 超时后必须主动清理定时器并复位按钮, 否则会留下悬挂的 timer 与永久禁用的按钮
+    assert "clearTimeout(" in js
 
 
 def test_save_neural_renderer_config_and_validation_error_handler(client):
@@ -1826,3 +1865,141 @@ def test_save_neural_renderer_config_and_validation_error_handler(client):
     assert isinstance(bad_json.get("detail"), str)
     assert "ws" in bad_json["detail"]
     assert isinstance(bad_json.get("message"), str)
+
+
+# ---------------------------------------------------------------------------
+# 云端 GPU 自检必须回报「是否真的跑在 GPU 上」（防止 CPU 冒充 GPU）
+# ---------------------------------------------------------------------------
+def _ws_fake_node(caps):
+    import json as _json
+
+    class _FakeWS:
+        _authed = False
+
+        async def send(self, *_a, **_k):
+            return None
+
+        async def recv(self):
+            # 端点会先收 handshake_ack，发送 auth 后再等 auth_ok，故需有状态
+            if not self._authed:
+                self._authed = True
+                return _json.dumps({
+                    "event": "handshake_ack",
+                    "device": "Tesla T4, 15360 MiB",
+                    "capabilities": caps,
+                })
+            return _json.dumps({
+                "event": "auth_ok",
+                "device": "Tesla T4, 15360 MiB",
+                "capabilities": caps,
+            })
+
+        async def close(self):
+            return None
+
+    class _FakeConnect:
+        """websockets.connect 返回的对象需支持 `async with`（不是协程）。"""
+
+        def __init__(self, *_a, **_k):
+            self._ws = _FakeWS()
+
+        async def __aenter__(self):
+            return self._ws
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    # 端点内部是 `import websockets`（函数内局部导入），所以必须替换
+    # sys.modules 条目；只给模块对象打属性会被局部导入遮蔽。
+    import sys
+
+    _fake_module = types.ModuleType("websockets")
+    _fake_module.connect = _FakeConnect
+    _prev = sys.modules.get("websockets")
+    sys.modules["websockets"] = _fake_module
+    globals()["_websockets_restore"] = lambda: (
+        sys.modules.__setitem__("websockets", _prev) if _prev is not None
+        else sys.modules.pop("websockets", None)
+    )
+
+
+def test_cloud_gpu_check_reports_real_gpu_runtime(client):
+    """自检必须回报型号、显存，以及「是否真的跑在 GPU 上」。
+
+    真实风险：节点 nvidia-smi 看得到 Tesla T4，但 onnxruntime 静默回退
+    CPUExecutionProvider —— 此时型号与显存都看起来完全正常，整条推理链却跑在
+    CPU 上，用户被严重误导（此前确实发生过）。
+    """
+    _ws_fake_node({
+        "renderer_available": True,
+        "neural_lipsync": True,
+        "render_backends": [{
+            "id": "cloud_sidecar", "available": True, "neural": True,
+            "warmed": True, "license_approved": True, "model_version": "latentsync-256-v1",
+        }],
+    })
+    res = client.post("/api/v1/settings/test-connection", json={
+        "base_url": "wss://gpu.example.com/ws/render-v3",
+        "api_key": "tok",
+        "service_type": "neural_renderer",
+    })
+    globals()["_websockets_restore"]()
+    body = res.json()
+    assert body.get("gpu_name") == "Tesla T4", f"必须回报云端显卡型号: {body}"
+    assert float(body.get("vram_gb") or 0) >= 8, f"必须回报显存: {body}"
+    assert body.get("gpu_runtime_verified") is True, (
+        f"必须明确回报「已验证真实跑在 GPU 上」: {body}"
+    )
+    assert "GPU" in str(body.get("message") or ""), f"提示语须点明 GPU: {body}"
+
+
+def test_cloud_gpu_check_flags_cpu_disguised_as_gpu(client):
+    """节点自报 renderer_available=false 时必须标记 CPU 冒充，且不得宣称成功。"""
+    _ws_fake_node({
+        "renderer_available": False,
+        "neural_lipsync": False,
+        "render_backends": [{
+            "id": "cloud_sidecar", "available": False, "neural": False,
+            "warmed": True, "license_approved": True, "model_version": "latentsync-256-v1",
+        }],
+    })
+    res = client.post("/api/v1/settings/test-connection", json={
+        "base_url": "wss://gpu.example.com/ws/render-v3",
+        "api_key": "tok",
+        "service_type": "neural_renderer",
+    })
+    globals()["_websockets_restore"]()
+    body = res.json()
+    assert body.get("gpu_runtime_verified") is False, (
+        f"未真实使用 GPU 时必须标 False（CPU 冒充）: {body}"
+    )
+    msg = str(body.get("message") or "")
+    assert "CPU" in msg, f"必须点明实际跑在 CPU 上: {body}"
+
+
+def test_cloud_gpu_latentsync_verified(client):
+    """LatentSync 节点上报 gpu_runtime_verified=True 时必须验证通过。"""
+    _ws_fake_node({
+        "renderer_available": True,
+        "gpu_runtime_verified": True,
+        "neural_lipsync": True,
+        "batch_render": True,
+        "latentsync": True,
+        "render_backends": [{
+            "id": "latentsync_sidecar",
+            "name": "ByteDance LatentSync",
+            "available": True,
+            "neural": True,
+            "provider": "PyTorch CUDA",
+        }],
+    })
+    res = client.post("/api/v1/settings/test-connection", json={
+        "base_url": "wss://gpu.example.com/ws/render-v3",
+        "api_key": "tok",
+        "service_type": "neural_renderer",
+    })
+    globals()["_websockets_restore"]()
+    body = res.json()
+    assert body.get("gpu_runtime_verified") is True, f"LatentSync 真实 GPU 必须通过: {body}"
+    assert "GPU" in str(body.get("message") or ""), f"信息中须包含 GPU: {body}"
+

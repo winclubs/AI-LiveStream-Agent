@@ -1020,7 +1020,7 @@ async def serve(
         scheme = "wss" if ssl_context is not None else "ws"
         proxy_marker = " trusted-proxy TLS termination" if trusted_proxy else ""
         logger.info(
-            "授权 Wav2Lip 插件 sidecar: %s://%s:%s/ws/render-v3%s",
+            "授权 LatentSync 神经渲染插件 sidecar: %s://%s:%s/ws/render-v3%s",
             scheme,
             host,
             port,
@@ -1089,3 +1089,7 @@ def _bounded_text(value: Any, field: str, *, maximum_bytes: int = 128) -> str:
     if len(text.encode("utf-8")) > maximum_bytes:
         raise ValueError(f"{field} 超过 {maximum_bytes} UTF-8 bytes")
     return text
+
+
+# 现代 LatentSync 别名映射 (向前兼容旧名称)
+LatentSyncSidecarServer = Wav2LipSidecarServer

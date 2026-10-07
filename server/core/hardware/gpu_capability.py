@@ -159,34 +159,49 @@ def probe_local_gpu(force_refresh: bool = False) -> GpuInfo:
             pass
 
     # 3. WMI 兜底 (核显/集显识别)
+    #    用 PowerShell Get-CimInstance 而非已废弃的 `wmic` —— wmic 在
+    #    Windows 11 24H2 起已从系统移除，用它会导致本分支静默失效。
+    #    同时过滤虚拟/远程/基础显示适配器并取显存最大的真实物理显卡，
+    #    避免把 "Microsoft Basic Display Adapter" 误认成独显。
     if os.name == "nt":
         try:
+            ps_cmd = (
+                "Get-CimInstance Win32_VideoController | "
+                "Select-Object Name, AdapterRAM | ConvertTo-Json"
+            )
             out = subprocess.run(
-                ["wmic", "path", "win32_VideoController", "get", "name,adapterram", "/value"],
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
                 capture_output=True,
                 text=True,
-                timeout=3,
+                timeout=8,
             )
-            if out.returncode == 0:
-                name = None
-                ram_gb = 0.0
-                for line in out.stdout.splitlines():
-                    if line.startswith("Name="):
-                        name = line.split("=", 1)[1].strip()
-                    elif line.startswith("AdapterRAM="):
-                        try:
-                            bytes_val = int(line.split("=", 1)[1].strip())
-                            ram_gb = round(bytes_val / (1024 ** 3), 2)
-                        except Exception:
-                            pass
-                if name:
+            if out.returncode == 0 and out.stdout.strip():
+                raw = json.loads(out.stdout)
+                items = raw if isinstance(raw, list) else [raw]
+                ignore_keywords = {
+                    "oray", "virtual", "basic display", "iddriver",
+                    "remote", "microsoft 基本显示",
+                }
+                candidates: list[tuple[int, str]] = []
+                for item in items:
+                    name = str((item or {}).get("Name") or "").strip()
+                    if not name or any(k in name.lower() for k in ignore_keywords):
+                        continue
+                    ram = (item or {}).get("AdapterRAM") or 0
+                    candidates.append((int(ram), name))
+                if candidates:
+                    candidates.sort(key=lambda x: x[0], reverse=True)
+                    best_ram, best_name = candidates[0]
+                    # AdapterRAM 超过 4GB 时该字段在 WMI 中已溢出不可信
+                    ram_gb = round(best_ram / (1024 ** 3), 2) if 0 < best_ram <= 4 * (1024 ** 3) else 0.0
                     info = GpuInfo(
-                        gpu_name=name,
+                        gpu_name=best_name,
                         vram_total_gb=ram_gb,
                         vram_used_gb=0.0,
                         cuda_available=False,
                         is_low_spec=True,
                     )
+            # 未检出真实物理显卡时回落为空信息，由 is_low_spec=True 如实反映低配
         except Exception:
             pass
 
@@ -220,7 +235,7 @@ def parse_device_string(device_str: str) -> tuple[str, float]:
         return "", 0.0
     import re
     device_str = device_str.strip()
-    
+
     # 1. 提取显存 (GB)
     vram_gb = 0.0
     if "CPU" in device_str.upper() or "无独显" in device_str:
@@ -744,7 +759,7 @@ async def evaluate_compute(
         f"检测到您的本地显卡为 {hardware_label}，显存不足以承载深度学习模型，且{cloud_status_text}！\n"
         f"👉 建议方案：\n"
         f"1. 请前往【系统设置 -> 显卡与渲染设置】配置自建云端显卡算力节点 (Sidecar) 或第三方云端 GPU（如 AutoDL，约1.2元/小时）；\n"
-        f"2. 或切换至【轻量 CPU 免显卡模式】保证系统平稳开播。"
+        f"2. 配置完成前该档神经唇形渲染功能如实不可用：系统已禁止 CPU 假唇形降级，绝不以模拟口型冒充真实画面；音频链路与场控不受影响。"
     )
     return ComputePlan(
         feature_name=feature_name,

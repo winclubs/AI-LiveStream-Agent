@@ -33,12 +33,15 @@ class ASRSession:
         silence_timeout_sec: float = 0.6,
         on_interrupt: Optional[Callable[[], None]] = None,
         on_transcribe: Optional[Callable[[str], None]] = None,
+        on_barge_in: Optional[Callable[[], Any]] = None,
     ):
         self.session_id = session_id
         self.energy_threshold = energy_threshold
         self.silence_timeout_sec = silence_timeout_sec
         self.on_interrupt = on_interrupt
         self.on_transcribe = on_transcribe
+        # P1-5: VAD 打断改走控制器级代际栅栏回调，避免刚提交的句子在打断后仍播出来
+        self.on_barge_in = on_barge_in
 
         # 运行缓冲
         self.buffer = bytearray()
@@ -74,10 +77,24 @@ class ASRSession:
             if self.is_speaking and not self.interrupted_triggered:
                 driver = get_active_avatar_driver()
                 if driver and driver.is_speaking():
-                    try:
-                        asyncio.create_task(driver.flush_talk())
-                    except Exception:
-                        pass
+                    # P1-5 修复：优先走控制器级代际栅栏 (推进 _audio_generation +
+                    # virtual_audio.stop + 媒体驱动 interrupt)，确保刚提交的旧音频
+                    # 无法在打断后复活；仅 flush_talk 时漏掉这一步会留拖尾。
+                    fence_handled = False
+                    if self.on_barge_in is not None:
+                        try:
+                            result = self.on_barge_in()
+                            # 协程返回值需要 await；同步回调直接完成
+                            if asyncio.iscoroutine(result):
+                                asyncio.ensure_future(result)
+                            fence_handled = True
+                        except Exception:
+                            logger.exception("VAD 打断代际栅栏回调失败，回退 flush_talk")
+                    if not fence_handled:
+                        try:
+                            asyncio.create_task(driver.flush_talk())
+                        except Exception:
+                            pass
                     self.interrupted_triggered = True
                     events.append("interrupted")
                     logger.info(f"会话 {self.session_id} 触发全双工极速打断: 主播立即闭嘴并重置待机唇形")
@@ -146,6 +163,7 @@ class FullDuplexASRManager:
         session_id: str,
         on_interrupt: Optional[Callable[[], None]] = None,
         on_transcribe: Optional[Callable[[str], None]] = None,
+        on_barge_in: Optional[Callable[[], Any]] = None,
     ) -> ASRSession:
         """获取或创建指定会话的 ASR 实例"""
         if session_id not in self.sessions:
@@ -155,6 +173,7 @@ class FullDuplexASRManager:
                 silence_timeout_sec=self.default_silence_timeout,
                 on_interrupt=on_interrupt,
                 on_transcribe=on_transcribe,
+                on_barge_in=on_barge_in,
             )
         return self.sessions[session_id]
 

@@ -54,3 +54,25 @@ def test_external_request_with_token_protection(monkeypatch):
     resp_good_key = ext_client.get("/api/v1/system/version", headers={"X-API-Key": "test-secret-token-123"})
     assert resp_good_key.status_code == 200
     assert resp_good_key.json().get("code") == 0
+
+
+def test_external_request_without_token_warning(monkeypatch):
+    """测试未配置 Token 时外部请求带上安全警示 Header"""
+    monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("LIVE_AGENT_TOKEN", raising=False)
+    monkeypatch.delenv("ENFORCE_REMOTE_AUTH", raising=False)
+    ext_client = TestClient(app, client=("198.51.100.1", 54321))
+    resp = ext_client.get("/api/v1/system/version")
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Security-Warning") == "Unprotected-Remote-Access"
+
+
+def test_external_request_enforce_remote_auth(monkeypatch):
+    """测试开启严格模式时，未配置 Token 的外部访问被直接 403 拒绝"""
+    monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("LIVE_AGENT_TOKEN", raising=False)
+    monkeypatch.setenv("ENFORCE_REMOTE_AUTH", "1")
+    ext_client = TestClient(app, client=("198.51.100.1", 54321))
+    resp = ext_client.get("/api/v1/system/version")
+    assert resp.status_code == 403
+    assert "拦截" in resp.json().get("message", "")

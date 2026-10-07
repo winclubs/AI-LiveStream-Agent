@@ -43,6 +43,46 @@ logger = logging.getLogger("LiveAgent.NeuralSidecar")
 _TIMELINE_END = object()
 
 
+class SidecarBackendNotReadyError(RuntimeError):
+    """云端节点自身的后端就绪探测未通过 (render_rejected 的就绪类原因)。
+
+    与「鉴权失败」是两类完全不同的根因，必须分开：节点握手与 auth_ok 都可能
+    声明 available=true，却在 render_open 时以 `descriptor.available 必须为 true`
+    拒绝——这说明节点侧真实推理会话不可用 (典型是 onnxruntime 落到
+    CPUExecutionProvider，而 nvidia-smi 仍能看到卡)。此时鉴权已成功，
+    提示用户去查 token 会把排查方向完全带偏。
+    """
+
+    # 就绪类关键词：命中任一即判定为节点侧就绪问题而非鉴权/配置问题
+    READINESS_MARKERS = (
+        "descriptor.available",
+        "descriptor.neural",
+        "descriptor.warmed",
+        "descriptor.license_approved",
+        "available 必须为 true",
+        "必须严格为 true",
+        "renderer_available",
+        "neural_lipsync",
+        "render_backends",
+        "没有合格的 neural backend",
+        "not available",
+        "unavailable",
+        "未就绪",
+        "not ready",
+    )
+    AUTH_MARKERS = ("鉴权", "auth", "token", "unauthorized", "forbidden")
+
+    @classmethod
+    def matches_reason(cls, reason: str) -> bool:
+        text = str(reason or "").lower()
+        if not text:
+            return False
+        # 鉴权类原因优先级更高：既提到 token 又提到 available 时，鉴权才是根因
+        if any(marker in text for marker in cls.AUTH_MARKERS):
+            return False
+        return any(marker in text for marker in cls.READINESS_MARKERS)
+
+
 class NeuralSidecarMediaDriver(BaseMediaDriver):
     """版本化 renderer-only sidecar；失败时可由路由透明保留程序化画面。"""
 
@@ -56,6 +96,17 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
     MAX_PENDING_TIMELINES = 2
     MAX_PENDING_VIDEO_BYTES = 256 * 1024 * 1024
     MAX_INITIAL_CREDIT = 256
+    # keepalive 必须放宽：节点启用真实 GPU 推理后，其 WebSocket 处理器可能长时间
+    # 占用事件循环（同步推理），来不及回 pong。websockets 默认 ping_interval=20 /
+    # ping_timeout=20 会在节点正忙于推理时判死连接，抛出与真实原因无关的
+    # `1011 keepalive ping timeout`，把排查方向带偏。此处放宽到能容纳整段推理。
+    KEEPALIVE_PING_INTERVAL = 30.0
+    KEEPALIVE_PING_TIMEOUT = 180.0
+    # 实时节奏：直播链路必须保持音画同步（按 pts_samples 对齐墙钟）。
+    # 试播只是收集帧序列、事后统一播放，不需要实时推进，且节点渲染 + 隧道传输
+    # 一旦慢于音频时长就会撞上时间线 deadline 而误报「consumer 已提前终止」。
+    # 试播在构造后置为 False。
+    realtime_pacing: bool = True
     EVIDENCE_FIELDS = (
         "model_version",
         "weights_sha256",
@@ -77,15 +128,19 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         license_manifest_digest: str = "",
         weights_sha256: str = "",
         model_version: str = "",
+        preview_face_only: bool = False,
         require_neural_lipsync: bool = True,
+        bbox_shift: int = 0,
         connect_timeout: float | None = None,
         message_timeout: float | None = None,
         request_timeout: float | None = None,
         ssh_config: dict | None = None,
     ) -> None:
         super().__init__()
+        import os
         self.node_url = node_url
         self.auth_token = auth_token
+        self.bbox_shift = int(bbox_shift if bbox_shift != 0 else os.getenv("MUSE_TALK_BBOX_SHIFT", 0))
         # SSH 隧道配置
         self.ssh_config = ssh_config or {}
         self.ssh_enabled = bool(self.ssh_config.get("enabled"))
@@ -102,6 +157,9 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         self.avatar_id = avatar_id or "default"
         self.avatar_revision = avatar_revision or ""
         self.avatar_digest = avatar_digest or ""
+        # 试播模式：只要 256x256 人脸帧。实测隧道下行仅 ~123 KB/s，720x960 全图
+        # 单帧 50 KB，10 秒音频就是 12.7MB ≈ 101 秒，连接会在传输中途被掐断。
+        self.preview_face_only = preview_face_only
         self.license_manifest_digest = license_manifest_digest or ""
         self.weights_sha256 = weights_sha256 or ""
         self.model_version = model_version or ""
@@ -256,11 +314,17 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         return ""
 
     def _select_renderer_descriptor(self, capabilities: dict) -> dict:
+        # 节点如实声明「不可用 / 非神经」时，属节点侧就绪问题而非鉴权问题，
+        # 必须用 SidecarBackendNotReadyError 抛出让上层给对方向的提示。
         if capabilities.get("renderer_available") is not True:
-            raise RuntimeError("sidecar renderer_available 必须严格为 true")
+            raise SidecarBackendNotReadyError(
+                "sidecar renderer_available 必须严格为 true：节点自报渲染后端不可用"
+            )
         backends = capabilities.get("render_backends")
         if not isinstance(backends, list) or not backends:
-            raise RuntimeError("sidecar 缺少 render_backends descriptor")
+            raise SidecarBackendNotReadyError(
+                "sidecar 缺少 render_backends descriptor：节点未下发任何后端描述"
+            )
         # 兼容部分旧版/轻量 bootstrap sidecar 未下发 id/available 等字段：auto 模式下自动补齐缺失的严格字段
         normalized_backends: list[dict] = []
         for raw in backends:
@@ -286,11 +350,13 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
                 normalized_backends.append(dict(raw))
         candidates = normalized_backends
         if not candidates:
-            raise RuntimeError("sidecar 未返回请求的具体 backend descriptor")
+            raise SidecarBackendNotReadyError("sidecar 未返回请求的具体 backend descriptor")
 
         if self.require_neural_lipsync:
             if capabilities.get("neural_lipsync") is not True:
-                raise RuntimeError("sidecar neural_lipsync 必须严格为 true")
+                raise SidecarBackendNotReadyError(
+                    "sidecar neural_lipsync 必须严格为 true：节点自报不提供真实神经口型"
+                )
             if capabilities.get("strict_completion") is not True:
                 raise RuntimeError("神经 sidecar 必须启用 strict_completion")
             if capabilities.get("streaming_video") is not True:
@@ -317,7 +383,11 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
                 if not error:
                     return dict(descriptor)
                 errors.append(error)
-            raise RuntimeError(errors[0] if errors else "sidecar 没有合格的 neural backend")
+            # 节点声明了后端但严格字段不达标（available/neural 为 false 等）：
+            # 这是节点侧就绪问题，必须让上层给「检查节点」的提示而非「检查鉴权」。
+            raise SidecarBackendNotReadyError(
+                errors[0] if errors else "sidecar 没有合格的 neural backend"
+            )
 
         # 仅显式关闭神经要求时允许旧 v3 procedural fixture；它必须诚实声明非 neural。
         if capabilities.get("neural_lipsync") is not False:
@@ -344,7 +414,12 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
 
             handshake_deadline = time.monotonic() + self.CONNECT_TIMEOUT
             self._ws = await asyncio.wait_for(
-                websockets.connect(effective_node_url, max_size=16 * 1024 * 1024),
+                websockets.connect(
+                    effective_node_url,
+                    max_size=16 * 1024 * 1024,
+                    ping_interval=self.KEEPALIVE_PING_INTERVAL,
+                    ping_timeout=self.KEEPALIVE_PING_TIMEOUT,
+                ),
                 timeout=max(0.001, handshake_deadline - time.monotonic()),
             )
             await self._send_raw(
@@ -502,7 +577,12 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
             reason = str(accepted.get("reason") or accepted.get("message") or "").strip() or "未知原因"
             # 保留原始事件与 request_id，便于 _dispatch_render 聚合展示
             payload = dict(accepted)
-            raise RuntimeError(f"sidecar 拒绝 render_open: {reason} raw={payload}")
+            detail = f"sidecar 拒绝 render_open: {reason} raw={payload}"
+            if SidecarBackendNotReadyError.matches_reason(reason):
+                # 节点握手/auth_ok 可能都声明 available=true，却在此处拒绝：
+                # 根因在节点侧后端就绪探测，不在鉴权，必须让上层能分开归类
+                raise SidecarBackendNotReadyError(detail)
+            raise RuntimeError(detail)
         if event == "error":
             raise self._wire_error(accepted)
         if event != "render_accepted" or accepted.get("request_id") != request_id:
@@ -622,7 +702,9 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
                     "license_manifest_digest": self.license_manifest_digest,
                     "weights_sha256": self.weights_sha256,
                     "model_version": self.model_version,
+                    "preview_face_only": self.preview_face_only,
                     "text": first.text,
+                    "bbox_shift": self.bbox_shift,
                 }), deadline)
                 accepted = await self._recv_json(deadline)
                 credit, accepted_evidence = self._validate_render_accepted(accepted, request_id)
@@ -701,7 +783,10 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
                         )
 
                 if timeline_task.done():
-                    raise RuntimeError("sidecar 视频时间线 consumer 已提前终止")
+                    # 必须带出真实原因：时间线超时/被中断时 last_error 才有信息量，
+                    # 只报「已提前终止」等于把根因丢掉，用户只能看到一句空话
+                    detail = f"（原因: {self.last_error}）" if self.last_error else ""
+                    raise RuntimeError(f"sidecar 视频时间线 consumer 已提前终止{detail}")
                 try:
                     timeline_queue.put_nowait(_TIMELINE_END)
                 except asyncio.QueueFull as exc:
@@ -1038,6 +1123,10 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
                             current = item
 
                     while True:
+                        if not self.realtime_pacing:
+                            # 非实时（试播）：节点给多少就收多少，不按墙钟等待 PTS 时刻
+                            elapsed_samples = current.pts_samples
+                            break
                         if time.monotonic() > deadline:
                             self.frames_dropped += 1
                             self.is_degraded = True
@@ -1183,22 +1272,35 @@ class NeuralSidecarMediaDriver(BaseMediaDriver):
         self.latest_jpeg = jpeg
         self._latest_frame_owner = owner
         self.frames_received += 1
-        try:
-            # 视频帧发布打 PTS 锚点；携带采样时钟换算值时与音频侧同源
-            global_shared_playback_clock.stamp_video(self.frames_received, self._pending_video_pts_ms)
-        except Exception:
-            pass
-        self._pending_video_pts_ms = None
+
+        # P0 修复：云端帧经由统一发布总线扇出到全部通道 (RTMP/WebRTC/录制器/虚拟摄像头)，
+        # 并以高优先级租约抑制本地 shadow 向同一批通道发布低质帧。
+        # compose=False：上方已完成画层合成与 latest_jpeg 重编码，避免微扰画层叠加两次。
         if image_rgb is not None:
             try:
-                from server.core.media.virtual_cam import global_virtual_cam
+                from server.core.media.frame_bus import global_frame_bus
 
-                if global_virtual_cam.is_active:
-                    global_virtual_cam.send_frame(
-                        image_rgb, owner="neural_sidecar", priority=100
-                    )
+                published, _composed = global_frame_bus.publish_frame(
+                    image_rgb,
+                    owner="neural_sidecar",
+                    priority=100,
+                    frame_index=self.frames_received,
+                    pts_ms=self._pending_video_pts_ms,
+                    compose=False,
+                )
+                if published:
+                    self._pending_video_pts_ms = None
+                    return
+                # 被抑制时仍保证 MJPEG 预览与状态正确
             except Exception:
                 pass
+        else:
+            try:
+                from server.core.media.shared_playback_clock import global_shared_playback_clock
+                global_shared_playback_clock.stamp_video(self.frames_received, self._pending_video_pts_ms)
+            except Exception:
+                pass
+            self._pending_video_pts_ms = None
 
     async def _cancel_timeline(self, task: asyncio.Task) -> None:
         queues = [queue for queue, consumer in self._timeline_consumers.items() if consumer is task]

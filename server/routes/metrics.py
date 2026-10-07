@@ -111,11 +111,25 @@ def _collect_live_metrics() -> dict:
         "same_sentence_failover": False,
     }
 
+    # 音画同步时钟与帧发布总线实况 (P2-8：drift/recommended_delay/frame_pacing 纳入监控)
+    from server.core.media.shared_playback_clock import global_shared_playback_clock
+    from server.core.media.frame_bus import global_frame_bus
+    from server.core.media.av_sync import global_av_sync
+    clock_status = _safe_snapshot("shared_playback_clock", global_shared_playback_clock.get_alignment_status)
+    frame_bus_status = _safe_snapshot("frame_publish_bus", global_frame_bus.get_status)
+    av_sync = _safe_snapshot("av_sync_controller", global_av_sync.get_status)
+
     # 进程与系统资源
     process = psutil.Process()
     mem_info = process.memory_info()
     mem_rss_mb = round(mem_info.rss / 1024 / 1024, 2)
     cpu_percent = process.cpu_percent(interval=None)
+
+    realtime_latency = av_sync.get("realtime_latency", {}) if isinstance(av_sync, dict) else {}
+
+    def _realtime_value(metric: str, field: str) -> float:
+        item = realtime_latency.get(metric, {}) if isinstance(realtime_latency, dict) else {}
+        return float(item.get(field, 0.0) or 0.0) if isinstance(item, dict) else 0.0
 
     return {
         "is_live": is_live,
@@ -141,7 +155,10 @@ def _collect_live_metrics() -> dict:
         "audio_frame_transactions_cancelled": audio_pipeline.get("transactions_cancelled", 0),
         "audio_frames_total": audio_pipeline.get("frames_total", 0),
         "audio_frame_decode_ms": audio_pipeline.get("last_decode_ms", 0.0),
-        "audio_true_streaming_tts": 1 if audio_pipeline.get("true_streaming_tts") else 0,
+        "audio_true_streaming_tts": 1 if (
+            audio_pipeline.get("true_streaming_tts")
+            or _realtime_value("tts_first_chunk_ms", "count") > 0
+        ) else 0,
         "incremental_pcm_transactions_opened": incremental_audio.get("transactions_opened", 0),
         "incremental_pcm_transactions_committed": incremental_audio.get("transactions_committed", 0),
         "incremental_pcm_transactions_aborted": incremental_audio.get("transactions_aborted", 0),
@@ -151,6 +168,26 @@ def _collect_live_metrics() -> dict:
         "neural_sidecar_connected": 1 if sidecar_status.get("remote_connected") else 0,
         "neural_sidecar_ready": 1 if sidecar_status.get("remote_ready") else 0,
         "neural_sidecar_degraded": 1 if sidecar_status.get("degraded") else 0,
+        # P2-8: 音画同步漂移与帧发布总线仲裁状态
+        "av_drift_ms": float(clock_status.get("drift_ms", 0.0) or 0.0),
+        "av_recommended_delay_ms": int(clock_status.get("recommended_delay_ms", 0) or 0),
+        "av_frame_pacing_hint": 1 if clock_status.get("frame_pacing_hint") else 0,
+        "av_audio_anchored": 1 if clock_status.get("audio_anchored") else 0,
+        "av_sync_recommended_delay_ms": int(av_sync.get("recommended_delay_ms", 0) or 0),
+        "av_sync_drift_locked": 1 if av_sync.get("drift_locked") else 0,
+        "realtime_latency": realtime_latency,
+        "tts_first_chunk_p50_ms": _realtime_value("tts_first_chunk_ms", "p50_ms"),
+        "tts_first_chunk_p95_ms": _realtime_value("tts_first_chunk_ms", "p95_ms"),
+        "tts_first_chunk_p99_ms": _realtime_value("tts_first_chunk_ms", "p99_ms"),
+        "audio_first_frame_p50_ms": _realtime_value("audio_first_frame_ms", "p50_ms"),
+        "audio_first_frame_p95_ms": _realtime_value("audio_first_frame_ms", "p95_ms"),
+        "audio_first_frame_p99_ms": _realtime_value("audio_first_frame_ms", "p99_ms"),
+        "playback_start_p50_ms": _realtime_value("playback_start_ms", "p50_ms"),
+        "playback_start_p95_ms": _realtime_value("playback_start_ms", "p95_ms"),
+        "playback_start_p99_ms": _realtime_value("playback_start_ms", "p99_ms"),
+        "frame_bus_owner": frame_bus_status.get("frame_owner", ""),
+        "frame_bus_frames_published": int(frame_bus_status.get("total_published", 0) or 0),
+        "frame_bus_frames_suppressed": int(frame_bus_status.get("frames_suppressed_by_owner", 0) or 0),
         "process_mem_rss_mb": mem_rss_mb,
         "process_cpu_percent": cpu_percent,
         "timestamp": time.time(),
@@ -243,6 +280,22 @@ async def prometheus_metrics():
         "# TYPE live_agent_audio_true_streaming_tts gauge",
         f"live_agent_audio_true_streaming_tts {m['audio_true_streaming_tts']}",
         "",
+        "# HELP live_agent_tts_first_chunk_latency_ms TTS 首个 PCM chunk 延迟分位数 (毫秒)",
+        "# TYPE live_agent_tts_first_chunk_latency_ms gauge",
+        f"live_agent_tts_first_chunk_latency_p50_ms {m['tts_first_chunk_p50_ms']}",
+        f"live_agent_tts_first_chunk_latency_p95_ms {m['tts_first_chunk_p95_ms']}",
+        f"live_agent_tts_first_chunk_latency_p99_ms {m['tts_first_chunk_p99_ms']}",
+        "# HELP live_agent_audio_first_frame_latency_ms 首个音频帧提交延迟分位数 (毫秒)",
+        "# TYPE live_agent_audio_first_frame_latency_ms gauge",
+        f"live_agent_audio_first_frame_latency_p50_ms {m['audio_first_frame_p50_ms']}",
+        f"live_agent_audio_first_frame_latency_p95_ms {m['audio_first_frame_p95_ms']}",
+        f"live_agent_audio_first_frame_latency_p99_ms {m['audio_first_frame_p99_ms']}",
+        "# HELP live_agent_playback_start_latency_ms 播放线程启动延迟分位数 (毫秒)",
+        "# TYPE live_agent_playback_start_latency_ms gauge",
+        f"live_agent_playback_start_latency_p50_ms {m['playback_start_p50_ms']}",
+        f"live_agent_playback_start_latency_p95_ms {m['playback_start_p95_ms']}",
+        f"live_agent_playback_start_latency_p99_ms {m['playback_start_p99_ms']}",
+        "",
         "# HELP live_agent_virtual_audio_pending_chunks 虚拟声卡待播放事务数",
         "# TYPE live_agent_virtual_audio_pending_chunks gauge",
         f"live_agent_virtual_audio_pending_chunks {m['virtual_audio_pending_chunks']}",
@@ -278,6 +331,34 @@ async def prometheus_metrics():
         "# HELP live_agent_neural_sidecar_degraded sidecar 是否已降级到本地 shadow",
         "# TYPE live_agent_neural_sidecar_degraded gauge",
         f"live_agent_neural_sidecar_degraded {m['neural_sidecar_degraded']}",
+        "",
+        "# HELP live_agent_av_drift_ms 音画同步漂移 (毫秒，负值表示音频滞后于画面)",
+        "# TYPE live_agent_av_drift_ms gauge",
+        f"live_agent_av_drift_ms {m['av_drift_ms']}",
+        "",
+        "# HELP live_agent_av_recommended_delay_ms 共享时钟推荐的音频前置延迟补偿量 (毫秒)",
+        "# TYPE live_agent_av_recommended_delay_ms gauge",
+        f"live_agent_av_recommended_delay_ms {m['av_recommended_delay_ms']}",
+        "",
+        "# HELP live_agent_av_frame_pacing_hint_active 帧节奏建议是否激活 (1=skip/duplicate frame)",
+        "# TYPE live_agent_av_frame_pacing_hint_active gauge",
+        f"live_agent_av_frame_pacing_hint_active {m['av_frame_pacing_hint']}",
+        "",
+        "# HELP live_agent_av_audio_anchored 音频侧锚点是否已建立 (0 时 drift 不可信)",
+        "# TYPE live_agent_av_audio_anchored gauge",
+        f"live_agent_av_audio_anchored {m['av_audio_anchored']}",
+        "",
+        "# HELP live_agent_av_sync_drift_locked AVSyncController 漂移是否已锁定",
+        "# TYPE live_agent_av_sync_drift_locked gauge",
+        f"live_agent_av_sync_drift_locked {m['av_sync_drift_locked']}",
+        "",
+        "# HELP live_agent_frame_bus_frames_published_total 帧发布总线实际发布帧数",
+        "# TYPE live_agent_frame_bus_frames_published_total counter",
+        f"live_agent_frame_bus_frames_published_total {m['frame_bus_frames_published']}",
+        "",
+        "# HELP live_agent_frame_bus_frames_suppressed_total 帧发布总线被租约仲裁抑制的帧数 (shadow 帧被云端帧抑制)",
+        "# TYPE live_agent_frame_bus_frames_suppressed_total counter",
+        f"live_agent_frame_bus_frames_suppressed_total {m['frame_bus_frames_suppressed']}",
         "",
         "# HELP live_agent_memory_rss_bytes 进程常驻内存字节数",
         "# TYPE live_agent_memory_rss_bytes gauge",

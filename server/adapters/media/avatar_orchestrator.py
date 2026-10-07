@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import threading
 import time
@@ -26,6 +27,8 @@ from server.adapters.media.avatar_provider import (
     RemoteAvatarProvider,
 )
 from server.core.media.audio_frame import AudioFrame, validate_audio_frame_batch
+
+logger = logging.getLogger("LiveAgent.AvatarOrchestrator")
 
 
 class CircuitState(StrEnum):
@@ -208,6 +211,49 @@ class AvatarProviderOrchestrator:
         self._requests_total = 0
         self._outcomes: Counter[str] = Counter()
         self._lifecycle_tasks: set[asyncio.Task] = set()
+        # 批处理 Provider 的前瞻预取器 (P0-1)。
+        # 扩散模型无法逐帧流式推流，必须「提前渲染 -> 播放时命中缓存」。
+        # 该预取器是 SlicePrefetcher 注入的**句级**前导加速层，
+        # 由 live.py 在派发前调用 prefetch_upcoming() 填充。
+        self._prefetcher = None
+        self._prefetch_hits = 0
+
+    def attach_prefetcher(self, prefetcher) -> None:
+        """挂载句级前瞻预取器。"""
+        self._prefetcher = prefetcher
+
+    def detach_prefetcher(self) -> None:
+        self._prefetcher = None
+
+    @property
+    def prefetch_hits(self) -> int:
+        return self._prefetch_hits
+
+    def batch_providers(self) -> list:
+        """返回支持 BATCH (前瞻预取) 的 provider 实例列表。"""
+        found = []
+        for runtime in self._runtimes.values():
+            provider = runtime.entry.provider
+            try:
+                caps = provider.capabilities
+            except Exception:
+                continue
+            if caps.is_mode_eligible(AvatarRenderMode.BATCH) and callable(
+                getattr(type(provider), "play_cached_slice", None)
+            ):
+                found.append(provider)
+        return found
+
+    async def prefetch_upcoming(self, frames: Sequence[AudioFrame]) -> None:
+        """为即将上屏的句子请求前瞻预渲染 (best-effort，绝不影响主链路)。"""
+        if self._prefetcher is None:
+            return
+        try:
+            await self._prefetcher.prefetch_sentence(
+                frames[0].audio_id, frames, getattr(frames[0], "text", "") or ""
+            )
+        except Exception:
+            logger.debug("句级前瞻预取失败，保持本地 shadow", exc_info=True)
 
     @property
     def provider_count(self) -> int:
@@ -492,6 +538,31 @@ class AvatarProviderOrchestrator:
         runtime = reservation.runtime
         provider = runtime.entry.provider
         started_at = time.monotonic()
+
+        # P0-1：批处理路径优先命中前瞻预取缓存。命中即零延迟上屏，
+        # 不再发起云端批处理请求 —— 这是扩散模型能跟上实时直播的唯一途径。
+        if reservation.render_mode is AvatarRenderMode.BATCH and self._prefetcher is not None:
+            try:
+                acquired = await self._prefetcher.acquire_slice(first.audio_id)
+            except Exception:
+                acquired = None
+                logger.debug("预取缓存命中检查失败，回退常规派发", exc_info=True)
+            if acquired is not None:
+                with self._lock:
+                    self._prefetch_hits += 1
+                    self._outcomes["prefetch_hit"] += 1
+                    self._complete_locked(
+                        reservation,
+                        outcome="prefetch_hit",
+                        latency_ms=(time.monotonic() - started_at) * 1000.0,
+                        result=acquired.result,
+                    )
+                return AvatarDispatchOutcome(
+                    audio_id=first.audio_id,
+                    provider_id=provider.provider_id,
+                    result=acquired.result,
+                )
+
         try:
             async with asyncio.timeout(runtime.entry.policy.timeouts.request_seconds):
                 result = await provider.render_sentence(

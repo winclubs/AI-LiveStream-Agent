@@ -75,7 +75,7 @@ LIVE_MODE_ALIASES = {
 }
 
 
-def normalize_live_mode(mode: Optional[str]) -> str:
+def normalize_live_mode(mode: Any) -> str:
     """将任意模式入参（包括历史 A/B/C/D 档位）统一定位归一化为 local 或 hybrid"""
     if not mode:
         return "hybrid"
@@ -1024,6 +1024,11 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
 
                 ack_gpu_name = ""
                 ack_vram_gb = 0.0
+                # 是否**真的**跑在 GPU 上：只看型号与显存会被 CPU 冒充骗过去
+                # （nvidia-smi 有 Tesla T4，但 onnxruntime 静默回退 CPUExecutionProvider）。
+                # 新版节点会如实下发 renderer_available / render_backends[].available。
+                ack_gpu_runtime_verified = None
+                ack_runtime_providers: list[str] = []
 
                 # 智能循环接收握手阶段消息 (处理 handshake_ack、auth_ok 及硬件信息提取)
                 loop_start = time.time()
@@ -1047,6 +1052,28 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                                         ack_vram_gb = float(msg_json.get("vram_gb"))
                                     except Exception:
                                         pass
+                                # 优先提取节点显式声明的 gpu_runtime_verified
+                                if msg_json.get("gpu_runtime_verified") is not None:
+                                    ack_gpu_runtime_verified = bool(msg_json.get("gpu_runtime_verified"))
+                                # 提取「真实 GPU 运行」证据：节点自报的渲染面就绪状态
+                                caps = msg_json.get("capabilities")
+                                if isinstance(caps, dict):
+                                    if caps.get("gpu_runtime_verified") is not None:
+                                        ack_gpu_runtime_verified = bool(caps.get("gpu_runtime_verified"))
+                                    renderer_available = caps.get("renderer_available")
+                                    backends = caps.get("render_backends")
+                                    if isinstance(backends, list):
+                                        for backend in backends:
+                                            if not isinstance(backend, dict):
+                                                continue
+                                            if backend.get("available") is True:
+                                                ack_gpu_runtime_verified = True
+                                            elif ack_gpu_runtime_verified is None:
+                                                ack_gpu_runtime_verified = False
+                                    if renderer_available is False:
+                                        ack_gpu_runtime_verified = False
+                                    elif renderer_available is True and ack_gpu_runtime_verified is None:
+                                        ack_gpu_runtime_verified = True
 
                                 if ev == "auth_ok":
                                     auth_passed = True
@@ -1103,6 +1130,15 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                 except Exception:
                     pass
 
+                # 诚实标注 GPU 是否真的在用：型号/显存正常不代表推理跑在 GPU 上
+                if ack_gpu_runtime_verified is True:
+                    msg_text += " · 已验证真实跑在 GPU 上（非 CPU 冒充）"
+                elif ack_gpu_runtime_verified is False:
+                    msg_text += (
+                        " · ⚠️ 节点未真实使用 GPU（实际可能跑在 CPU 上）："
+                        "请在云端检查 PyTorch CUDA / GPU 驱动是否安装并生效"
+                    )
+
                 return {
                     "code": 0,
                     "success": True,
@@ -1110,6 +1146,7 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                     "device": device_info,
                     "gpu_name": dev_name,
                     "vram_gb": vram_gb,
+                    "gpu_runtime_verified": ack_gpu_runtime_verified,
                     "message": msg_text
                 }
         except Exception as e:
@@ -1134,12 +1171,52 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                                 if isinstance(h_json, dict) and h_json.get("device"):
                                     dev = str(h_json.get("device"))
                                     elapsed_ms = int((time.time() - start_time) * 1000)
+                                    try:
+                                        from server.core.hardware.gpu_capability import parse_device_string
+                                        p_name, p_vram = parse_device_string(dev)
+                                    except Exception:
+                                        p_name, p_vram = "", 0.0
+
+                                    # 深入验证是否真实跑在 GPU 上（兼容 LatentSync 扩散模型与现代 PyTorch CUDA）
+                                    backend_ready = h_json.get("backend_ready")
+                                    renderer_available = h_json.get("renderer_available")
+                                    torch_cuda = h_json.get("torch_cuda_available")
+                                    providers = h_json.get("providers")
+                                    explicit_verified = h_json.get("gpu_runtime_verified")
+                                    engine_name = str(h_json.get("engine") or "")
+
+                                    # 如果显式指定为 False，则遵从为 False
+                                    if explicit_verified is False or backend_ready is False or renderer_available is False:
+                                        gpu_verified = False
+                                    else:
+                                        gpu_verified = (
+                                            explicit_verified is True
+                                            or backend_ready is True
+                                            or renderer_available is True
+                                            or torch_cuda is True
+                                            or (isinstance(providers, list) and any("cuda" in str(p).lower() for p in providers))
+                                            or ("latentsync" in engine_name.lower() and "cpu" not in dev.lower() and (p_vram > 0 or float(h_json.get("vram_total_gb") or 0) > 0))
+                                        )
+
+                                    runtime_msg = ""
+                                    if gpu_verified:
+                                        runtime_msg = " · 已验证真实跑在 GPU 上（非 CPU 冒充）"
+                                    else:
+                                        note = str(h_json.get("provider_note") or "")[:160]
+                                        runtime_msg = (
+                                            " · ⚠️ 节点未真实使用 GPU（实际跑在 CPU 上）"
+                                            + (f"：{note}" if note else "")
+                                        )
+
                                     return {
                                         "code": 0,
                                         "success": True,
                                         "latency_ms": elapsed_ms,
                                         "device": dev,
-                                        "message": f"通信对接成功！已连接云端 Sidecar 节点，识别硬件: {dev}，延迟: {elapsed_ms}ms"
+                                        "gpu_name": p_name or dev,
+                                        "vram_gb": p_vram or float(h_json.get("vram_total_gb") or 0),
+                                        "gpu_runtime_verified": bool(gpu_verified),
+                                        "message": f"通信对接成功！已连接云端 Sidecar 节点，识别硬件: {dev}，延迟: {elapsed_ms}ms{runtime_msg}"
                                     }
                         except Exception:
                             pass
@@ -1468,7 +1545,7 @@ async def preview_tts_audio(req: TTSPreviewRequest):
 # ---------------------------------------------------------------------------
 class ImportNeuralModelRequest(BaseModel):
     src_path: str = Field(..., description="本机已有权重文件绝对路径")
-    model_key: str = Field(..., description="模型标识符 (wav2lip_256 / wav2lip_384 / musetalk / onnx_lipsync)")
+    model_key: str = Field(..., description="模型标识符 (latentsync_256 / latentsync_512 / onnx_lipsync / musetalk)")
 
 
 @router.get("/neural-models", summary="获取自包含数字人神经模型就绪状态矩阵")

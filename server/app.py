@@ -178,10 +178,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 允许跨域请求 (为 Electron/WebUI 桌面端提供支持)
+# 允许跨域请求 (支持 CORS_ALLOW_ORIGINS 环境变量配置白名单，未配置时默认放行以支持 Electron/WebUI 桌面端)
+cors_env = os.getenv("CORS_ALLOW_ORIGINS", "*").strip()
+cors_origins = [o.strip() for o in cors_env.split(",") if o.strip()] if cors_env != "*" else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins or ["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -194,7 +196,8 @@ async def security_auth_middleware(request, call_next):
     自适应安全鉴权中间件 (解决 7.4-13 服务非本地暴露裸奔风险)
     - 本地单机回环 (127.0.0.1/::1/localhost/testclient) 零摩擦免密放行；
     - 静态资源与健康探针 (/static, /health, /livez 等) 默认放行；
-    - 当设置环境变量 API_AUTH_TOKEN 或 LIVE_AGENT_TOKEN 时，对外部网络强制校验 Bearer 令牌。
+    - 当设置环境变量 API_AUTH_TOKEN 或 LIVE_AGENT_TOKEN 时，对外部网络强制校验 Bearer 令牌；
+    - 当外部网络访问且未设置 Token 时，记录安全告警，并支持 ENFORCE_REMOTE_AUTH 强制拦截。
     """
     client_host = request.client.host if request.client else ""
     is_local = client_host in ("127.0.0.1", "::1", "localhost", "testclient")
@@ -226,8 +229,27 @@ async def security_auth_middleware(request, call_next):
                 status_code=401,
                 content={"code": 401, "message": "未授权访问：请在请求头提供有效的 Bearer 令牌或 X-API-Key"}
             )
+    else:
+        # 外部网络访问且未设置 Token
+        enforce_remote = os.getenv("ENFORCE_REMOTE_AUTH", "0").lower() in ("1", "true", "yes")
+        if enforce_remote:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "code": 403,
+                    "message": "已拦截外部网络访问：服务端未配置 API_AUTH_TOKEN 鉴权令牌。请在部署环境配置 API_AUTH_TOKEN 以确保公网安全。"
+                }
+            )
+        logger.warning(
+            "🚨 [安全风险提示] 收到非本地回环外部网络请求 (%s -> %s)，但服务端未设置 API_AUTH_TOKEN 令牌！建议配置令牌防公网未授权访问。",
+            client_host,
+            path,
+        )
 
-    return await call_next(request)
+    response = await call_next(request)
+    if not is_local and not auth_token:
+        response.headers["X-Security-Warning"] = "Unprotected-Remote-Access"
+    return response
 
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles

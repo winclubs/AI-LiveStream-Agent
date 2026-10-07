@@ -41,3 +41,8 @@ Thumbs.db
 # Portable Python runtime build artifact
 apps/desktop-ui/resources/
 apps/desktop-ui/resources/python/
+
+# Test scratch / process files
+.opencode_test*
+report.md
+

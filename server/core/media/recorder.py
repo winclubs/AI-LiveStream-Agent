@@ -63,11 +63,13 @@ class VideoAudioRecorder:
 
         self._video_writer: Optional[cv2.VideoWriter] = None
         self._audio_buffer = bytearray()
+        # 音频实际采样率：跟随 feed_audio 声明更新，封装 WAV 时如实写入
+        self._audio_sample_rate = 16000
 
     def start(self) -> bool:
         """开始录制"""
         self.record_dir.mkdir(parents=True, exist_ok=True)
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        fourcc = cv2.VideoWriter.fourcc(*"mp4v")
         self._video_writer = cv2.VideoWriter(
             str(self.raw_video_path),
             fourcc,
@@ -82,6 +84,7 @@ class VideoAudioRecorder:
         self.is_recording = True
         self.total_frames = 0
         self._audio_buffer.clear()
+        self._audio_sample_rate = 16000
         logger.info(f"切片录制开始: #{self.record_id} 【{self.title}】({self.width}x{self.height} @ {self.fps}FPS)")
         return True
 
@@ -99,10 +102,16 @@ class VideoAudioRecorder:
         self._video_writer.write(frame_bgr)
         self.total_frames += 1
 
-    def feed_audio(self, pcm_bytes: bytes):
-        """写入音频流 (16kHz 16-bit 单声道 PCM)"""
+    def feed_audio(self, pcm_bytes: bytes, sample_rate: int = 0):
+        """写入音频流 (16-bit 单声道 PCM，采样率随声明记录)
+
+        修复前：WAV 固定写 16000Hz，而实际送入的是 TTS 原生采样率 (24k/48k)，
+        导致录制切片音调/时长错误。
+        """
         if not self.is_recording or not pcm_bytes:
             return
+        if sample_rate and sample_rate > 0:
+            self._audio_sample_rate = int(sample_rate)
         self._audio_buffer.extend(pcm_bytes)
 
     def stop(self) -> Dict[str, Any]:
@@ -118,13 +127,13 @@ class VideoAudioRecorder:
             self._video_writer.release()
             self._video_writer = None
 
-        # 保存音频 wav
+        # 保存音频 wav (采样率如实记录，不再固定 16000)
         has_audio = False
         if len(self._audio_buffer) > 0:
             with wave.open(str(self.raw_audio_path), "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
-                wf.setframerate(16000)
+                wf.setframerate(self._audio_sample_rate)
                 wf.writeframes(bytes(self._audio_buffer))
             has_audio = True
 
@@ -278,10 +287,10 @@ class RecordManager:
         if self.is_recording() and self.active_recorder:
             self.active_recorder.feed_frame(frame_bgr)
 
-    def feed_audio(self, pcm_bytes: bytes):
-        """分发音频帧到当前活跃录制器"""
+    def feed_audio(self, pcm_bytes: bytes, sample_rate: int = 0):
+        """分发音频帧到当前活跃录制器 (采样率如实传递)"""
         if self.is_recording() and self.active_recorder:
-            self.active_recorder.feed_audio(pcm_bytes)
+            self.active_recorder.feed_audio(pcm_bytes, sample_rate=sample_rate)
 
     def list_recordings(self) -> List[Dict[str, Any]]:
         """获取所有已录制切片列表"""

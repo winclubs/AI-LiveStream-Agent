@@ -6,7 +6,8 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-Desktop%20UI-47848F?style=flat&logo=electron&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?style=flat&logo=sqlite&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-423%20Collected%20423%20Passed-4caf50?style=flat&logo=pytest&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-703%20Collected%20675%20Passed%2028%20Skipped-4caf50?style=flat&logo=pytest&logoColor=white)
+![Version](https://img.shields.io/badge/Version-v2.0.1-orange?style=flat)
 ![License](https://img.shields.io/badge/License-Proprietary%20%2F%20Commercial-blue?style=flat)
 
 <p align="center">
@@ -20,10 +21,10 @@
 ---
 
 > 📌 **项目使用者定位说明（硬件配置重要提示）**：
-> 实际情况下，过低配置的电脑根本无法流畅运行高拟真数字人直播，或者效果非常差劲，请根据自身硬件条件合理选型，避免浪费时间盲目折腾：
+> 实际情况下，过低配置的电脑无法流畅运行高拟真数字人直播，请根据自身硬件条件合理选型，避免浪费时间盲目折腾：
 > 1. **本地电脑 CPU 小于 4 核的用户，不用折腾！**
-> 2. **本地电脑显存小于 16G 的用户，也不要折腾！**
-> 3. **本地电脑没有独立显卡或者显卡低于 8G 的用户，请一定配置云端 GPU（可租赁）**
+> 2. **本地实时神经唇形渲染要求 CUDA 独显显存 ≥ 2GB（推荐 ≥ 6GB 流畅）**，低于该基线的用户请直接看第 3 条；
+> 3. **本地电脑没有独立显卡、或显存不足、或无 CUDA 的用户，请一定配置云端 GPU（可租赁，约 1~2 元/小时）**。系统按「架构诚实」原则**禁止用 CPU 模拟假唇形冒充真实画面**：算力不足且未配置云端时，开播体检会如实拦截并指引配置云端 GPU，而不会静默降级。
 
 ---
 
@@ -74,7 +75,7 @@
 | **口型迟钝错位** | 声音停了嘴还在动，音画严重漂移 | **20ms 流式音频块切片驱动** + 采样级 AV-Sync 时钟对齐，音画延迟 < 45ms |
 | **无互动不会带货** | 机械念稿，无促销节奏，缺乏购买紧迫感 | **工业级 SKU 货盘 + 逼单状态机 + 优惠券倒计时** + 5 大带货动作手势联动 |
 | **插不上话自说自话**| 现场连麦或突发情况无法打断 AI 发言 | **全双工 ASR (<100ms VAD)** + 极速打断（`<50ms flush_talk` 瞬间闭嘴并清空队列） |
-| **电脑硬件门槛极高**| 动辄要求万元旗舰显卡，中小商家难以承受 | **四级算力自适应调度**：低配电脑/轻薄本自动优先调用云端 GPU，纯 CPU 亦可平稳开播 |
+| **电脑硬件门槛极高**| 动辄要求万元旗舰显卡，中小商家难以承受 | **四级算力自适应调度**：低配电脑/轻薄本自动优先调用云端 GPU（约 1~2 元/小时）；显存不足且未配置云端时**如实拦截告警并指引配置，绝不静默降级、绝不用 CPU 假唇形冒充** |
 | **平台封禁“录播挂机”**| 画面长时间像素静态，被算法检测封禁 | **视觉动态防查（不可觉高斯微扰 + 光影律动）**，视频哈希 100% 动态离散，粉碎平台静态比对 |
 
 ---
@@ -107,9 +108,9 @@ flowchart TD
 
     subgraph AvatarEngine [视听与数字人驱动层]
         D1[AvatarDriverFactory 注册中心]
-        D2[本地 LiveTalking 深度学习驱动 (Wav2Lip / MuseTalk)]
+        D2[本地 LiveTalking 深度学习驱动 (LatentSync / MuseTalk)]
         D3[云端 GPU Sidecar 节点 (LAS3 协议 / Tesla T4 / A100)]
-        D4[Procedural2D 纯 CPU 能量驱动器 (0 显存依赖)]
+        D4[NativeNeural 原生 LatentSync ONNX 驱动 (进程内推理 · 禁假唇形回退)]
         D5[5 大动作切片状态机 (mirror_index 对称往返)]
     end
 
@@ -122,7 +123,7 @@ flowchart TD
     subgraph Distribution [多路媒体推流与分发]
         M1[OBS Virtual Camera 虚拟免驱摄像头 (直通直播伴侣)]
         M2[FFmpeg 管道 RTMP 全平台直播直推 (H.264 + AAC)]
-        M3[1080P MP4 带货短视频切片录制器]
+        M3[MP4 带货短视频切片录制器]
     end
 
     Client <--> CoreBackend
@@ -142,7 +143,7 @@ flowchart TD
 | **数据持久化** | **SQLite 3 (WAL 并发模式)** · **SQLAlchemy 2.0 Async** · `install.sql` | 17 张核心业务表、级联索引、严格事务隔离，无需独立部署 MySQL/Redis |
 | **安全加密** | **AES-256-GCM** · **Windows DPAPI** · **二进制魔数文件头校验** | 凭证落盘硬件级加解密；文件上传拦截可执行二进制木马伪装 |
 | **大模型生态** | 8 大 LLM（DeepSeek V3/R1、通义千问、Kimi、智谱 GLM-4、MiniMax、Claude 3.5、GPT-4o、Ollama 纯离线） | 动态热切换，双通道降级，具备 Token 消费预算熔断与节能冷场轮播机制 |
-| **数字人引擎** | **LiveTalking 架构融合** · **云端 Sidecar** (LAS3 协议) · **Procedural2D** (纯 CPU) | 多模型驱动工厂，毫秒级状态感知，瞬间打断（`flush_talk`） |
+| **数字人引擎** | **LiveTalking 架构融合** · **云端 Sidecar** (LAS3 协议) · **NativeNeural 原生 LatentSync ONNX** (进程内推理) | 多模型驱动工厂，毫秒级状态感知，瞬间打断（`flush_talk`）；神经唇形引擎未就绪时如实拒绝启动，**无 CPU 假唇形降级回退** |
 | **语音能力** | **SenseVoiceSmall** · **Faster-Whisper** · **Edge-TTS** · **CosyVoice** · **ElevenLabs** | 全双工麦克风直连，RMS 能量 VAD 开嗓打断，10 秒声音克隆 |
 | **推流分发** | **pyvirtualcam (OBS)** · **FFmpeg 管道 RTMP** · **aiortc (WebRTC/WHEP)** | 兼容抖音伴侣、快手伴侣、淘宝直播、视频号助手；超低延迟前端大屏监视 |
 
@@ -151,8 +152,9 @@ flowchart TD
 ## 三、核心优势与系统亮点
 
 1. 💎 **硬件普惠与两类用户全覆盖**：
-   - 针对**高性能显卡用户**：本地跑满 MuseTalk 1080P/60FPS 与 Ollama 离线大模型，数据绝对私有；
-   - 针对**轻薄本/核显用户**：**自动优先调度云端显卡节点**（Sidecar，成本仅约 1~2 元/小时），本地仅占用极少 CPU；若显存不足且未配置云端，系统**绝不静默崩溃，主动警示并平滑切至轻量 CPU 模式**。
+   - 针对**高性能显卡用户**：本地跑满神经唇形实时渲染与 Ollama 离线大模型，数据绝对私有；
+   - 针对**轻薄本/核显用户**：**自动优先调度云端显卡节点**（Sidecar，成本仅约 1~2 元/小时），本地仅占用极少 CPU；若显存不足且未配置云端，系统**绝不静默崩溃、也绝不降级出 CPU 假唇形画面：主动警示并如实拦截该档功能，指引一键配置云端 GPU**；
+   - 开播前神经唇形算力预检（`lipsync_preflight`）以**实测真实推理延迟**判定本地可达帧率：达不到 25fps 时如实告知「本地仅适合预览，实时请走云端」，而不是让用户开播后自己撞上持续掉帧。
 2. ⚡ **真人级全双工极速打断 (<50ms)**：
    - 前端麦克风 16kHz PCM 直通 WebSocket，RMS 能量 VAD 瞬时感应开嗓；
    - 开嗓瞬间触发 `flush_talk()`，瞬间重置数字人嘴型为闭合待机状态，清空未消费音频，消除声音与嘴型拖尾，现场提问高优插入大模型决策流水线。
@@ -166,9 +168,15 @@ flowchart TD
    - **内容防封**：Aho-Corasick 算法毫秒级扫描敏感词与广告法违规词，智能同义替换或整句熔断；
    - **视觉防封**：底层视频流注入亚感知高斯微扰与 0.05Hz 光影微动，每帧 SHA256 绝对离散，粉碎平台固定指纹静态查处；
    - **拟人发声**：智能注入换气微停顿与“嗯、那个”等自然语气助词，消除机械感。
-6. ✅ **423 项全量自动化测试验证（100% 通过）**：
-   - 全链路覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例（实测 423 项测试全部通过，100% 通过率）；
-   - 前端模块化 JS 全量通过 Node.js 严格语法检测，前后端代码零语法错误。
+6. ✅ **703 项全量自动化测试验证（0 失败）**：
+   - 全链路覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例（实测 675 项通过 / 28 项跳过，**0 失败**；跳过项为依赖真实 GPU / 真实主播资产 / 外网的用例，属如实跳过而非放水）；
+   - 覆盖率 61.7%（分支覆盖，门禁 55%）；
+   - 前端模块化 JS 全部通过 Node.js 严格语法检测，另有 4 个前端断言测试纳入 CI 实际执行。
+7. 🔗 **帧源一致性与输出诚实（统一帧发布总线）**：
+   - 云端渲染帧与本地 shadow 帧经**短租约优先级仲裁**（云端 100 > 远端 50 > 本地 1）统一扇出，**确保 RTMP 公网推流、WebRTC 大屏、本地录制器与虚拟摄像头看到的永远是同一幅画面**，杜绝“预览是云端高清、推流却是本地低质”的静默分裂；
+   - 云端断流后租约即期（约 0.3 秒）内本地 shadow 无缝接管，实现真正的热备兜底；
+   - RTMP 推流内置**指数退避断线重连看门狗**（1s→2s→…→15s，默认最多 10 次，可经环境变量配置），7×24 无人值守场景网络抖动自动恢复；H.264 profile 显式钉死，兼容主流 CDN；
+   - 音画漂移（`av_drift_ms`）、推荐补偿延迟、帧节奏建议与帧源仲裁统计全部纳入 `/metrics` Prometheus 指标输出，漂移超标可告警。
 
 ---
 
@@ -180,10 +188,10 @@ flowchart TD
 
 | 硬件档位 | 硬件配置基线 | 推荐运行模式 | 算力调度策略与承载角色 | 预期画质与帧率 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Tier A<br>(全本地旗舰)** | • CPU: 8核以上 (i7/R7)<br>• 内存: 32GB+<br>• 显卡: RTX 3090 / 4080 / 4090<br>• 显存: **16GB ~ 24GB+** (CUDA) | **全本地旗舰模式** | 本地独显承载本地大模型 (Ollama)、MuseTalk 1080P 渲染、SenseVoice 本地 ASR 与声音克隆，100% 离线私密。 | 1080P / 45~60 FPS<br>电影级高保真微表情 |
-| **Tier B<br>(端云混合)** | • CPU: 6核以上 (i5/R5)<br>• 内存: 16GB ~ 32GB<br>• 显卡: RTX 3060 / 4060 / 2080Ti<br>• 显存: **6GB ~ 12GB** (CUDA) | **端云混合模式** | 本地显卡跑 Wav2Lip 实时唇形渲染与动作状态机；LLM 调度云端 API (DeepSeek/Qwen)；TTS 走 Edge-TTS 或云端。 | 720P~1080P / 30~60 FPS<br>中小商家日常无人值守 |
-| **Tier C<br>(端云分离)<br>⭐推荐低配** | • CPU: 普通笔记本/办公机 (4~8核)<br>• 内存: 8GB ~ 16GB<br>• 显卡: **核显 / MX系列 / 显存 <= 2GB**<br>• 网络: 上行宽带 >= 10Mbps | **云端显卡直推模式<br>(Sidecar 节点)** | **本地仅跑轻量中枢；渲染运算外包给配置的云端显卡 (AutoDL/Colab T4/InkStone A100，约 1~2元/小时)**。本地接收高清流推流。 | 720P~1080P / 25~30 FPS<br>**轻薄本实现真人写实最佳方案** |
-| **Tier D<br>(轻量免显卡)** | • CPU: 普通双核/四核 CPU<br>• 内存: 8GB<br>• 显卡: **无独显 / 核显 / 纯 CPU** | **轻量 2D 程序化模式** | **0 显存依赖**。纯 CPU 计算音频能量驱动嘴型自然张合与微呼吸；所有 AI 走 CPU 或外部云端 API，永不崩溃。 | 720P / 25 FPS<br>测试教学、极低成本云端托管 |
+| **Tier A<br>(全本地旗舰)** | • CPU: 8核以上 (i7/R7)<br>• 内存: 32GB+<br>• 显卡: RTX 3090 / 4080 / 4090<br>• 显存: **16GB ~ 24GB+** (CUDA) | **全本地旗舰模式** | 本地独显承载本地大模型 (Ollama)、LatentSync ONNX 实时神经唇形渲染 (CUDA)、SenseVoice 本地 ASR 与声音克隆，100% 离线私密。 | 720P 竖屏(9:16) / 默认 25 FPS<br>旗舰卡可动态上调至 60 FPS<br>高保真神经唇形微表情 |
+| **Tier B<br>(端云混合)** | • CPU: 6核以上 (i5/R5)<br>• 内存: 16GB ~ 32GB<br>• 显卡: RTX 3060 / 4060 / 2080Ti<br>• 显存: **6GB ~ 12GB** (CUDA) | **端云混合模式** | 本地显卡跑 LatentSync 实时唇形渲染与动作状态机；LLM 调度云端 API (DeepSeek/Qwen)；TTS 走 Edge-TTS 或云端。 | 720P 竖屏(9:16) / 25~60 FPS<br>中小商家日常无人值守 |
+| **Tier C<br>(端云分离)<br>⭐推荐低配** | • CPU: 普通笔记本/办公机 (4~8核)<br>• 内存: 8GB ~ 16GB<br>• 显卡: **核显 / MX系列 / 显存 <= 2GB**<br>• 网络: 上行宽带 >= 10Mbps | **云端显卡直推模式<br>(Sidecar 节点)** | **本地仅跑轻量中枢；渲染运算外包给配置的云端显卡 (AutoDL/Colab T4/InkStone A100，约 1~2元/小时)**。本地接收高清流推流。 | 720P 竖屏(9:16) / 25 FPS<br>**轻薄本实现真人写实最佳方案** |
+| **Tier D<br>(仅音频联调)** | • CPU: 任意双核/四核 CPU<br>• 内存: 8GB<br>• 显卡: **无独显 / 核显 / 纯 CPU** | **Mock 仿真模式<br>(仅允许显式选择)** | **仅音频链路与打断联调**：不产出任何数字人画面。架构诚实原则：无显卡即无法产出真实神经唇形画面，系统**绝不用 CPU 能量模拟的假唇形冒充**，渲染档功能如实不可用。 | 无画面输出<br>测试联调、话术与音频链路验证 |
 
 ### 4.2 算力调度核心分支判断逻辑
 
@@ -197,7 +205,7 @@ flowchart TD
     
     CheckLocal -- 满足 --> RouteLocal[💻 调度本地高性能独立显卡<br>本地推理，离线稳定运行]
     
-    CheckLocal -- 不满足 --> Warning[⚠️ 严禁静默崩溃与黑盒卡死!<br>1. 控制台与日志输出明确显存不足警示<br>2. 弹出指引引导配置云端 GPU<br>3. 自动平滑降级至轻量 CPU 程序化模式]
+    CheckLocal -- 不满足 --> Warning[⚠️ 严禁静默崩溃，更严禁假唇形冒充!<br>1. 控制台与日志输出明确显存不足警示<br>2. 弹出指引引导配置云端 GPU<br>3. 该档神经渲染功能如实拦截不可用<br>（绝不自动降级 CPU 模拟唇形）]
 ```
 
 ---
@@ -220,10 +228,10 @@ flowchart TD
     subgraph S2 [数字人驱动引擎层 (LiveTalking Engine Core)]
         A6 -->|20ms 流式 PCM 音频块| B1[音频频谱特征提取]
         A7 -->|动作编号 0~4 / 场控事件| B2[动作切片状态机 (mirror_index)]
-        B1 --> B3[唇形神经网络推理 (Wav2Lip/MuseTalk/Sidecar)]
-        B2 --> B4[视频帧序列融合与泊松平滑]
+        B1 --> B3[唇形神经网络推理 (LatentSync/MuseTalk/Sidecar)]
+        B2 --> B4[视频帧序列融合与 LAB 色彩对齐 + 高斯羽化]
         B3 --> B4
-        B4 --> B5[统一视频帧分发总线]
+        B4 --> B5[统一视频帧发布总线 (帧源租约仲裁)]
     end
 
     subgraph S3 [音视频多通道推流分发]
@@ -301,9 +309,9 @@ flowchart TD
 
 ### 9. 多路推流与媒体分发矩阵 (OBS / RTMP / WebRTC / 录制)
 - **OBS Virtual Camera**：本地自动注册为 `LiveAgent-VirtualCam` 免驱摄像头，直播伴侣/OBS 直接添加为视频源；
-- **RTMP 公网直推**：内置基于 FFmpeg 管道的推流引擎，直接向任意标准 RTMP 服务器推送 1080P/720P H.264+AAC 视频流，断线自愈重连；
-- **原生 WebRTC (WHEP) 极速视窗**：基于 `aiortc` 实现 WHEP 标准端点，支持音画双轨低延迟（200~300ms）在控制台大屏流畅预览；
-- **MP4 短视频与讲解切片录制**：控制台一键启停，自动封装为无损 1080P MP4 视频并归档至媒体库，供短视频口播切片二次分发。
+- **RTMP 公网直推**：内置基于 FFmpeg 管道的推流引擎，直接向任意标准 RTMP 服务器推送 720P 竖屏(9:16) H.264+AAC 视频流（与渲染画布同分辨率，宽高/帧率/码率均可配置）；**指数退避断线自愈重连看门狗**（1s→2s→…→15s，默认最多 10 次，`LIVE_AGENT_RTMP_MAX_RECONNECTS` 可配），H.264 profile 显式钉死兼容主流 CDN；
+- **原生 WebRTC (WHEP) 极速视窗**：基于 `aiortc` 实现 WHEP 标准端点，支持音画双轨低延迟（200~300ms）在控制台大屏流畅预览；视频轨与渲染输出同分辨率（720×960 竖屏），注入音频按声明采样率自动重采样至 48kHz，杜绝变调；
+- **MP4 短视频与讲解切片录制**：控制台一键启停，录制完成自动经 FFmpeg 重编码封装为 H.264+AAC 标准 MP4（默认 720P，支持自定义分辨率与帧率；伴音采样率如实记录）并归档至媒体库，供短视频口播切片二次分发；
 
 ### 10. 知识库 RAG 与企业私域问答
 - 支持 PDF/Word/TXT/Markdown 产品手册分块解析；
@@ -322,7 +330,7 @@ flowchart TD
   7. 带货主播货盘非空检查（防空播）
   8. 直播主题与话题锚点配置检查
   9. 违禁词规则库加载生效状态
-  10. **高性能显卡与云端算力调度检查**（若显存不足且未配云端，给出警示与一键配置导航，平滑切至 CPU 模式）。
+   10. **高性能显卡与云端算力调度检查**（若显存不足且未配云端，给出警示与一键配置导航，并如实拦截该档神经渲染功能——**绝不静默降级 CPU 假唇形**）。
 
 ---
 
@@ -438,11 +446,11 @@ python scripts/cloud_sidecar_bootstrap.py --port 8010
 | **推流与媒体分发** | `/api/v1/live/virtual-cam/start` | `POST` | 启动 OBS 虚拟摄像头视频输出 |
 | | `/api/v1/live/rtmp/start` / `/stop` | `POST` | 启动 / 停止 RTMP 直播公网推流 |
 | | `/api/v1/live/webrtc/whep` | `POST` | WHEP 标准 WebRTC 控制台极速流媒体协商 |
-| | `/api/v1/live/record/start` / `/stop` | `POST` | 启动 / 停止 1080P 带货短视频切片录制 |
+| | `/api/v1/live/record/start` / `/stop` | `POST` | 启动 / 停止 720P 带货短视频切片录制（分辨率可配置） |
 | | `/api/v1/live/record/list` | `GET` | 查看已归档切片视频列表并提供在线下载 |
 | **电商与商品库** | `/api/v1/products/list` / `/upsert` | `GET/POST` | 电商货盘 SKU、卖点库与逼单参数管理 |
 | **风控与合规** | `/api/v1/guardrails/list` / `/upsert`| `GET/POST`| 敏感违禁词汇规则与处置策略配置 |
-| **健康与指标** | `/readyz` · `/livez` · `/metrics` | `GET` | K8s 级健康探针与 Prometheus 监控指标导出 |
+| **健康与指标** | `/readyz` · `/livez` · `/metrics` | `GET` | K8s 级健康探针与 Prometheus 监控指标导出（含音画漂移 `av_drift_ms`、补偿延迟、帧节奏建议与帧源仲裁抑制统计） |
 
 ---
 
@@ -450,9 +458,10 @@ python scripts/cloud_sidecar_bootstrap.py --port 8010
 
 系统实行工业级严苛的代码质量门禁与自动化回归体系：
 
-- **自动化测试套件**：全量 **423 项单元与端到端集成测试**（实测 423 项全部通过 / 100% 通过率，覆盖率健全，运行耗时 ~180s），覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例；
+- **自动化测试套件**：全量 **703 项单元与端到端集成测试**（实测 675 项通过 / 28 项跳过，**0 失败**，分支覆盖率 61.7%，运行耗时 ~230s），覆盖 API 路由、核心推理引擎、算力调度、端云通信、数字人四阶段演进专项用例；
 - **全量语法静态校验**：所有 Python 源文件通过 `py_compile` 静态编译解析，**0 语法错误，0 致命异常**；
-- **前端 JS 规范检验**：所有模块化 JavaScript 经过严格聚合与 Node.js 严格语法检测（`node --check`），确保无低级语法 Bug；
+- **前端 JS 规范检验**：所有模块化 JavaScript 经过严格聚合与 Node.js 严格语法检测（`node --check`）；另有 4 个前端断言测试（资产面板 / 试播音画同步 / 音色友好名 / 药丸防重）由 `scripts/run_all_tests.py --js-only` 在 CI 中**实际执行**，不再只做语法校验；
+- **统一测试入口**：`python scripts/run_all_tests.py` 一次性执行服务端 pytest、根目录 `tests/` pytest 与前端断言测试，任一失败即返回非 0 阻断合并；
 - **高可用看门狗机制**：具备显存超限自动释放（`VRAMWatchdog`）、网络断线熔断器自愈恢复、长音频超时看门狗与媒体管线平滑兜底。
 
 ### 运行质量检验命令
@@ -477,9 +486,12 @@ python -m ruff check launcher.py scripts server
 node --check apps/desktop-ui/main.js
 node --check server/static/js/console.js
 
-# 3. 运行全量 423 项自动化测试并统计覆盖率
+# 3. 运行全量自动化测试并统计覆盖率 (703 项 / 0 失败)
 $env:LIVE_AGENT_DATA_DIR = Join-Path $env:TEMP ('ai-live-agent-test-' + [guid]::NewGuid().ToString('N'))
 python -m pytest -q server/tests --cov=server --cov-branch
+
+# 4. 统一测试入口：服务端 + 根目录 tests/ + 前端断言测试（CI 同款）
+python scripts/run_all_tests.py
 ```
 
 ---
@@ -518,10 +530,10 @@ python scripts/restore_data.py --backup "G:\backups\before-upgrade" --data-dir "
 
 #### 🎥 视觉资产：数字人原片与动作切片（必须全程闭口不说话）
 - **为什么绝对不要张嘴说话？（底层神经唇形重绘原理）**：
-  - 本系统融合 **LiveTalking** 底座（Wav2Lip / MuseTalk 神经渲染）以及轻量 **RealAvatarLite**（纯 CPU 唇形形变引擎），核心机制均为**「局部面部下半区实时重绘 (Local Lip Inpainting)」**；
+  - 本系统融合 **LiveTalking** 底座（LatentSync / MuseTalk 神经渲染）与进程内 **LatentSync ONNX 原生推理**，核心机制均为**「局部面部下半区实时重绘 (Local Lip Inpainting)」**：重绘结果经 **LAB 色彩对齐（以上半脸为基准）+ 高斯羽化 alpha 融合**贴回原脸，保证唇色与肤色无缝衔接；
   - 原片视频的作用是提供**稳定的身体身形、衣服质感、发丝细节、眼睛眨眼、面部上半部微表情与自然微呼吸**，而**嘴唇区域（ROI）在直播时完全由 AI 根据实时发音音频逐帧动态重绘**；
   - **如果原片人在说话张嘴**：原视频中下巴在上下剧烈晃动、嘴唇张开露齿，AI 在实时驱动新台词口型时，新嘴型与原片张开的嘴型会发生严重的边缘冲突，直接导致**“双重嘴唇叠影、重叠牙齿鬼影、嘴唇抽搐翻车”**！
-  - **如果原片全程自然闭口**：基准面部结构极度稳定，AI 无论是渲染“张嘴大笑、闭口音(M/B/P)、圆唇音(O/U)”均能与原生脸部皮肤实现像素级泊松平滑融合，画面逼真自然无瑕疵。
+  - **如果原片全程自然闭口**：基准面部结构极度稳定，AI 无论是渲染“张嘴大笑、闭口音(M/B/P)、圆唇音(O/U)”均能与原生脸部皮肤实现 LAB 色彩对齐 + 高斯羽化的像素级无缝融合，画面逼真自然无瑕疵。
 - **视觉原片录制规范**：
   - **姿态与面部**：面带自然亲和微笑，**全程嘴唇自然微闭（严禁开口张嘴说话）**，双眼自然平视镜头，身体与胸口保持轻微自然的呼吸律动；
   - **时长规格**：录制 **30秒 ~ 1分钟**（最长不超过 2 分钟）的高清 MP4/MOV 视频（推荐手机后置或微单 1080P/4K 60FPS 恒定帧率）；
@@ -538,14 +550,16 @@ python scripts/restore_data.py --backup "G:\backups\before-upgrade" --data-dir "
 ### 2. 算力节点选择与调度策略 (丰俭由人，物尽其用)
 - **方案 A：本地有高性能独显 (RTX 3060 / 4060 / 3090 / 4090)**
   - 在【开播向导】中直接确认“端云混合”或“全本地旗舰模式”；
-  - 本地承载 Wav2Lip / MuseTalk 神经渲染，大模型与 TTS 可走云端 API 或本地 Ollama，单机闭环。
+  - 本地承载 LatentSync / MuseTalk 神经渲染，大模型与 TTS 可走云端 API 或本地 Ollama，单机闭环。
 - **方案 B：本地轻薄本 / 核显 / 办公机 (⭐ 推荐绝大部分普通商家)**
   - **花小钱办大事**：强烈推荐花费约 **1~2 元/小时** 在 GPU 算力平台（如 AutoDL、Google Colab Tesla T4、Intern InkStone A100）租用一个带英伟达显卡的云端实例；
   - 云端执行一条引导命令：`python scripts/cloud_sidecar_bootstrap.py --port 8010`；
   - 将生成的 WebSocket 隧道地址填入控制台【系统设置 -> 显卡与渲染设置】；
   - 系统**自动优先调度云端显卡**承担全部神经渲染运算，本地仅运行轻量 CPU 调度，机器清爽不发热，直出 1080P 真人高保真画面。
-- **方案 C：纯 CPU 免显卡兼容模式**
-  - 零显存依赖，系统自动启用 `RealAvatarLite` 轻量真人微动态引擎（单帧计算 < 4ms），保障教学演示或极低成本开播稳定不崩溃。
+- **方案 C：仅音频联调模式（显式选择）**
+  - 无显卡环境**无法产出真实神经唇形画面**。系统按「架构诚实」原则已彻底移除 CPU 假唇形降级路径（能量模拟口型已被硬性禁用，引擎未就绪时直接拒绝启动并暴露根因）；
+  - 可显式切换 Mock 仿真模式进行**音频链路、话术与极速打断的联调验证**，该模式仅提供音频、不产出数字人画面；
+  - 如需真实画面，请回到方案 B 配置云端 GPU（约 1~2 元/小时），这是轻薄本/无显卡设备获得真人写实画面的唯一正确路径。
 
 ### 3. 24×7 无人值守商业带货实战策略
 - **开启 0-Token 节能冷场轮播**：
@@ -557,6 +571,12 @@ python scripts/restore_data.py --backup "G:\backups\before-upgrade" --data-dir "
   - 讲解到达促单高潮时，大屏画层自动广播优惠券倒计时贴片并切换商品特写，配合动作状态机自动触发指引购物车动作 (P5)，强化临场紧迫感。
 - **全双工现场插话与极速打断**：
   - 运营人员佩戴麦克风可随时开嗓插话（如“主播先停一下，插播一条特大好消息”），系统在 150ms 内触发 `flush_talk()` 令主播立即闭嘴重置唇形，随后针对现场问题作答，呈现真人主播的自然反应力。
+- **外部平台伴侣开播与验收流程 (合规边界与交付话术)**：
+  - 本系统定位为**智能直播大脑与音画推流源**，出于平台反外挂合规与实名核身约束，**不越权托管/模拟点击第三方直播伴侣的“开始直播”按钮**；
+  - **交付标准开播三步法**：
+    1. 点击 Agent 控制台【启动本地直播源】，此时虚拟摄像头和 RTMP 服务即刻输出 25 FPS 高清真人流；
+    2. 打开抖音直播伴侣 / 快手伴侣 / 视频号助手，选择添加【摄像头 (OBS Virtual Camera)】或【窗口捕获】；
+    3. 人工在直播伴侣监视器中核验画面与声音正常后，**人工点击一次伴侣上的【开始直播】按钮**，正式向全网观众开播。
 
 ### 4. 平台安全合规防封检查清单
 - [x] **平台后台报备**：在抖音直播伴侣、快手伴侣等开播设置中如实勾选“本直播间包含 AI 生成内容”；
@@ -571,7 +591,7 @@ python scripts/restore_data.py --backup "G:\backups\before-upgrade" --data-dir "
   python scripts/generate_action_clip.py --all-missing
   ```
   占位动作会叠加指引箭头与动作名贴片，可先用它跑通促单节奏，随后在控制台【数字人】页面上传真人实拍切片替换。
-- **神经唇形权重与 ASR 引擎自动补齐 (零操作)**：`onnx_lipsync.onnx` (约45MB) 与 `faster-whisper` 轻量转写引擎 (约30MB) 在服务启动或开播体检时若检测到缺失，**自动后台下载/安装**（ModelScope 源 + 国内 pip 镜像源），完成后自动热挂载真实神经唇形重绘；下载/安装期间无缝回退 RealAvatarLite 微动态渲染与 VAD 极速打断，直播不中断。如需离线环境关闭该行为，设置环境变量 `LIVE_AGENT_DISABLE_AUTO_DOWNLOAD=1`；手动补齐也可沿用下载器：
+- **神经唇形权重与 ASR 引擎自动补齐 (零操作)**：`onnx_lipsync.onnx` (约45MB) 与 `faster-whisper` 轻量转写引擎 (约30MB) 在服务启动或开播体检时若检测到缺失，**自动后台下载/安装**（ModelScope 源 + 国内 pip 镜像源），完成后自动热挂载真实神经唇形重绘。**架构诚实声明**：权重未就绪期间数字人渲染引擎如实拒绝启动（错误信息明确指引根因，绝不以模拟唇形冒充画面），音频链路、弹幕场控与 VAD 极速打断不受影响；下载完成后重新开播即自动挂载真实神经渲染。如需离线环境关闭该行为，设置环境变量 `LIVE_AGENT_DISABLE_AUTO_DOWNLOAD=1`；手动补齐也可沿用下载器：
   ```powershell
   python scripts/download_weights.py --model onnx-lipsync --source modelscope
   ```

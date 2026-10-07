@@ -4,6 +4,7 @@
 支持按配置与硬件自动匹配/切换最佳驱动实现：
   - livetalking: 本地 LiveTalking 深度学习驱动 (D:/LiveTalking)
   - cloud_sidecar: 本地 CPU+内存 + 第三方云端显卡对接模式
+  - native_neural: 原生自包含神经驱动 (进程内 LatentSync ONNX，无外部依赖)
   - procedural: 本地轻量免显卡 2D 程序化渲染
   - mock: 仿真测试驱动
 """
@@ -54,7 +55,12 @@ class AvatarDriverFactory:
                 clean_type = "cloud_sidecar"
             else:
                 local_gpu = probe_local_gpu()
-                clean_type = "procedural" if local_gpu.is_low_spec else "livetalking"
+                if local_gpu.is_low_spec:
+                    clean_type = "procedural"
+                else:
+                    # 本地显卡充足时优先原生自包含神经驱动 (无外部进程依赖)，
+                    # 其次才回退需要独立 LiveTalking 进程的 livetalking 适配器。
+                    clean_type = "native_neural"
 
         # 模式 2：livetalking 深度学习渲染（需高性能显卡 >2GB）
         if clean_type == "livetalking":
@@ -80,7 +86,7 @@ class AvatarDriverFactory:
                         f"且系统当前尚未配置云端显卡（Sidecar / 远程 GPU）！\n"
                         f"👉 建议方案：\n"
                         f"1. 前往【系统设置 -> 显卡与渲染设置】配置自建云端显卡算力节点 (Sidecar)；\n"
-                        f"2. 建议切换为【轻量 CPU 免显卡模式】，保障直播中枢平稳运行。"
+                        f"2. 配置完成前该档神经唇形渲染如实不可用：系统已禁止 CPU 假唇形降级，绝不以模拟口型冒充真实画面。"
                     )
                     logger.warning(warning_msg)
                     if config and config.get("strict_gpu"):

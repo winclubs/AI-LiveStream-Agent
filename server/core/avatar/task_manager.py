@@ -288,6 +288,36 @@ class AvatarTaskManager:
         with open(coords_path, "wb") as f:
             pickle.dump(coords, f)
 
+        # 依据 LIPSYNC_OPTIMIZATION_PLAN.md §3.2 生成口部居中方形框 (MuseTalk 前置资产)
+        #
+        # 【当前状态：预留产物，渲染期尚未消费】
+        #   v3.1 P0-2「统一资产期与渲染期几何口径」已通过另一条路径达成 ——
+        #   crop_face_256 直接使用 coords 的原始检测框裁切，与 _blend_back 同框，
+        #   已由 test_avatar_asset_guard.py::test_crop_face_256_geometry_exact_alignment
+        #   逐像素校验 (diff == 0)。
+        #
+        #   而本文件产出的 render_boxes.pkl 是**口部居中方形扩张**框，与上述
+        #   原始检测框是两套不同几何。全仓库检索确认：无任何渲染路径读取
+        #   render_boxes.pkl（neural_lip_renderer / musetalk_driver /
+        #   speech_drive_preview 均无引用），因此它目前是死产物。
+        #
+        #   保留原因：MuseTalk 上线时需要按 bbox_shift 动态重算遮罩上沿，
+        #   届时才会消费。**在真正接入消费端之前，不得把 has_render_boxes
+        #   当作「几何口径已统一」的证据** —— 那会重复 v2.0 时期
+        #   「三处实现漂移」的错误。
+        render_boxes: List[Tuple[int, int, int, int]] = []
+        for (ymin, ymax, xmin, xmax) in coords:
+            rbox = self.compute_render_box(ymin, ymax, xmin, xmax, height, width, bbox_shift=0)
+            render_boxes.append(rbox)
+
+        render_boxes_path = out_path / "render_boxes.pkl"
+        with open(render_boxes_path, "wb") as f:
+            pickle.dump(render_boxes, f)
+
+        landmarks_summary["render_boxes_count"] = len(render_boxes)
+        landmarks_summary["has_render_boxes"] = True
+        # 显式声明消费状态，避免后续误判为已生效
+        landmarks_summary["render_boxes_consumed"] = False
         landmarks_json_path = out_path / "landmarks.json"
         landmarks_json_path.write_text(
             json.dumps(landmarks_summary, ensure_ascii=False, indent=2),
@@ -301,7 +331,7 @@ class AvatarTaskManager:
         )
 
         # ---------------------------------------------------------------------
-        # 阶段 3.2 (70% ~ 82%): 裁剪人脸特征序列 (face_imgs/，Wav2Lip推理必备)
+        # 阶段 3.2 (70% ~ 82%): 裁剪人脸特征序列 (face_imgs/，LatentSync推理必备)
         # ---------------------------------------------------------------------
         face_imgs_dir = out_path / "face_imgs"
         face_imgs_dir.mkdir(parents=True, exist_ok=True)
@@ -376,7 +406,12 @@ class AvatarTaskManager:
             "output_dir": output_dir,
             "compute_branch": "cloud_sidecar" if (compute_plan.use_cloud and compute_plan.has_cloud_gpu) else ("local_gpu" if not compute_plan.is_low_spec_local else "local_hardware"),
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-
+            "face_detected_frames": landmarks_summary.get("face_detected_frames", total_extracted),
+            "detection_rate": landmarks_summary.get("detection_rate", 1.0),
+            "max_carry_run": landmarks_summary.get("max_carry_run", 0),
+            "detection_passed": landmarks_summary.get("detection_passed", True),
+            "has_render_boxes": True,
+            "bbox_shift_supported": True,
         }
         (out_path / "meta.json").write_text(
             json.dumps(meta_content, ensure_ascii=False, indent=2),
@@ -497,7 +532,7 @@ class AvatarTaskManager:
             raise RuntimeError("未能从动作视频中提取出有效图像帧")
 
         # 2. 面部与坐标对齐
-        coords, _ = await asyncio.to_thread(
+        coords, landmarks_summary = await asyncio.to_thread(
             self._detect_faces_and_coords_worker,
             extracted,
             task_id,
@@ -531,6 +566,10 @@ class AvatarTaskManager:
             "frames_count": len(extracted),
             "face_imgs_count": cropped,
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "face_detected_frames": landmarks_summary.get("face_detected_frames", len(extracted)),
+            "detection_rate": landmarks_summary.get("detection_rate", 1.0),
+            "max_carry_run": landmarks_summary.get("max_carry_run", 0),
+            "detection_passed": landmarks_summary.get("detection_passed", True),
         }
         (action_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -661,17 +700,29 @@ class AvatarTaskManager:
 
         last_valid_box = None
 
+
+        # 严苛资产质量守卫参数 (依据 LIPSYNC_OPTIMIZATION_PLAN.md v3.1 P0)
+        MIN_DETECT_RATIO = 0.90      # 检出率低于 90% 判定资产不可用，拒绝生成损坏切片
+        MAX_CARRY_FRAMES = 5         # 连续沿用上一框超过 5 帧判定跟踪丢失，杜绝错误框无限传播
+
+        consecutive_misses = 0
+        max_carry_run = 0
+
         for idx, img_path in enumerate(frame_paths):
             if task_id in cancelled_tasks:
                 raise asyncio.CancelledError()
 
             img = cv2.imread(str(img_path))
             if img is None:
-                if last_valid_box:
+                consecutive_misses += 1
+                if last_valid_box is not None and consecutive_misses <= MAX_CARRY_FRAMES:
                     raw_boxes.append(last_valid_box)
+                    max_carry_run = max(max_carry_run, consecutive_misses)
+                    continue
                 else:
-                    raw_boxes.append((100, 400, 100, 400))
-                continue
+                    raise ValueError(
+                        f"第 {idx} 帧图像读取失败且无法继承有效人脸框 (连续丢失 {consecutive_misses} 帧)"
+                    )
 
             h, w = img.shape[:2]
             box = None
@@ -688,31 +739,49 @@ class AvatarTaskManager:
                 xmax = min(w, int(fx + fw))
                 box = (ymin, ymax, xmin, xmax)
                 detected_count += 1
+                consecutive_misses = 0
+            else:
+                consecutive_misses += 1
+                max_carry_run = max(max_carry_run, consecutive_misses)
 
-            # 2. 连续帧跟踪兜底 (如果某帧丢脸，使用上一有效帧，避免口型渲染区域剧烈跳变)
+            # 2. 连续帧跟踪受限兜底 (仅允许短时轻度抖动，最多 5 帧)
             if box is None:
-                if last_valid_box is not None:
+                if last_valid_box is not None and consecutive_misses <= MAX_CARRY_FRAMES:
                     box = last_valid_box
                 else:
-                    # 居中默认区域
-                    cx, cy = w // 2, int(h * 0.35)
-                    box_size = int(min(w, h) * 0.45)
-                    ymin = max(0, cy - box_size // 2)
-                    ymax = min(h, cy + box_size // 2)
-                    xmin = max(0, cx - box_size // 2)
-                    xmax = min(w, cx + box_size // 2)
-                    box = (ymin, ymax, xmin, xmax)
+                    # 彻底废除全图居中盲猜，避免错误框向后无限锁死
+                    if last_valid_box is None:
+                        raise ValueError(
+                            f"第 {idx} 帧（素材起始帧）未检测到清晰人脸，无法建立跟踪基准。"
+                            f"请确保素材开头有人物正面清晰出镜，切勿直接以无脸黑屏或纯背景开头。"
+                        )
+                    else:
+                        raise ValueError(
+                            f"第 {idx} 帧人脸检测失败且连续丢失达 {consecutive_misses} 帧（超过安全上限 {MAX_CARRY_FRAMES} 帧）。"
+                            f"素材可能存在大幅晃动、严重遮挡或人物出画，拒绝生成损坏资产。"
+                        )
 
             last_valid_box = box
             raw_boxes.append(box)
 
-        # 3. 对坐标序列应用移动平均平滑滤波 (Rolling Smooth)，彻底消除面部对齐的微颤
+        # 3. 统计全局检出率并做严格门限判定
+        total_frames = len(frame_paths)
+        detect_ratio = detected_count / max(1, total_frames)
+        if detect_ratio < MIN_DETECT_RATIO:
+            raise ValueError(
+                f"人脸总检出率仅为 {detect_ratio:.1%}（{detected_count}/{total_frames} 帧），"
+                f"低于安全阈值 {MIN_DETECT_RATIO:.0%}。拒绝生成破损数字人资产，请更换光照良好、正面朝向的高清素材。"
+            )
+
+        # 4. 对坐标序列应用移动平均平滑滤波 (Rolling Smooth)，彻底消除面部对齐的微颤
         smoothed_coords = cls._smooth_box_sequence(raw_boxes)
 
         summary = {
-            "total_frames": len(frame_paths),
+            "total_frames": total_frames,
             "face_detected_frames": detected_count,
-            "detection_rate": round(detected_count / max(1, len(frame_paths)), 4),
+            "detection_rate": round(detect_ratio, 4),
+            "max_carry_run": max_carry_run,
+            "detection_passed": True,
             "average_box": [
                 int(np.mean([b[0] for b in smoothed_coords])),
                 int(np.mean([b[1] for b in smoothed_coords])),
@@ -748,6 +817,41 @@ class AvatarTaskManager:
         return result
 
     @staticmethod
+    def compute_render_box(
+        ymin: int,
+        ymax: int,
+        xmin: int,
+        xmax: int,
+        fh: int,
+        fw: int,
+        bbox_shift: int = 0,
+    ) -> Tuple[int, int, int, int]:
+        """口部居中方形扩张框，支持 MuseTalk 官方 bbox_shift 几何开口度偏移。
+
+        【与 crop_face_256 的关系 —— 勿再声称二者一致】
+        历史事实：v3.1 P0-2 最初的口径统一方案，就是让 crop_face_256 改用本函数
+        产出的框。但最终采纳的方案相反 —— crop_face_256 直接使用 coords 的
+        **原始检测框**（`full_frame[ymin:ymax, xmin:xmax]`），与 _blend_back 同框，
+        已由test_crop_face_256_geometry_exact_alignment 逐像素锁定 (diff == 0)。
+
+        因此本函数产出的框与当前渲染路径**并不相同**（口部居中 vs 原始检测框），
+        目前只有 render_boxes.pkl 一个消费方，而该文件尚未被渲染链路读取。
+        它是 MuseTalk 的前置资产：上线时需按 bbox_shift 动态重算遮罩上沿。
+
+        bbox_shift 语义（MuseTalk 官方）：正值向下移动遮罩上沿 → 露出更多
+        下半脸 → 开口度增大。
+        """
+        box_h, box_w = ymax - ymin, xmax - xmin
+        cy = ymin + int(box_h * 0.72) + int(bbox_shift)
+        cx = xmin + box_w // 2
+        half = max(box_w, box_h) // 2 + 8
+        sy0 = max(0, min(fh - 1, cy - half))
+        sy1 = max(sy0 + 1, min(fh, cy + half))
+        sx0 = max(0, min(fw - 1, cx - half))
+        sx1 = max(sx0 + 1, min(fw, cx + half))
+        return (int(sy0), int(sy1), int(sx0), int(sx1))
+
+    @staticmethod
     def _crop_face_imgs_worker(
         frame_paths: List[Path],
         coords: List[Tuple[int, int, int, int]],
@@ -758,7 +862,7 @@ class AvatarTaskManager:
     ) -> int:
         """
         按照平滑后的 (ymin, ymax, xmin, xmax) 坐标，从原始帧切片裁剪人脸区域并缩放保存至 face_imgs/。
-        与 LiveTalking / Wav2Lip 深度模型输入资产规范严格对齐。
+        与 LatentSync 深度模型输入资产规范严格对齐。
         """
         count = 0
         for idx, (img_path, coord) in enumerate(zip(frame_paths, coords)):

@@ -275,12 +275,18 @@ def test_musetalk_composes_once_before_camera_and_jpeg_fanout(monkeypatch):
 
     sent_frames = []
     monkeypatch.setattr(module.global_virtual_cam, "is_active", True)
-    monkeypatch.setattr(module.global_virtual_cam, "send_frame", lambda frame: sent_frames.append(frame.copy()))
+    # 总线以 owner/priority 关键字参数调用 send_frame (短租约仲裁契约)
+    monkeypatch.setattr(
+        module.global_virtual_cam,
+        "send_frame",
+        lambda frame, **kwargs: sent_frames.append(frame.copy()),
+    )
     global_scene_overlay_state.clear()
     global_scene_overlay_state.set_coupon({"title": "限时优惠", "desc": "立减30"}, seconds=30)
 
     driver = object.__new__(module.MuseTalkMediaDriver)
     driver.latest_jpeg_frame = b""
+    driver.current_frame_id = 0
     base = np.zeros((240, 320, 3), dtype=np.uint8)
     driver._publish_frame(base)
 

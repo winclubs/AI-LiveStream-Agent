@@ -32,7 +32,13 @@ def test_cover_crop_face_box_transform():
     assert clipped is None, "被中心裁切完全移出画面的框应回退比例定位"
 
 
+@pytest.mark.no_neural_mock
 def test_media_router_reports_effective_capability():
+    """能力上报必须如实反映神经引擎真实状态 (ADR-16 架构诚实)。
+
+    需要跳过全局 mock 注入：注入的 is_ready=True 会让 neural_lipsync 变成
+    True，恰好掩盖了本用例要验证的"未就绪即如实上报 False"。
+    """
     from server.adapters.media.media_router import MediaDriverRouter
 
     router = MediaDriverRouter()

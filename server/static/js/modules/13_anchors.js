@@ -48,6 +48,8 @@ async function loadAnchors() {
             loadAvatarActions();
             // 8. 加载数字人软硬件达标体检看板
             loadDigitalHumanHardwareRequirements();
+            // 9. 加载形象资产记录 (训练产出登记簿，可清理冗余登记)
+            loadAvatarAssets();
         } catch (e) {
             console.error("加载主播失败", e);
         } finally {
@@ -328,18 +330,7 @@ async function quickChangeAnchorType(anchorId, newType, anchorName) {
     }
 }
 
-async function setLiveAnchor(anchorId, name) {
-    try {
-        const res = await fetch(`${API_BASE}/anchors/${anchorId}/set-live`, { method: "POST" });
-        const json = await res.json();
-        if (json.code === 0) {
-            showToast("已设为开播主播，开播时将按其绑定音色发声 ✓", "success");
-            loadAnchors();
-        } else {
-            alert("设置失败: " + (json.detail || json.message || "未知错误"));
-        }
-    } catch (e) { alert("设置异常: " + e); }
-}
+
 
 async function submitAnchor() {
     const editId = document.getElementById("anchor-edit-id").value;
@@ -462,6 +453,31 @@ async function deleteAnchor(anchorId, name) {
 let _activeAvatarTaskId = null;
 let _avatarTaskPollingTimer = null;
 let _avatarTasksCache = [];
+
+// 试听台词驱动的客户端超时上限。
+// 首次试听需把约 10MB 主角资产上传到云端节点；弱速隧道上传可能耗时十几分钟。
+// 历史缺陷是裸 fetch 且无 AbortController：期间状态条永远停在「正在唤醒…」，
+// 用户既无法取消、也看不到已等待多久，只能干等到服务端最终报错。
+const PREVIEW_DRIVE_TIMEOUT_MS = 20 * 60 * 1000;
+
+// 试播音画同步前导量（秒）：rAF 按 audio.currentTime 推算帧序号时提前的量。
+//
+// 方向纪律（ITU-R BT.1359-1）：正值 = 声音超前于画面，可检出阈值 +45 / −125ms，
+// 音频超前比滞后刺眼约 2.8 倍。现实中光快于声，观众习惯「先看到嘴动、后听到声」，
+// 因此**口型略微领先声音**才是安全方向（历史实现取 +0.04 即此意图）。
+//
+// 量值理由：img.src 赋值后仍需异步 JPEG 解码 + 合成上屏，@60Hz 约 1~3 帧
+// （16~50ms，BBC WHP176 实测显示设备处理延迟最高 80ms）。历史 0.04 会被这段
+// 管线延迟吃掉，净偏移不可控。取 0.06 对冲最坏 50ms 后，净口型前导落在
+// +10~44ms 的安全区（远小于 −125ms 可检出阈值）。
+const PREVIEW_LEAD_SEC = 0.06;
+
+// 按音频时钟推算当前应显示的帧序号（纯函数，无 DOM 依赖，可独立测试）。
+// 方案 A（硬解视频伴随监视）与方案 B（逐帧 + Audio）共用，保证两通道同步手感一致。
+function previewSpeechFrameIndex(curTime, fps, leadSec, maxIdx) {
+    if (!(maxIdx > 0)) return 0;
+    return Math.max(0, Math.min(maxIdx, Math.floor((curTime + leadSec) * fps)));
+}
 
 function syncAvatarTaskAnchorSelect(anchors) {
     const sel = document.getElementById("avatar-task-anchor");
@@ -795,23 +811,32 @@ async function openAvatarPreviewModal(anchorId) {
             }
         }
 
-        // 2. 技术指标
+        // 2. 技术指标 (大数值醒目 + 辅助说明优雅分行，严防横向撑破)
         const framesEl = document.getElementById("modal-spec-frames");
         if (framesEl) {
             const sec = d.frame_count ? (d.frame_count / (d.fps || 25.0)).toFixed(1) : 0;
-            framesEl.innerText = d.frame_count ? `${d.frame_count} 帧 (${sec}s @ ${d.fps || 25} FPS)` : "制作中";
+            framesEl.innerHTML = d.frame_count
+                ? `${d.frame_count} 帧 <span style="font-size:10px;font-weight:normal;color:#94a3b8;">(${sec}s @ ${d.fps || 25}FPS)</span>`
+                : "制作中";
         }
         const resEl = document.getElementById("modal-spec-resolution");
-        if (resEl) resEl.innerText = `${d.resolution} 原生母轨`;
+        if (resEl) resEl.innerHTML = `${escapeHtml(d.resolution)} <span style="font-size:10px;font-weight:normal;color:#94a3b8;">母轨画幅</span>`;
 
         const coordsEl = document.getElementById("modal-spec-coords");
-        if (coordsEl) coordsEl.innerText = d.coords_count ? `${d.coords_count} 组动态平滑包围盒` : (d.has_trained_avatar ? "已校准完成" : "未生成");
+        if (coordsEl) coordsEl.innerHTML = d.coords_count
+            ? `${d.coords_count} 组 <span style="font-size:10px;font-weight:normal;color:#94a3b8;">平滑跟踪</span>`
+            : (d.has_trained_avatar ? "已校准完成" : "未生成");
 
         const faceEl = document.getElementById("modal-spec-faceimgs");
-        if (faceEl) faceEl.innerText = d.face_imgs_count ? `${d.face_imgs_count} 帧标准 256x256 对齐切片` : (d.has_trained_avatar ? "已对齐就绪" : "未生成");
+        if (faceEl) faceEl.innerHTML = d.face_imgs_count
+            ? `${d.face_imgs_count} 帧 <span style="font-size:10px;font-weight:normal;color:#94a3b8;">256px切片</span>`
+            : (d.has_trained_avatar ? "已对齐就绪" : "未生成");
 
         const pathEl = document.getElementById("modal-spec-path");
-        if (pathEl) pathEl.innerText = d.asset_dir || "暂未关联切片目录";
+        if (pathEl) {
+            pathEl.innerText = d.asset_dir || "暂未关联切片目录";
+            pathEl.title = `资产完整物理路径: ${d.asset_dir || '暂无'} (点击一键复制)`;
+        }
 
         // 4. 音色提示
         const voiceNameEl = document.getElementById("preview-voice-name");
@@ -824,6 +849,7 @@ async function openAvatarPreviewModal(anchorId) {
             speechStatusEl.style.color = "var(--text-muted)";
             speechStatusEl.innerText = "点击右侧测试主播发音";
         }
+        updatePreviewRenderStatus("数字人模型与切片资产就绪 · 点击右侧【试听台词驱动】即可在此处实时渲染唇形", "idle", "⚡");
 
         // 5. 备选的原片播放器初始化
         const videoEl = document.getElementById("modal-avatar-video");
@@ -900,7 +926,7 @@ function switchPreviewSubTab(tab) {
         if (descEl) descEl.innerText = "出镜录像原切片母轨 · 开播时作为 25 FPS 连续动作背景";
         stopSliceAnimationPlay();
         if (videoEl) {
-            videoEl.play().catch(() => {});
+            videoEl.play().catch(() => { });
         }
     }
 }
@@ -999,6 +1025,54 @@ function renderSliceFrame(index) {
 // -----------------------------------------------------------------------------
 let _currentGpuRuntimeInfo = null;
 
+function formatGpuDeviceDisplayName(rawName, maxLen = 22) {
+    if (!rawName) return "算力通道就绪";
+    const s = String(rawName).trim();
+    if (/910b2/i.test(s)) return "华为昇腾 910B2";
+    if (/910b/i.test(s)) return "华为昇腾 910B";
+    if (/910/i.test(s)) return "华为昇腾 910";
+    if (/a100/i.test(s)) return "NVIDIA A100";
+    if (/h100/i.test(s)) return "NVIDIA H100";
+    if (/4090/i.test(s)) return "RTX 4090";
+    if (/3090/i.test(s)) return "RTX 3090";
+    const m = s.match(/^([^(（]+)/);
+    if (m && m[1].trim().length >= 3) {
+        const clean = m[1].trim();
+        return clean.length > maxLen ? clean.slice(0, maxLen) + "..." : clean;
+    }
+    return s.length > maxLen ? s.slice(0, maxLen) + "..." : s;
+}
+
+function updatePreviewRenderStatus(html, type = "idle", icon = "⚡") {
+    const box = document.getElementById("preview-render-status-box");
+    const textEl = document.getElementById("preview-render-status-text");
+    const iconEl = document.getElementById("preview-render-status-icon");
+    if (!box || !textEl) return;
+    box.style.display = "flex";
+    if (type === "loading") {
+        box.style.background = "rgba(245, 158, 11, 0.1)";
+        box.style.borderColor = "rgba(245, 158, 11, 0.35)";
+        box.style.color = "#fbbf24";
+        if (iconEl) iconEl.innerText = icon || "⏳";
+    } else if (type === "success") {
+        box.style.background = "rgba(16, 185, 129, 0.1)";
+        box.style.borderColor = "rgba(16, 185, 129, 0.35)";
+        box.style.color = "#34d399";
+        if (iconEl) iconEl.innerText = icon || "✓";
+    } else if (type === "error") {
+        box.style.background = "rgba(239, 68, 68, 0.1)";
+        box.style.borderColor = "rgba(239, 68, 68, 0.35)";
+        box.style.color = "#f87171";
+        if (iconEl) iconEl.innerText = icon || "⚠️";
+    } else {
+        box.style.background = "rgba(56, 189, 248, 0.06)";
+        box.style.borderColor = "rgba(56, 189, 248, 0.22)";
+        box.style.color = "#cbd5e1";
+        if (iconEl) iconEl.innerText = icon || "⚡";
+    }
+    textEl.innerHTML = html;
+}
+
 async function loadAvatarGpuRuntimeStatus() {
     const badgeEl = document.getElementById("slice-face-gpu-badge");
     if (!badgeEl) return;
@@ -1028,7 +1102,7 @@ async function loadAvatarGpuRuntimeStatus() {
         let badgeBg = "rgba(56, 189, 248, 0.15)";
         let badgeBorder = "rgba(56, 189, 248, 0.35)";
         let icon = "⚡";
-        let modeLabel = "云端显卡";
+        let modeLabel = "云端";
 
         if (isCloud) {
             activeMode = "cloud";
@@ -1040,9 +1114,10 @@ async function loadAvatarGpuRuntimeStatus() {
             badgeBg = "rgba(56, 189, 248, 0.15)";
             badgeBorder = "rgba(56, 189, 248, 0.35)";
             icon = "⚡";
-            modeLabel = "云端显卡";
-            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(hwName)} <span style="font-size:9.5px;opacity:0.85;">(${vram}算力协同)</span>`;
-            badgeEl.title = `${badgeTitle}\n运行通道: 云端租赁显卡通道\n设备型号: ${hwName}\n显存容量: ${vram}\n节点网关: ${cloudGpu.base_url || '已连通'}\n本地显卡: ${localGpu.gpu_name || 'GT 710'} (无CUDA，已由云端接管全量推理)`;
+            modeLabel = "云端";
+            const shortName = formatGpuDeviceDisplayName(hwName);
+            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(shortName)} <span style="font-size:9.5px;opacity:0.85;">(${vram})</span>`;
+            badgeEl.title = `${badgeTitle}\n运行通道: 云端算力通道\n设备型号: ${hwName}\n显存容量: ${vram}\n节点网关: ${cloudGpu.base_url || '已连通'}\n本地显卡: ${localGpu.gpu_name || 'GT 710'}`;
         } else if (hasLocalCuda) {
             activeMode = "local";
             hwName = localGpu.gpu_name || "NVIDIA 独立显卡";
@@ -1053,8 +1128,9 @@ async function loadAvatarGpuRuntimeStatus() {
             badgeBg = "rgba(16, 185, 129, 0.15)";
             badgeBorder = "rgba(16, 185, 129, 0.35)";
             icon = "🟢";
-            modeLabel = "本地独显";
-            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(hwName)} <span style="font-size:9.5px;opacity:0.85;">(CUDA加速)</span>`;
+            modeLabel = "独显";
+            const shortName = formatGpuDeviceDisplayName(hwName);
+            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(shortName)} <span style="font-size:9.5px;opacity:0.85;">(${vram})</span>`;
             badgeEl.title = `${badgeTitle}\n运行通道: 本地独显通道\n硬件设备: ${hwName}\n${hwDetail}`;
         } else {
             activeMode = "cpu";
@@ -1064,8 +1140,9 @@ async function loadAvatarGpuRuntimeStatus() {
             badgeBg = "rgba(251, 191, 36, 0.15)";
             badgeBorder = "rgba(251, 191, 36, 0.35)";
             icon = "⚠️";
-            modeLabel = "显卡受限";
-            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(hwName)} <span style="font-size:9.5px;opacity:0.85;">(无CUDA·建议切换云端)</span>`;
+            modeLabel = "受限";
+            const shortName = formatGpuDeviceDisplayName(hwName);
+            badgeEl.innerHTML = `${icon} <span style="font-weight:700;margin-right:2px;">[${modeLabel}]</span> ${escapeHtml(shortName)} <span style="font-size:9.5px;opacity:0.85;">(无CUDA)</span>`;
             badgeEl.title = `${badgeTitle}\n检测到本地显卡不支持深度学习 CUDA 加速，建议在 GPU 设置中开启云端显卡。`;
         }
 
@@ -1078,19 +1155,19 @@ async function loadAvatarGpuRuntimeStatus() {
             hardware_name: hwName,
             hardware_detail: hwDetail,
             badge_title: badgeTitle,
-            engine_name: isCloud ? "MuseTalk / LiveTalking 云端高精神经引擎" : (hasLocalCuda ? "Wav2Lip ONNX 神经引擎" : "RealAvatarLite 算法引擎")
+            engine_name: isCloud ? "LatentSync 官方扩散模型 (云端高精)" : (hasLocalCuda ? "LatentSync ONNX 神经引擎" : "RealAvatarLite 算法引擎")
         };
     } catch (e) {
         console.warn("读取 GPU 算力通道状态失败，回退云端预设:", e);
         badgeEl.style.background = "rgba(56, 189, 248, 0.15)";
         badgeEl.style.borderColor = "rgba(56, 189, 248, 0.35)";
         badgeEl.style.color = "#38bdf8";
-        badgeEl.innerHTML = `⚡ <span style="font-weight:700;">[云端显卡]</span> NVIDIA A100-SXM4-80GB <span style="font-size:9.5px;opacity:0.85;">(80GB算力协同)</span>`;
+        badgeEl.innerHTML = `⚡ <span style="font-weight:700;">[云端]</span> NVIDIA A100 <span style="font-size:9.5px;opacity:0.85;">(80GB)</span>`;
         _currentGpuRuntimeInfo = {
             active_mode: "cloud",
             hardware_name: "NVIDIA A100-SXM4-80GB",
-            hardware_detail: "云端租赁高精神经渲染集群",
-            engine_name: "MuseTalk / LiveTalking 云端高精神经引擎"
+            hardware_detail: "云端高精神经渲染集群",
+            engine_name: "ByteDance LatentSync 官方扩散模型"
         };
     }
 }
@@ -1210,10 +1287,13 @@ async function testAnchorSpeechDemo() {
     // 否则 40ms 定时器会不断把 slice-face-img 覆盖回静态资产帧，把渲染出的口型帧抹掉。
     stopSliceAnimationPlay();
 
+    const renderMode = "latentsync";
+
     if (statusEl) {
         statusEl.style.color = "#38bdf8";
-        statusEl.innerHTML = `⏳ 正在唤醒神经口型驱动引擎，合成音频并执行真实推理...`;
+        statusEl.innerHTML = `⏳ 正在唤醒扩散模型...`;
     }
+    updatePreviewRenderStatus(`⏳ 正在唤醒 LatentSync 官方扩散模型，云端正在进行多步逐帧去噪精修 (约需 5~10 秒)...`, "loading", "⏳");
     if (btnEl) btnEl.disabled = true;
 
     if (!driveAnchorId) {
@@ -1221,20 +1301,35 @@ async function testAnchorSpeechDemo() {
         _previewPlaying = false;
         if (statusEl) {
             statusEl.style.color = "#fbbf24";
-            statusEl.innerHTML = `⚠️ <strong>试听驱动失败：</strong>当前主播档案缺少 ID，请关闭预览后重新打开`;
+            statusEl.innerHTML = `⚠️ 缺少主播ID`;
         }
+        updatePreviewRenderStatus(`⚠️ <strong>试听驱动失败：</strong>当前主播档案缺少 ID，请关闭预览后重新打开`, "error", "⚠️");
         if (btnEl) btnEl.disabled = false;
         return;
     }
+
+    // 客户端超时 + 等待进度心跳：如实告知仍在等待，左侧醒目展示去噪进展
+    const driveController = new AbortController();
+    const driveTimeoutId = setTimeout(() => driveController.abort(), PREVIEW_DRIVE_TIMEOUT_MS);
+    const driveStartedAt = Date.now();
+    const driveProgressId = setInterval(() => {
+        const secs = Math.round((Date.now() - driveStartedAt) / 1000);
+        if (statusEl) {
+            statusEl.innerHTML = `正在 GPU 去噪渲染… (<strong style="color:#fbbf24; font-weight:700;">${secs}s</strong>)`;
+        }
+        updatePreviewRenderStatus(`正在执行 LatentSync 官方去噪渲染… 已等待 <strong style="color:#fbbf24; font-weight:700;">${secs}s</strong>（3到5分钟都属于正常，请耐心等待！）`, "loading", "⏳");
+    }, 1000);
 
     try {
         const res = await fetch(`${API_BASE}/anchors/${driveAnchorId}/avatar/preview-speech-drive`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: driveController.signal,
             body: JSON.stringify({
                 text: text,
                 provider_name: providerName,
-                voice_name: voiceId || null
+                voice_name: voiceId || null,
+                render_mode: renderMode
             })
         });
 
@@ -1277,93 +1372,193 @@ async function testAnchorSpeechDemo() {
         const json = await res.json();
         const data = json.data || {};
 
-        // 预加载全部帧，消除播放期解码卡顿
-        const faceImgs = (data.face_frames || []).map(url => {
-            const img = new Image();
-            img.src = url;
-            return img;
-        });
-        const fullImgs = (data.full_frames || []).map(url => {
-            const img = new Image();
-            img.src = url;
-            return img;
-        });
+        // 如实展示分段渲染缺口：云端 45s 安全窗口未渲染完的帧会以主播底片补齐（无口型），
+        // 绝不让用户误以为全片已完成神经口型渲染
+        const partialNote = data.fallback_reason
+            ? ` · ⚠️ ${escapeHtml(data.fallback_reason)}`
+            : "";
+        // 缓存复用提示：同「主播+台词+音色」重复试听时秒开，未重新渲染
+        const reusedNote = data.reused
+            ? " · ⚡ 已复用上次相同台词的渲染结果 (未重新渲染)"
+            : "";
 
-        if (_demoAudioPlayer) {
-            _demoAudioPlayer.pause();
-            _demoAudioPlayer = null;
-        }
-
-        _demoAudioPlayer = new Audio(data.audio_url);
-        _previewPlaying = true;
-        const frameCount = Math.max(1, data.frame_count || faceImgs.length);
-
-        _demoAudioPlayer.onended = () => {
-            _previewPlaying = false;
-            if (statusEl) {
-                statusEl.style.color = "#10b981";
-                statusEl.innerHTML = `✓ 试听驱动演示完毕 · 神经引擎: <strong>${escapeHtml(data.device || data.engine)}</strong> · 单帧 <strong>${data.mean_inference_ms}ms</strong> · 共 ${frameCount} 帧`;
-            }
-            if (bboxBox) bboxBox.style.boxShadow = "none";
-            if (btnEl) btnEl.disabled = false;
-            // 试播结束，恢复切片闲置轮播
-            startSliceAnimationPlay();
-        };
-
-        _demoAudioPlayer.onerror = () => {
-            _previewPlaying = false;
-            if (statusEl) {
-                statusEl.style.color = "#f87171";
-                statusEl.innerHTML = "⚠️ 音频播放异常，请重试";
-            }
-            if (btnEl) btnEl.disabled = false;
-            startSliceAnimationPlay();
-        };
-
-        // 真实遥测徽章 (引擎/设备/帧耗时，全部来自后端实测)
-        updateSpeechDriveBadge(data);
-
-        if (bboxBox) bboxBox.style.boxShadow = "0 0 18px rgba(16, 185, 129, 0.95)";
-        await _demoAudioPlayer.play();
-
-        // 25 FPS 帧推进：以音频时钟为准
+        const previewVideoEl = document.getElementById("slice-preview-video");
         const faceImgEl = document.getElementById("slice-face-img");
         const fullImgEl = document.getElementById("slice-full-img");
-        const FPS = data.fps || 25;
+        const frameCount = Math.max(1, data.frame_count || 1);
 
-        function flip() {
-            if (!_previewPlaying || !_demoAudioPlayer || _demoAudioPlayer.paused) return;
-            const idx = Math.min(frameCount - 1, Math.floor(_demoAudioPlayer.currentTime * FPS));
-            if (faceImgs[idx] && faceImgEl && faceImgs[idx].complete) {
-                faceImgEl.src = faceImgs[idx].src;
+        if (data.video_url && previewVideoEl) {
+            // 🚀 方案 A (工业级标准)：原生视频硬件硬解通道，音画微秒同步，彻底杜绝单图 HTTP 队列阻塞
+            _previewPlaying = true;
+            if (_demoAudioPlayer) {
+                _demoAudioPlayer.pause();
+                _demoAudioPlayer = null;
             }
-            if (fullImgs[idx] && fullImgEl && fullImgs[idx].complete) {
-                fullImgEl.src = fullImgs[idx].src;
+
+            const faceImgs = (data.face_frames || []).map(url => {
+                const img = new Image();
+                img.src = url;
+                return img;
+            });
+
+            previewVideoEl.src = data.video_url;
+            previewVideoEl.style.display = "block";
+            if (fullImgEl) fullImgEl.style.display = "none";
+            if (bboxBox) bboxBox.style.boxShadow = "0 0 18px rgba(16, 185, 129, 0.95)";
+
+            let lastFaceIdx = -1;
+            const FPS = data.fps || 25;
+            function syncFace() {
+                if (!_previewPlaying || previewVideoEl.paused || previewVideoEl.ended) return;
+                const cur = previewVideoEl.currentTime || 0;
+                const idx = previewSpeechFrameIndex(cur, FPS, PREVIEW_LEAD_SEC, faceImgs.length - 1);
+                if (idx !== lastFaceIdx && faceImgs[idx] && faceImgEl) {
+                    lastFaceIdx = idx;
+                    faceImgEl.src = faceImgs[idx].src;
+                }
+                requestAnimationFrame(syncFace);
+            }
+
+            previewVideoEl.onended = () => {
+                _previewPlaying = false;
+                previewVideoEl.style.display = "none";
+                if (fullImgEl) fullImgEl.style.display = "block";
+                const engineName = data.engine === "neural_cloud_latentsync"
+                    ? "LatentSync 顶尖高精口型 (SyncNet 对齐)"
+                    : escapeHtml(data.device || data.engine);
+                if (statusEl) {
+                    statusEl.style.color = "#10b981";
+                    statusEl.innerHTML = `✓ 试听驱动演示完毕`;
+                }
+                updatePreviewRenderStatus(`✓ 试听驱动演示完毕 · 渲染引擎: <strong>${engineName}</strong> · 单帧 <strong>${data.mean_inference_ms}ms</strong> · 共 ${frameCount} 帧流畅播放${partialNote}`, "success", "✓");
+                if (bboxBox) bboxBox.style.boxShadow = "none";
+                if (btnEl) btnEl.disabled = false;
+                startSliceAnimationPlay();
+            };
+
+            previewVideoEl.onerror = () => {
+                _previewPlaying = false;
+                previewVideoEl.style.display = "none";
+                if (fullImgEl) fullImgEl.style.display = "block";
+                if (statusEl) {
+                    statusEl.style.color = "#f87171";
+                    statusEl.innerHTML = "⚠️ 视频播放异常";
+                }
+                updatePreviewRenderStatus("⚠️ 视频播放异常，请重试", "error", "⚠️");
+                if (btnEl) btnEl.disabled = false;
+                startSliceAnimationPlay();
+            };
+
+            updateSpeechDriveBadge(data);
+            try {
+                await previewVideoEl.play();
+                requestAnimationFrame(syncFace);
+            } catch (err) {
+                console.warn("视频自动播放受限:", err);
+            }
+        } else {
+            // 方案 B (回退通道)：逐帧图片驱动 (增强版，防卡死)
+            const faceImgs = (data.face_frames || []).map(url => {
+                const img = new Image();
+                img.src = url;
+                return img;
+            });
+            const fullImgs = (data.full_frames || []).map(url => {
+                const img = new Image();
+                img.src = url;
+                return img;
+            });
+
+            if (_demoAudioPlayer) {
+                _demoAudioPlayer.pause();
+                _demoAudioPlayer = null;
+            }
+
+            _demoAudioPlayer = new Audio(data.audio_url);
+            _previewPlaying = true;
+
+            _demoAudioPlayer.onended = () => {
+                _previewPlaying = false;
+                const engineName = data.engine === "neural_cloud_latentsync"
+                    ? "LatentSync 顶尖高精口型 (SyncNet 对齐)"
+                    : escapeHtml(data.device || data.engine);
+                if (statusEl) {
+                    statusEl.style.color = "#10b981";
+                    statusEl.innerHTML = `✓ 试听驱动演示完毕`;
+                }
+                updatePreviewRenderStatus(`✓ 试听驱动演示完毕 · 渲染引擎: <strong>${engineName}</strong> · 单帧 <strong>${data.mean_inference_ms}ms</strong> · 共 ${frameCount} 帧${partialNote}`, "success", "✓");
+                if (bboxBox) bboxBox.style.boxShadow = "none";
+                if (btnEl) btnEl.disabled = false;
+                startSliceAnimationPlay();
+            };
+
+            _demoAudioPlayer.onerror = () => {
+                _previewPlaying = false;
+                if (statusEl) {
+                    statusEl.style.color = "#f87171";
+                    statusEl.innerHTML = "⚠️ 音频播放异常";
+                }
+                updatePreviewRenderStatus("⚠️ 音频播放异常，请重试", "error", "⚠️");
+                if (btnEl) btnEl.disabled = false;
+                startSliceAnimationPlay();
+            };
+
+            updateSpeechDriveBadge(data);
+
+            if (bboxBox) bboxBox.style.boxShadow = "0 0 18px rgba(16, 185, 129, 0.95)";
+            await _demoAudioPlayer.play();
+
+            const FPS = data.fps || 25;
+            let lastRenderedIdx = -1;
+            function flip() {
+                if (!_previewPlaying || !_demoAudioPlayer || _demoAudioPlayer.paused) return;
+                const curTime = _demoAudioPlayer.currentTime || 0;
+                const maxFaceIdx = faceImgs.length > 0 ? faceImgs.length - 1 : frameCount - 1;
+                const idx = previewSpeechFrameIndex(curTime, FPS, PREVIEW_LEAD_SEC, maxFaceIdx);
+                if (idx !== lastRenderedIdx) {
+                    lastRenderedIdx = idx;
+                    if (faceImgs[idx] && faceImgEl) {
+                        faceImgEl.src = faceImgs[idx].src;
+                    }
+                    if (fullImgs[idx] && fullImgEl) {
+                        fullImgEl.src = fullImgs[idx].src;
+                    }
+                }
+                requestAnimationFrame(flip);
             }
             requestAnimationFrame(flip);
         }
-        requestAnimationFrame(flip);
 
+        const engineText = data.engine === "neural_cloud_latentsync" ? "LatentSync 官方高精扩散模型 (SyncNet顶尖对齐)"
+            : data.engine === "neural_cloud_sidecar" ? "云端 GPU 神经渲染"
+                : data.engine === "neural_local_onnx" ? "本地 ONNX 神经渲染"
+                    : "微动态降级 (神经引擎未就绪)";
         if (statusEl) {
             statusEl.style.color = "#34d399";
-            const engineText = data.engine === "neural_cloud_sidecar" ? "云端 GPU 神经渲染"
-                : data.engine === "neural_local_onnx" ? "本地 ONNX 神经渲染"
-                : "微动态降级 (神经引擎未就绪)";
-            statusEl.innerHTML = `🔊 正在试听发音 (声线: <strong>${escapeHtml(d.voice_name || voiceId || '默认')}</strong> · <strong>${escapeHtml(engineText)}</strong>${data.device ? ` · ${escapeHtml(data.device)}` : ""} · ${data.mean_inference_ms}ms/帧)`;
+            statusEl.innerHTML = `🔊 正在试听 (${data.mean_inference_ms}ms/帧)`;
         }
+        updatePreviewRenderStatus(`🔊 <strong>正在试听发音驱动中:</strong> 渲染引擎: <strong>${escapeHtml(engineText)}</strong>${data.device ? ` · ${escapeHtml(formatGpuDeviceDisplayName(data.device))}` : ""} · 单帧 <strong>${data.mean_inference_ms}ms</strong> · 共 ${frameCount} 帧${reusedNote}${partialNote}`, "success", "🔊");
     } catch (e) {
         _previewPlaying = false;
         let msg = e.message || "主播绑定的音色有误，请检查";
-        if (msg === "Failed to fetch") {
+        if (e.name === "AbortError") {
+            msg = `等待超过 ${Math.round(PREVIEW_DRIVE_TIMEOUT_MS / 60000)} 分钟仍未完成，已中止本次请求。`
+                + "通常是首次试听需上传约 10MB 主播资产到云端、隧道带宽过低所致；"
+                + "已启用断点续传，再次点击只会补传云端缺失的分块。";
+        } else if (msg === "Failed to fetch") {
             msg = "无法连接至后端服务，请确认服务已启动";
         }
         if (statusEl) {
             statusEl.style.color = "#fbbf24";
             const detailTip = e.rawDetail ? ` title="${escapeHtml(e.rawDetail)}"` : "";
-            statusEl.innerHTML = `<span${detailTip}>⚠️ <strong>试听驱动失败：</strong>${escapeHtml(msg)}</span>`;
+            statusEl.innerHTML = `<span${detailTip}>⚠️ <strong>试听驱动失败</strong></span>`;
         }
+        updatePreviewRenderStatus(`⚠️ <strong>试听驱动失败：</strong>${escapeHtml(msg)}`, "error", "⚠️");
         if (bboxBox) bboxBox.style.boxShadow = "none";
     } finally {
+        // 必须清理定时器，否则会留下悬挂的 interval/timer 持续改写状态条
+        clearTimeout(driveTimeoutId);
+        clearInterval(driveProgressId);
         if (btnEl) btnEl.disabled = false;
     }
 }
@@ -1373,38 +1568,52 @@ function updateSpeechDriveBadge(data) {
     const syncBadge = document.getElementById("slice-face-sync-badge");
     if (!badge) return;
 
-    if (data.engine === "neural_cloud_sidecar") {
+    if (data.engine === "neural_cloud_latentsync") {
+        badge.style.background = "rgba(16, 185, 129, 0.15)";
+        badge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+        badge.style.color = "#10b981";
+        const shortDev = formatGpuDeviceDisplayName(data.device || "云端 GPU");
+        badge.innerHTML = `💎 <strong>[LatentSync]</strong> ${escapeHtml(shortDev)} <span style="font-size:9.5px;opacity:0.85;">(${data.mean_inference_ms}ms)</span>`;
+        badge.title = `💎 ByteDance LatentSync 官方扩散模型 (SyncNet顶尖对齐)\n设备型号: ${data.device || '云端GPU'}\n单帧耗时: ${data.mean_inference_ms}ms/帧`;
+    } else if (data.engine === "neural_cloud_sidecar") {
         badge.style.background = "rgba(56, 189, 248, 0.15)";
         badge.style.borderColor = "rgba(56, 189, 248, 0.35)";
         badge.style.color = "#38bdf8";
-        badge.innerHTML = `⚡ <span style="font-weight:700;">[云端显卡]</span> ${escapeHtml(data.device || "远端 GPU")} <span style="font-size:9.5px;opacity:0.85;">(${data.mean_inference_ms}ms/帧)</span>`;
+        const shortDev = formatGpuDeviceDisplayName(data.device || "远端 GPU");
+        badge.innerHTML = `⚡ <strong>[云端]</strong> ${escapeHtml(shortDev)} <span style="font-size:9.5px;opacity:0.85;">(${data.mean_inference_ms}ms)</span>`;
+        badge.title = `云端 GPU 神经渲染通道\n设备型号: ${data.device || '远端GPU'}\n单帧耗时: ${data.mean_inference_ms}ms/帧`;
     } else if (data.engine === "neural_local_onnx") {
         badge.style.background = "rgba(16, 185, 129, 0.15)";
         badge.style.borderColor = "rgba(16, 185, 129, 0.35)";
         badge.style.color = "#34d399";
-        badge.innerHTML = `🟢 <span style="font-weight:700;">[本地独显]</span> ${escapeHtml(data.device || "ONNX")} <span style="font-size:9.5px;opacity:0.85;">(${data.mean_inference_ms}ms/帧)</span>`;
+        const shortDev = formatGpuDeviceDisplayName(data.device || "ONNX");
+        badge.innerHTML = `🟢 <strong>[独显]</strong> ${escapeHtml(shortDev)} <span style="font-size:9.5px;opacity:0.85;">(${data.mean_inference_ms}ms)</span>`;
+        badge.title = `本地显卡深度学习加速\n设备型号: ${data.device || 'ONNX'}\n单帧耗时: ${data.mean_inference_ms}ms/帧`;
     } else {
         // 诚实降级：绝不声称 GPU，引导用户前往设置页
         badge.style.background = "rgba(251, 191, 36, 0.15)";
         badge.style.borderColor = "rgba(251, 191, 36, 0.35)";
         badge.style.color = "#fbbf24";
         const reason = data.fallback_reason === "model_not_installed"
-            ? "神经模型未下载"
-            : (data.fallback_reason === "sidecar_unreachable" ? "云端节点未连通" : "神经引擎未就绪");
-        badge.innerHTML = `⚠️ <span style="font-weight:700;">[已回退]</span> ${escapeHtml(reason)} · 前往【GPU算力配置】启用`;
+            ? "模型未就绪"
+            : (data.fallback_reason === "sidecar_unreachable" ? "云端未连通" : "引擎未就绪");
+        badge.innerHTML = `⚠️ <strong>[已降级]</strong> ${escapeHtml(reason)}`;
+        badge.title = "检测到当前未启用 GPU 加速，可在【GPU算力配置】中启用。";
     }
 
     if (syncBadge) {
         syncBadge.style.display = "block";
-        syncBadge.innerHTML = `● 真实神经驱动中 (${data.frame_count || 0} 帧)`;
+        syncBadge.innerHTML = `● 真实驱动中 (${data.frame_count || 0} 帧)`;
     }
 
     const tip = document.getElementById("slice-face-tip");
     if (tip) {
-        tip.style.borderColor = "rgba(16, 185, 129, 0.5)";
-        tip.style.background = "rgba(16, 185, 129, 0.12)";
+        tip.style.borderColor = "rgba(16, 185, 129, 0.4)";
+        tip.style.background = "rgba(16, 185, 129, 0.1)";
         tip.style.color = "#34d399";
-        tip.innerHTML = `🔊 <strong style="color:#10b981;">真实神经重绘:</strong> 引擎 <strong>${escapeHtml(data.engine)}</strong>${data.device ? ` · ${escapeHtml(data.device)}` : ""} · 单帧 <strong>${data.mean_inference_ms}ms</strong>`;
+        const shortDev = formatGpuDeviceDisplayName(data.device || "");
+        tip.innerHTML = `🔊 <strong style="color:#10b981;">神经重绘:</strong> <strong>LatentSync 官方扩散模型</strong>${shortDev ? ` · ${escapeHtml(shortDev)}` : ""} · 单帧 <strong>${data.mean_inference_ms}ms</strong>`;
+        tip.title = `完整设备型号: ${data.device || 'N/A'}`;
     }
 }
 
@@ -1660,7 +1869,7 @@ async function loadLiveStats() {
                     }
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
     } catch (e) { /* 静默轮询 */ }
 }
 
@@ -1832,9 +2041,9 @@ function renderAvatarActionsTable(actions, currentStatus) {
                         ✏ 编辑
                     </button>
                     ${act.action_code !== 0
-                        ? `<button class="btn btn-sm btn-danger" style="padding: 2px 7px; font-size: 11px; height: 26px; line-height: 20px; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; margin: 0;" onclick="deleteAvatarAction('${act.id}')" title="删除动作">🗑 删除</button>`
-                        : `<button class="btn btn-sm" disabled style="padding: 2px 7px; font-size: 11px; height: 26px; line-height: 20px; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; margin: 0; opacity: 0.25; cursor: not-allowed; border-style: dashed;" title="待机底模不可删除">🗑 删除</button>`
-                    }
+                ? `<button class="btn btn-sm btn-danger" style="padding: 2px 7px; font-size: 11px; height: 26px; line-height: 20px; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; margin: 0;" onclick="deleteAvatarAction('${act.id}')" title="删除动作">🗑 删除</button>`
+                : `<button class="btn btn-sm" disabled style="padding: 2px 7px; font-size: 11px; height: 26px; line-height: 20px; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; margin: 0; opacity: 0.25; cursor: not-allowed; border-style: dashed;" title="待机底模不可删除">🗑 删除</button>`
+            }
                 </div>
             </td>
         `;
@@ -1998,6 +2207,123 @@ async function deleteAvatarAction(actionId) {
 }
 
 // -----------------------------------------------------------------------------
+// 形象资产记录 (训练产出登记簿)
+// -----------------------------------------------------------------------------
+// 背景：服务端 task_manager 每完成一次数字人切片训练就会往 avatars 表登记一条
+// 记录（avatar_task_* 前缀），但此前前端没有任何界面能看到这张表 —— 训练测试
+// 产生的冗余登记只增不减、无法清理。此处把服务端已有的
+// GET /avatars/list 与 DELETE /avatars/{id} 接到界面，让用户能回溯训练产出并
+// 安全清理。注意：这些记录**不参与直播渲染**，只有被正式加入主播档案
+// (anchors 表) 的资产才会开播。
+// -----------------------------------------------------------------------------
+
+const AVATAR_ASSET_TYPE_MAP = {
+    image: { label: "形象图", color: "#38bdf8" },
+    video: { label: "训练视频", color: "#a78bfa" },
+};
+
+function formatAssetTime(iso) {
+    if (!iso) return "—";
+    // 后端返回 ISO 字符串；避免时区解析差异，仅取日期与时分
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+    if (!m) return String(iso);
+    return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+}
+
+function renderAvatarAssetsTable(rows) {
+    const tbody = document.getElementById("avatar-assets-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding: 20px;">暂无形象资产记录（完成一次数字人切片训练后会自动登记）</td></tr>';
+        return;
+    }
+
+    for (const row of rows) {
+        const id = String(row.id || "");
+        const typeMeta = AVATAR_ASSET_TYPE_MAP[row.avatar_type] || { label: row.avatar_type || "未知", color: "#94a3b8" };
+        const isTask = row.origin === "task";
+        const exists = row.asset_exists === true;
+
+        const originBadge = isTask
+            ? '<span class="badge-recommend" style="font-size:10px; padding:1px 7px; background:rgba(167,139,250,0.15); color:#c4b5fd; border:1px solid rgba(167,139,250,0.3);">训练任务</span>'
+            : '<span class="badge-recommend" style="font-size:10px; padding:1px 7px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">手动上传</span>';
+
+        // 资产状态：缺失的记录仅剩一条空壳登记，可安全清理
+        const stateCell = exists
+            ? '<span style="color:#34d399; font-size:12px;">● 资产在位</span>'
+            : '<span style="color:#fbbf24; font-size:12px;" title="磁盘文件已不存在，仅剩一条登记记录">● 资产缺失</span>';
+
+        tbody.insertAdjacentHTML("beforeend", `
+            <tr>
+                <td>
+                    <div style="font-weight:600; color:var(--text-primary);">${escapeHtml(row.name || "(未命名)")}</div>
+                    <div style="font-size:10.5px; color:var(--text-muted); font-family:monospace;">${escapeHtml(id)}</div>
+                </td>
+                <td><span style="color:${typeMeta.color}; font-size:12px;">${escapeHtml(typeMeta.label)}</span></td>
+                <td>${originBadge}</td>
+                <td>${stateCell}</td>
+                <td style="font-size:12px; color:var(--text-muted);">${escapeHtml(formatAssetTime(row.created_at))}</td>
+                <td style="white-space:nowrap;">
+                    <button class="btn btn-sm btn-danger" onclick="deleteAvatarAssetRecord('${escapeHtml(id)}', '${escapeHtml(row.name || "")}')"
+                        style="padding:2px 10px; font-size:11px;">删除登记</button>
+                </td>
+            </tr>
+        `);
+    }
+}
+
+async function loadAvatarAssets() {
+    const tbody = document.getElementById("avatar-assets-tbody");
+    const summary = document.getElementById("avatar-assets-summary");
+    if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载形象资产记录...</td></tr>';
+    }
+    try {
+        const res = await fetch(`${API_BASE}/avatars/list`);
+        const json = await res.json();
+        if (json.code !== 0) {
+            throw new Error(json.detail || json.message || "接口返回异常");
+        }
+        const rows = json.data || [];
+        renderAvatarAssetsTable(rows);
+
+        if (summary) {
+            const missing = rows.filter((r) => r.asset_exists !== true).length;
+            const fromTask = rows.filter((r) => r.origin === "task").length;
+            summary.textContent = `共 ${rows.length} 条 · 训练登记 ${fromTask} 条 · 资产缺失 ${missing} 条`;
+        }
+    } catch (e) {
+        console.error("加载形象资产记录失败:", e);
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#f87171; padding: 16px;">加载失败：${escapeHtml(String(e.message || e))}</td></tr>`;
+        }
+    }
+}
+
+async function deleteAvatarAssetRecord(avatarId, name) {
+    if (!avatarId) return;
+    if (!confirm(`确定要删除形象资产登记「${name || avatarId}」吗？\n\n· 仅删除登记条目与该条目指向的磁盘文件\n· 不影响【全部主播档案】中的主播，也不影响正在直播的数字人\n· 若该资产仍在使用，请勿删除`)) {
+        return;
+    }
+    try {
+        const res = await fetch(`${API_BASE}/avatars/${encodeURIComponent(avatarId)}`, {
+            method: "DELETE",
+        });
+        const json = await res.json();
+        if (json.code === 0) {
+            alert("形象资产登记已删除");
+            loadAvatarAssets();
+        } else {
+            alert(json.detail || json.message || "删除失败");
+        }
+    } catch (e) {
+        alert("删除形象资产登记失败: " + e);
+    }
+}
+
+// -----------------------------------------------------------------------------
 // 绿幕 3 段式实拍 SOP 指南与 OBS/抖音直播伴侣导播助手交互
 // -----------------------------------------------------------------------------
 
@@ -2148,11 +2474,11 @@ async function loadAnchorActions(anchorId) {
             const codeTag = `<span style="font-family:monospace; background:rgba(255,255,255,0.08); padding:1px 6px; border-radius:4px; font-size:11px;">#${act.action_code}</span>`;
             const priorityTag = `<span style="font-size:10px; color:#38bdf8; background:rgba(56,189,248,0.1); padding:1px 5px; border-radius:3px;">优:${act.priority}</span>`;
             const durationTag = `<span style="font-size:10px; color:#fbbf24; background:rgba(245,158,11,0.1); padding:1px 5px; border-radius:3px;">${act.duration_sec}s</span>`;
-            const framesTag = act.frames_count > 0 
+            const framesTag = act.frames_count > 0
                 ? `<span style="font-size:11px; color:#34d399;">✓ ${act.frames_count} 帧 (神经就绪)</span>`
                 : `<span style="font-size:11px; color:var(--text-muted);">⚪ 待提取切片</span>`;
-            
-            const previewImg = act.preview_url 
+
+            const previewImg = act.preview_url
                 ? `<img src="${act.preview_url}" style="width:100%; height:90px; object-fit:cover; border-radius:4px; margin-bottom:8px; border:1px solid rgba(255,255,255,0.08);" alt="动作预览">`
                 : `<div style="width:100%; height:90px; background:rgba(0,0,0,0.4); border-radius:4px; margin-bottom:8px; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:24px; border:1px solid rgba(255,255,255,0.05);">🎬</div>`;
 

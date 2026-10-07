@@ -470,7 +470,7 @@ def health_check():
         "cuda_available": hw["cuda_available"],
         "uptime_sec": int(time.time() - START_TIME),
         "service": "AI-LiveStream-Agent-Cloud-Sidecar",
-        "renderer": "RealtimeWav2LipRenderer" if CV_AVAILABLE else "GenericRenderer"
+        "renderer": "RealtimeLatentSyncRenderer" if CV_AVAILABLE else "GenericRenderer"
     }}
 
 
@@ -514,7 +514,7 @@ async def render_ws_endpoint(ws: WebSocket):
             ],
             "render_backends": [
                 {{
-                    "id": "cloud_wav2lip",
+                    "id": "cloud_latentsync",
                     "model_version": "v3.0",
                     "weights_sha256": "weights_verified_sha256",
                     "license_manifest_sha256": "license_manifest_sha256",
@@ -789,8 +789,8 @@ def main():
         print(f"\n{RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}")
         print(f"{YELLOW}⚠️  【重要提示】当前云端实例未检测到物理 GPU 独显 (当前为纯 CPU 软件渲染)！{RESET}")
         print(f"{YELLOW}👉 如果您使用的是 Google Colab：{RESET}")
-        print(f"   请在 Colab 顶部菜单依次点击：【代码执行程序】->【更改运行时类型】->【硬件加速器】")
-        print(f"   切换为【T4 GPU】或【A100 GPU】并保存，然后重新执行本启动脚本即可自动识别！")
+        print("   请在 Colab 顶部菜单依次点击：【代码执行程序】->【更改运行时类型】->【硬件加速器】")
+        print("   切换为【T4 GPU】或【A100 GPU】并保存，然后重新执行本启动脚本即可自动识别！")
         print(f"{RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{RESET}")
     else:
         print(f"  {GREEN}[✓] 宿主机实机显卡自动探测成功: {BOLD}{gpu_data['gpu_name']}{RESET} (显存: {gpu_data['vram_gb']} GB)")

@@ -112,7 +112,7 @@ async def test_avatar_task_pipeline_end_to_end(tmp_path):
     extracted_imgs = list((output_dir / "full_imgs").glob("*.jpg"))
     assert len(extracted_imgs) == 12
 
-    # 验证 face_imgs (标准数字人裁剪序列，Wav2Lip推理必备)
+    # 验证 face_imgs (标准数字人裁剪序列，LatentSync推理必备)
     assert (output_dir / "face_imgs").exists()
     face_imgs = list((output_dir / "face_imgs").glob("*.jpg"))
     assert len(face_imgs) == 12

@@ -25,6 +25,16 @@ class AVSyncController:
         self.tts_latency_ms = 0.0
         self.recommended_delay_ms = self.base_delay_ms
         self._render_samples = deque(maxlen=20)
+        self._realtime_samples = {
+            "tts_first_chunk_ms": deque(maxlen=200),
+            "audio_first_frame_ms": deque(maxlen=200),
+            "playback_start_ms": deque(maxlen=200),
+        }
+        self._realtime_latest = {
+            "tts_first_chunk_ms": 0.0,
+            "audio_first_frame_ms": 0.0,
+            "playback_start_ms": 0.0,
+        }
         # 共享时钟是否已提供有效音频锚点；未锚定前沿用纯耗时估计 (平滑过渡)
         self._drift_locked = False
 
@@ -39,6 +49,41 @@ class AVSyncController:
 
     def record_tts_latency(self, ms: float):
         self.tts_latency_ms = round(float(ms or 0), 2)
+
+    def record_realtime_latency(self, metric: str, started_at: float) -> float:
+        """记录从同一单调时钟起点到实时阶段的延迟。"""
+        if metric not in self._realtime_samples:
+            raise ValueError(f"未知实时指标: {metric}")
+        latency = max(0.0, (time.monotonic() - float(started_at)) * 1000.0)
+        self._realtime_samples[metric].append(latency)
+        self._realtime_latest[metric] = round(latency, 2)
+        return latency
+
+    @staticmethod
+    def _percentile(samples, percentile: float) -> float:
+        if not samples:
+            return 0.0
+        values = sorted(float(value) for value in samples)
+        index = min(len(values) - 1, max(0, int(round((len(values) - 1) * percentile))))
+        return round(values[index], 2)
+
+    def get_realtime_latency_status(self) -> dict:
+        return {
+            metric: {
+                "latest_ms": self._realtime_latest[metric],
+                "count": len(samples),
+                "p50_ms": self._percentile(samples, 0.50),
+                "p95_ms": self._percentile(samples, 0.95),
+                "p99_ms": self._percentile(samples, 0.99),
+            }
+            for metric, samples in self._realtime_samples.items()
+        }
+
+    def reset_realtime_latency(self) -> None:
+        for samples in self._realtime_samples.values():
+            samples.clear()
+        for metric in self._realtime_latest:
+            self._realtime_latest[metric] = 0.0
 
     def apply_drift(self, drift_ms: Optional[float], anchored: bool = True) -> None:
         """
@@ -76,6 +121,7 @@ class AVSyncController:
         self.tts_latency_ms = 0.0
         self.recommended_delay_ms = self.base_delay_ms
         self._render_samples.clear()
+        self.reset_realtime_latency()
         self._drift_locked = False
 
     def get_status(self) -> dict:
@@ -85,6 +131,7 @@ class AVSyncController:
             "render_latency_ms": self.render_latency_ms,
             "tts_latency_ms": self.tts_latency_ms,
             "drift_locked": self._drift_locked,
+            "realtime_latency": self.get_realtime_latency_status(),
         }
 
 

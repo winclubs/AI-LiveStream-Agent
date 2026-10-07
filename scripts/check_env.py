@@ -52,7 +52,7 @@ def check_gpu_and_cuda():
                 else:
                     print("    [!] 显存较小 (< 6GB)，建议开启半精度或 Edge-TTS 轻量运行模式")
         else:
-            print("    [i] 未检测到独立 NVIDIA 显卡或 CUDA 驱动，系统将自动平滑降级至 Edge-TTS 与轻量驱动")
+            print("    [i] 未检测到独立 NVIDIA 显卡或 CUDA 驱动：神经唇形本地渲染不可用（请配置云端 GPU Sidecar）；TTS 可继续使用云端 Edge-TTS 合成")
     except ImportError:
         print("    [!] 未安装 PyTorch，当前仅支持轻量 API 代理与 Edge-TTS 模式")
 

@@ -2,7 +2,7 @@
 """神经渲染 sidecar v3 参考节点。
 
 当前 backend 是确定性的程序化协议夹具，只用于联调 handshake、PCM frame、credit、
-取消和 sample PTS；它不会加载或冒充 Wav2Lip/MuseTalk 神经模型。
+取消和 sample PTS；它不会加载或冒充 LatentSync/MuseTalk 神经模型。
 """
 
 from __future__ import annotations

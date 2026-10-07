@@ -496,6 +496,78 @@ def test_gpu_probe_offloads_blocking_io():
     asyncio.run(_async_test())
 
 
+# 4.25b 测试：本机 GPU 探测必须收敛到 gpu_capability 单一事实源
+def test_probe_gpu_delegates_to_gpu_capability():
+    """`live._probe_gpu` 不得再自带一套探测实现，必须委托 gpu_capability。
+
+    历史缺陷：`live.py` 有一套自成的 torch → nvidia-smi → WMI 三级探测
+    (`_get_torch` / `_find_nvidia_smi` / `_wmi_gpu_probe`)，而
+    `core/hardware/gpu_capability.probe_local_gpu` 另有一套等价实现。
+    两者口径不一致时会出现「预检说达标、开播说不达标」的矛盾，且修改探测逻辑
+    需要改两处、极易漏改。
+
+    收敛后 `gpu_capability.probe_local_gpu` 是唯一事实源，`live._probe_gpu`
+    只保留一层薄委托（仍必须是模块级可 patch 函数，供 `_hardware_payload`
+    卸载到线程池、以及测试注入假数据）。
+    """
+    from unittest.mock import patch
+
+    from server.core.hardware import gpu_capability
+    from server.core.hardware.gpu_capability import GpuInfo
+    from server.routes.live import _probe_gpu
+
+    fake = GpuInfo(
+        gpu_name="Fake Delegated GPU",
+        vram_total_gb=12.5,
+        vram_used_gb=3.25,
+        cuda_available=True,
+        is_low_spec=False,
+    )
+    with patch.object(gpu_capability, "probe_local_gpu", return_value=fake) as spy:
+        got = _probe_gpu()
+
+    assert spy.called, "_probe_gpu 必须调用 gpu_capability.probe_local_gpu（单一事实源）"
+    # 对外契约：必须保持既有 4 键结构（既有测试按精确键集合断言）
+    assert set(got.keys()) == {"gpu_name", "vram_total_gb", "vram_used_gb", "cuda_available"}
+    assert got["gpu_name"] == "Fake Delegated GPU"
+    assert got["vram_total_gb"] == 12.5
+    assert got["vram_used_gb"] == 3.25
+    assert got["cuda_available"] is True
+
+
+def test_live_module_has_no_private_gpu_probe_implementation():
+    """live.py 不得再保留自有的 GPU 探测实现（torch/smi/WMI 三级链路）。"""
+    import ast
+    import inspect
+    import textwrap
+
+    from server.routes import live as live_mod
+
+    for name in ("_get_torch", "_find_nvidia_smi", "_wmi_gpu_probe"):
+        assert not hasattr(live_mod, name), (
+            f"live.py 仍残留自有 GPU 探测实现 {name}()，应统一到 gpu_capability"
+        )
+
+    # 只检查**真实代码**（剔除 docstring 里的历史说明文字），确认委托实现
+    # 不再自行拉起 nvidia-smi / WMI 子进程或导入 torch。
+    tree = ast.parse(textwrap.dedent(inspect.getsource(live_mod._probe_gpu)))
+    fn = tree.body[0]
+    docstring_nodes = {
+        id(n.value)
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
+    }
+    called = {
+        node.func.id
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and id(node) not in docstring_nodes
+    }
+    for banned in ("subprocess", "run", "Popen", "_get_torch", "_find_nvidia_smi", "_wmi_gpu_probe"):
+        assert banned not in called, (
+            f"_probe_gpu 不得再自行探测 (仍调用 {banned})，必须委托 gpu_capability 单一事实源"
+        )
+
+
 # 4.26 测试：CosyVoice 服务健康检查与运行期降级信号
 def test_cosyvoice_health_check_unreachable():
     """CosyVoice 不可达时必须显式失败，供控制器执行整句 Edge 降级。"""

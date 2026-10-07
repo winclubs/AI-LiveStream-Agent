@@ -44,10 +44,10 @@ def _load_version_meta() -> dict:
             return json.loads(VERSION_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
-    return {"version": "1.7.0", "service": "AI-LiveStream-Agent", "protocol_version": "v1"}
+    return {"version": "2.0.1", "service": "AI-LiveStream-Agent", "protocol_version": "v1"}
 
 VERSION_META = _load_version_meta()
-APP_VERSION = VERSION_META.get("version", "1.7.0")
+APP_VERSION = VERSION_META.get("version", "2.0.1")
 SERVICE_NAME = VERSION_META.get("service", "AI-LiveStream-Agent")
 
 

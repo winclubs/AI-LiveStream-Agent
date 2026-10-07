@@ -134,9 +134,12 @@ class SharedPlaybackClock:
     # ------------------------------------------------------------------
     def compute_drift(self) -> float:
         """
-        计算当前音画漂移 (毫秒)。
+        计算并更新当前音画漂移 (毫秒)，返回 EMA 平滑后的漂移值。
         drift = 音频头PTS - 视频最新PTS；负值表示音频滞后于画面。
         未观测到音频锚点时漂移为 0 (不补偿)。
+
+        注意：本方法会向采样窗口追加样本，仅供渲染循环每帧调用一次。
+        纯读取场景请使用 get_drift_ms()，避免重复计入 EMA 污染统计。
         """
         with self._lock:
             if not self._enabled or not self._audio_anchored:
@@ -149,17 +152,24 @@ class SharedPlaybackClock:
             self._drift_ms = DRIFT_EMA_ALPHA * avg + (1.0 - DRIFT_EMA_ALPHA) * self._drift_ms
             return self._drift_ms
 
+    def get_drift_ms(self) -> float:
+        """纯读取当前 EMA 漂移值 (不追加样本，不改变内部状态)。"""
+        with self._lock:
+            if not self._enabled or not self._audio_anchored:
+                return 0.0
+            return self._drift_ms
+
     def get_recommended_delay_ms(self) -> int:
-        """漂移驱动的音频前置延迟补偿量 (钳制 0~300ms)"""
-        drift = self.compute_drift()
+        """漂移驱动的音频前置延迟补偿量 (钳制 0~300ms)；纯读取，不污染采样窗口。"""
+        drift = self.get_drift_ms()
         # 若音频滞后于画面 (drift<0)，需让音频延迟少一点/画面等一等；
         # 若音频超前 (drift>0)，需加大音频延迟对齐画面。
         delay = int(round(abs(drift)))
         return max(MIN_DELAY_MS, min(MAX_DELAY_MS, delay))
 
     def get_frame_pacing_hint(self) -> Optional[str]:
-        """漂移超阈值时的帧节奏建议 (供渲染循环吸收)"""
-        drift = self.compute_drift()
+        """漂移超阈值时的帧节奏建议 (供渲染循环吸收)；纯读取，不污染采样窗口。"""
+        drift = self.get_drift_ms()
         if abs(drift) < FRAME_PACING_THRESHOLD_MS:
             return None
         # 音频滞后于画面 -> 视频侧应丢帧追赶

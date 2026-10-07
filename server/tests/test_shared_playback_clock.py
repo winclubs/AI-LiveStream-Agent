@@ -15,6 +15,27 @@ def test_stamp_video_monotonic_non_decreasing():
         assert cur > prev, "视频 PTS 必须严格单调递增不回退"
 
 
+def test_getters_are_pure_and_do_not_pollute_ema():
+    """P2-8: get_drift_ms/get_recommended_delay_ms/get_frame_pacing_hint 必须是纯读取，
+    重复调用不得向采样窗口追加样本污染 EMA 统计"""
+    clock = SharedPlaybackClock()
+    clock.stamp_video(0)
+    clock.report_audio_head("aud_1", 500.0)
+    clock.compute_drift()  # 唯一一次采样更新
+    window_len_after_first = len(clock._drift_samples)  # noqa: SLF001
+
+    # 反复读取 getter 不改变内部状态
+    for _ in range(10):
+        clock.get_drift_ms()
+        clock.get_recommended_delay_ms()
+        clock.get_frame_pacing_hint()
+
+    assert len(clock._drift_samples) == window_len_after_first  # noqa: SLF001
+    # 未锚定时纯读取返回 0
+    fresh = SharedPlaybackClock()
+    assert fresh.get_drift_ms() == 0.0
+
+
 def test_report_audio_head_updates_without_anchor_compensation():
     clock = SharedPlaybackClock()
     # 未上报音频锚点前漂移为 0
@@ -66,8 +87,10 @@ def test_frame_pacing_hint_triggers_beyond_threshold():
     clock.stamp_video(1)
     clock.report_audio_head("aud_1", 1.0)  # 音频头停留在开头 -> 大幅滞后
     hint = None
-    # EMA 平滑需要若干采样收敛
+    # EMA 平滑需要若干采样收敛；渲染循环每帧调用一次 compute_drift，
+    # getter 为纯读取不再推进采样 (修复 getter 副作用后)
     for _ in range(30):
+        clock.compute_drift()
         hint = clock.get_frame_pacing_hint()
         if hint is not None:
             break
@@ -80,9 +103,9 @@ def test_frame_pacing_hint_triggers_beyond_threshold():
     vid = clock.get_alignment_status()["video_pts_ms"]
     clock.report_audio_head("aud_1", vid + 5.0)
     for _ in range(5):
+        clock.compute_drift()
         if clock.get_frame_pacing_hint() is not None:
             break
-        clock.compute_drift()
     assert clock.get_frame_pacing_hint() is None
 
 

@@ -506,27 +506,34 @@ class RemoteGPUMediaDriver(BaseMediaDriver):
             return
         self.latest_jpeg = jpeg
         self.frames_received += 1
+        # P0 修复：远端帧经由统一发布总线扇出到全部通道 (RTMP/WebRTC/录制器/虚拟摄像头)，
+        # 高优先级租约抑制本地 shadow 向同一批通道发布低质帧。
         try:
-            # 视频帧发布打 PTS 锚点；携带采样时钟换算值时与音频侧同源
+            import cv2 as cv2
+            import numpy as np
+
+            arr = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+            if arr is not None:
+                from server.core.media.frame_bus import global_frame_bus
+
+                published, _composed = global_frame_bus.publish_frame(
+                    cv2.cvtColor(arr, cv2.COLOR_BGR2RGB),
+                    owner="legacy_remote_gpu",
+                    priority=50,
+                    frame_index=self.frames_received,
+                    pts_ms=self._pending_video_pts_ms,
+                )
+                self._pending_video_pts_ms = None
+                if published:
+                    return
+        except Exception:
+            pass
+        # 无 OpenCV 或解码失败时仍保证 PTS 打点可用
+        try:
             global_shared_playback_clock.stamp_video(self.frames_received, self._pending_video_pts_ms)
         except Exception:
             pass
         self._pending_video_pts_ms = None
-        try:
-            import cv2 as cv2
-            import numpy as np
-            from server.core.media.virtual_cam import global_virtual_cam
-
-            if global_virtual_cam.is_active:
-                arr = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
-                if arr is not None:
-                    global_virtual_cam.send_frame(
-                        cv2.cvtColor(arr, cv2.COLOR_BGR2RGB),
-                        owner="legacy_remote_gpu",
-                        priority=50,
-                    )
-        except Exception:
-            pass
 
     async def _handle_video_frame(self, b64_data: str):
         """兼容直接帧注入测试；正常合成路径会先暂存，再由时间线发布。"""

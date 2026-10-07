@@ -77,64 +77,30 @@ class BaseAvatarDriver(ABC):
     def publish_frame(self, frame_rgb: Any, pcm_bytes: Optional[bytes] = None) -> bool:
         """
         统一分发音画帧至挂载的全部输出通道 (虚拟摄像头、RTMP、WebRTC 视窗与切片录制管道)
+
+        P0 修复：视频帧统一经由 global_frame_bus 扇出，云端帧活跃时本地驱动帧被
+        租约仲裁抑制，杜绝 RTMP/WebRTC/录制器与虚拟摄像头画面来源不一致。
         """
         dispatched = False
         if frame_rgb is not None:
             self.total_published_frames += 1
-            # 共享单调时钟：视频帧发布时打 PTS (音画漂移补偿的时钟锚点)
             try:
-                from server.core.media.shared_playback_clock import global_shared_playback_clock
-                global_shared_playback_clock.stamp_video(self.total_published_frames)
-            except Exception:
-                pass
-            # 叠加电商动态挂件与防录播微噪点/环境光微动
-            try:
-                from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state
-                composed_frame = compose_scene_overlays(
+                from server.core.media.frame_bus import global_frame_bus
+                dispatched, _composed = global_frame_bus.publish_frame(
                     frame_rgb,
-                    global_scene_overlay_state.snapshot(),
-                    enable_anti_recording=True,
-                    timestamp=time.time(),
+                    owner="avatar_driver",
+                    priority=1,
+                    frame_index=self.total_published_frames,
+                    sinks={
+                        "virtual_cam": self.virtual_cam,
+                        "rtmp": self.rtmp_streamer,
+                        "webrtc": self.webrtc_streamer,
+                        "recorder": self.recorder,
+                    },
                 )
             except Exception:
-                composed_frame = frame_rgb
-
-            # 1. 投递至 OBS 虚拟摄像头
-            if self.virtual_cam and getattr(self.virtual_cam, "is_active", False):
-                try:
-                    self.virtual_cam.send_frame(composed_frame, owner="avatar_driver", priority=1)
-                    dispatched = True
-                except Exception:
-                    pass
-
-            # 2. 投递至 RTMP 直推引擎 (视频)
-            if self.rtmp_streamer and getattr(self.rtmp_streamer, "is_streaming", False):
-                try:
-                    self.rtmp_streamer.send_video_frame(composed_frame)
-                    dispatched = True
-                except Exception:
-                    pass
-
-            # 3. 投递至 WebRTC WHEP 视窗分发轨道 (WebRTC 接收通道标准为 BGR 格式)
-            if self.webrtc_streamer:
-                try:
-                    import cv2
-                    if hasattr(composed_frame, "shape") and len(composed_frame.shape) == 3 and composed_frame.shape[2] == 3:
-                        webrtc_frame = cv2.cvtColor(composed_frame, cv2.COLOR_RGB2BGR)
-                    else:
-                        webrtc_frame = composed_frame
-                    self.webrtc_streamer.push_frame(webrtc_frame)
-                    dispatched = True
-                except Exception:
-                    pass
-
-            # 4. 投递至切片录制管道 (视频)
-            if self.recorder and getattr(self.recorder, "is_recording", lambda: False)():
-                try:
-                    self.recorder.feed_frame(composed_frame)
-                    dispatched = True
-                except Exception:
-                    pass
+                # 总线不可用时回退直接投递，保证单机模式可用
+                dispatched = self._publish_frame_direct(frame_rgb)
 
         # 5. 可选投递音频流 (显式传入伴音时累加并分发至输出通道)
         if pcm_bytes:
@@ -153,6 +119,51 @@ class BaseAvatarDriver(ABC):
                 except Exception:
                     pass
 
+        return dispatched
+
+    def _publish_frame_direct(self, frame_rgb: Any) -> bool:
+        """总线不可用时的直接投递回退 (仅保证单机本地通道可用)"""
+        if frame_rgb is None:
+            return False
+        try:
+            from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state
+            composed_frame = compose_scene_overlays(
+                frame_rgb,
+                global_scene_overlay_state.snapshot(),
+                enable_anti_recording=True,
+                timestamp=time.time(),
+            )
+        except Exception:
+            composed_frame = frame_rgb
+        dispatched = False
+        if self.virtual_cam and getattr(self.virtual_cam, "is_active", False):
+            try:
+                self.virtual_cam.send_frame(composed_frame, owner="avatar_driver", priority=1)
+                dispatched = True
+            except Exception:
+                pass
+        if self.rtmp_streamer and getattr(self.rtmp_streamer, "is_streaming", False):
+            try:
+                self.rtmp_streamer.send_video_frame(composed_frame)
+                dispatched = True
+            except Exception:
+                pass
+        if self.webrtc_streamer:
+            try:
+                import cv2
+                if hasattr(composed_frame, "shape") and len(composed_frame.shape) == 3 and composed_frame.shape[2] == 3:
+                    self.webrtc_streamer.push_frame(cv2.cvtColor(composed_frame, cv2.COLOR_RGB2BGR))
+                else:
+                    self.webrtc_streamer.push_frame(composed_frame)
+                dispatched = True
+            except Exception:
+                pass
+        if self.recorder and getattr(self.recorder, "is_recording", lambda: False)():
+            try:
+                self.recorder.feed_frame(composed_frame)
+                dispatched = True
+            except Exception:
+                pass
         return dispatched
 
     @abstractmethod
