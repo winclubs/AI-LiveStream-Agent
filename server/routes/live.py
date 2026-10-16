@@ -9,13 +9,13 @@ import time
 import logging
 import inspect
 import wave
-import psutil
+import numpy as np
 from collections import deque
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Response, Request, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, AsyncGenerator
+from typing import Optional, Dict, Any
 from server.core.audio.full_duplex_asr import get_full_duplex_asr_manager
 from server.core.media.webrtc_streamer import get_webrtc_stream_manager
 from server.core.media.recorder import get_record_manager
@@ -37,6 +37,15 @@ from server.core.vision.capture import global_vision
 from server.core.media.av_sync import global_av_sync
 from server.core.media.virtual_audio import global_virtual_audio
 from server.adapters.obs.obs_client import global_obs_client
+from server.core.media.hybrid_stitcher import (
+    HybridStitcher,
+    HybridSliceHandle,
+    apply_audio_crossfade,
+    CROSSFADE_SAMPLES_16K,
+)
+from server.core.media.stitcher_protocol import StitcherState, ResumePolicy
+from server.core.media.shared_playback_clock import global_shared_playback_clock
+from server.core.media.frame_bus import global_frame_bus
 
 logger = logging.getLogger("LiveAgent.LiveController")
 router = APIRouter(prefix="/live", tags=["直播控场与调度"])
@@ -48,6 +57,48 @@ OBS_SETTING_HOST = "obs_websocket_host"
 OBS_SETTING_PORT = "obs_websocket_port"
 OBS_SETTING_PASSWORD = "obs_websocket_password"
 OBS_SETTING_AUTO_CONNECT = "obs_auto_connect"
+
+
+def _stream_output_ready_probe() -> bool:
+    """推流输出就绪探针：任一真实输出通道在工作才允许帧停滞判定。
+
+    RTMP 直推 / 虚拟摄像头(OBS) / WebRTC 观看端 / 切片录制任一活动即视为就绪。
+    全部未就绪时没有外部观众消费画面，判定 MEDIA_DEGRADED 只会制造误降级。
+    """
+    try:
+        from server.core.media.rtmp_streamer import global_rtmp_streamer
+        if bool(getattr(global_rtmp_streamer, "is_streaming", False)):
+            return True
+    except Exception:
+        pass
+    try:
+        from server.core.media.virtual_cam import global_virtual_cam
+        if getattr(global_virtual_cam, "is_active", False):
+            return True
+    except Exception:
+        pass
+    try:
+        from server.core.media.webrtc_streamer import get_webrtc_stream_manager
+        manager = get_webrtc_stream_manager()
+        if manager is not None and int(manager.get_status().get("active_connections", 0) or 0) > 0:
+            return True
+    except Exception:
+        pass
+    try:
+        from server.core.media.recorder import get_record_manager
+        recorder = get_record_manager()
+        if recorder is not None and bool(getattr(recorder, "is_recording", lambda: False)()):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _configure_media_watchdog(execution_mode: str) -> None:
+    """按运行档位配置媒体质量看门狗：停滞门限策略 + 推流输出就绪探针。"""
+    from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+    global_media_watchdog.set_execution_mode(execution_mode)
+    global_media_watchdog.set_output_readiness_probe(_stream_output_ready_probe)
 
 
 def _pcm_s16le_to_wav(pcm: bytes, sample_rate: int, channels: int) -> bytes:
@@ -144,7 +195,11 @@ def _supported_metadata(callable_obj, metadata: dict) -> dict:
 
 
 async def _call_async_compat(callable_obj, *args, **metadata):
-    return await callable_obj(*args, **_supported_metadata(callable_obj, metadata))
+    """兼容异步驱动与同步测试替身，统一收敛可等待结果。"""
+    result = callable_obj(*args, **_supported_metadata(callable_obj, metadata))
+    if inspect.isawaitable(result):
+        return await result
+    return result
 
 
 def _call_sync_compat(callable_obj, *args, **metadata):
@@ -193,8 +248,23 @@ class LiveSessionController:
         self._obs_owner_session_id: Optional[str] = None
         self.obs_owner_connection_epoch: Optional[int] = None
         self.demo_mode: bool = False
+        self.execution_mode: str = "PREVIEW"
+        self.state_detail: str = "STOPPED"
+        self.platform_confirmed: bool = False
+        self.anchor_id: Optional[str] = None
+        self.voice_id: Optional[str] = None
+        self.avatar_asset_dir: str = ""
         self.current_tts_task: Optional[asyncio.Task] = None
         self.cleanup_errors: list = []
+        # 动静分离/批播结合：无缝流缝合调度器 (持有共享时钟与帧发布总线)
+        self.stitcher = HybridStitcher(
+            clock=global_shared_playback_clock,
+            frame_bus=global_frame_bus,
+        )
+        self.stitcher.on_transition_hook = self._on_slice_transition_filler
+        self.stitcher.on_slice_audio_playback = self._on_slice_audio_playback
+        self._last_slice_audio_tail: Optional[np.ndarray] = None
+        self.stitcher_task: Optional[asyncio.Task] = None
         # 直播大屏运营统计 (需求 8)
         self.stats: dict[str, Any] = {
             "start_ts": None,
@@ -217,6 +287,148 @@ class LiveSessionController:
             "gift_dropped_total": 0,
             "guardrail_hits": 0,
             "flash_sales": 0
+        }
+        # 联动 P1 媒体质量看门狗与预算超限熔断中枢
+        from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+        from server.core.compliance.cost_privacy_manager import global_cost_privacy_manager
+        global_media_watchdog._on_degraded_callback = lambda reason: asyncio.create_task(self._on_media_degraded(reason))
+        global_cost_privacy_manager._on_budget_exceeded = lambda sess, cost, lim: asyncio.create_task(self.transition_to_ai_paused("BUDGET_CAP_EXCEEDED"))
+
+    async def _on_media_degraded(self, reason: str):
+        """当底层神经媒体链路失败且处于生产/试点档位时触发硬阻断安全态"""
+        if self.execution_mode in ("PRODUCTION", "PILOT"):
+            self.state_detail = "MEDIA_DEGRADED"
+            logger.critical(
+                "🚨【生产安全硬阻断】数字人媒体渲染链路发生降级: %s (档位=%s)！状态已流转至 MEDIA_DEGRADED",
+                reason,
+                self.execution_mode,
+            )
+            from server.routes.ws_live import ws_manager
+            await ws_manager.broadcast("MEDIA_DEGRADED", {
+                "session_id": self.session_id,
+                "reason": reason,
+                "execution_mode": self.execution_mode,
+                "state_detail": "MEDIA_DEGRADED",
+            })
+
+    async def transition_to_ai_paused(self, reason: str):
+        """流转至 AI_PAUSED 安全待机态 (依据《商业化运营改造方案》§3.2 与 §6.1)"""
+        self.state_detail = "AI_PAUSED"
+        logger.warning(
+            "⚠️【AI 安全停顿】直播进入 AI_PAUSED 状态: %s (会话=%s, 档位=%s)",
+            reason,
+            self.session_id,
+            self.execution_mode,
+        )
+        from server.routes.ws_live import ws_manager
+        await ws_manager.broadcast("AI_PAUSED", {
+            "session_id": self.session_id,
+            "reason": reason,
+            "execution_mode": self.execution_mode,
+            "state_detail": "AI_PAUSED",
+        })
+
+    async def resume_ai(self) -> dict:
+        """恢复前重新执行当前档位门禁，禁止从故障态直接改状态绕过检查。"""
+        if self.state_detail not in ("AI_PAUSED", "MEDIA_DEGRADED"):
+            return {"ok": False, "state_detail": self.state_detail, "reason": "当前不在可恢复暂停态"}
+
+        # AI_PAUSED 可能只是上游 LLM/TTS 短暂故障；恢复仍需 Kill Switch 校验。
+        # MEDIA_DEGRADED 必须执行完整 Production/Pilot 预检，禁止绕过媒体门禁。
+        if self.state_detail == "AI_PAUSED":
+            from server.core.compliance.kill_switch import global_kill_switch
+            blocked = [
+                feature for feature in ("stream_push", "avatar_rendering", "voice_synthesis")
+                if not global_kill_switch.is_feature_enabled(feature, platform=self.platform, anchor_id=self.anchor_id)
+            ]
+            if blocked:
+                return {"ok": False, "state_detail": self.state_detail, "reason": "Kill Switch 仍处于熔断状态", "blocking_reasons": blocked}
+            self.state_detail = "LOCAL_READY"
+            from server.routes.ws_live import ws_manager
+            await ws_manager.broadcast("AI_RESUMED", {"session_id": self.session_id, "state_detail": "LOCAL_READY"})
+            return {"ok": True, "state_detail": "LOCAL_READY"}
+
+        from server.core.operations.preflight import global_preflight_service
+        report = await global_preflight_service.run_preflight(
+            mode=self.execution_mode,
+            avatar_asset_dir=self.avatar_asset_dir or None,
+            voice_id=self.voice_id,
+            platform=self.platform,
+            force=True,
+        )
+        from server.core.compliance.kill_switch import global_kill_switch
+        kill_features = ("stream_push", "avatar_rendering", "voice_synthesis")
+        kill_blocked = [
+            feature for feature in kill_features
+            if not global_kill_switch.is_feature_enabled(feature, platform=self.platform, anchor_id=self.anchor_id)
+        ]
+        if not report.passed or kill_blocked:
+            return {
+                "ok": False,
+                "state_detail": self.state_detail,
+                "reason": "恢复前生产门禁未通过",
+                "blocking_reasons": list(report.blocking_reasons) + [f"KILL_SWITCH:{f}" for f in kill_blocked],
+                "report": report.to_dict(),
+            }
+
+        self.state_detail = "LOCAL_READY"
+        logger.info("AI 直播已通过重新预检，从暂停态恢复正常")
+        from server.routes.ws_live import ws_manager
+        await ws_manager.broadcast("AI_RESUMED", {
+            "session_id": self.session_id,
+            "state_detail": "LOCAL_READY",
+            "preflight_generated_at": report.generated_at,
+        })
+        return {"ok": True, "state_detail": "LOCAL_READY", "report": report.to_dict()}
+
+
+    async def takeover(self, operator: str = "admin", reason: str = "") -> dict:
+        """人工紧急接管：原子抢占打断 AI/TTS 并将状态机流转为 HUMAN_TAKEOVER (方案 §6.3)"""
+        self.state_detail = "HUMAN_TAKEOVER"
+        logger.critical(
+            "🛑【人工接管已触发】操作人=%s, 原因=%s, 立即原子打断 AI/TTS 并抢占播报权！",
+            operator,
+            reason or "人工控制台接管",
+        )
+        # 1. 原子抢占打断队列和当前 TTS 任务
+        await self.event_queue.trigger_barge_in("human_takeover")
+        current_tts = self.current_tts_task
+        if current_tts and not current_tts.done():
+            current_tts.cancel()
+        # 2. 通知媒体路由与底层驱动停止数字人当前语音
+        await global_media_router.interrupt("human_takeover")
+        # 3. 广播接管事件至大屏和控制台
+        from server.routes.ws_live import ws_manager
+        await ws_manager.broadcast("HUMAN_TAKEOVER", {
+            "session_id": self.session_id,
+            "operator": operator,
+            "reason": reason,
+            "state_detail": "HUMAN_TAKEOVER",
+            "timestamp": time.time(),
+        })
+        return {
+            "ok": True,
+            "session_id": self.session_id,
+            "state_detail": "HUMAN_TAKEOVER",
+            "operator": operator,
+        }
+
+    async def release_takeover(self, operator: str = "admin") -> dict:
+        """释放人工接管：状态恢复至 LOCAL_READY"""
+        if self.state_detail == "HUMAN_TAKEOVER":
+            self.state_detail = "LOCAL_READY"
+            logger.info("人工接管已释放 (操作人=%s)，恢复正常直播状态", operator)
+            from server.routes.ws_live import ws_manager
+            await ws_manager.broadcast("TAKEOVER_RELEASED", {
+                "session_id": self.session_id,
+                "operator": operator,
+                "state_detail": "LOCAL_READY",
+                "timestamp": time.time(),
+            })
+        return {
+            "ok": True,
+            "session_id": self.session_id,
+            "state_detail": self.state_detail,
         }
 
     @property
@@ -326,19 +538,6 @@ class LiveSessionController:
             })
         )
 
-    def hot_reload(self, section: str = "all"):
-        """同步上下文里的安全热重载入口：未开播直接跳过，开播中调度到事件循环执行。"""
-        if not self.is_live:
-            return
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self.reload_runtime_config(section))
-        except RuntimeError:
-            # 无运行中的事件循环（同步调用栈）: 尝试复用服务主循环
-            from server.app import _service_loop
-            if _service_loop is not None and not _service_loop.is_closed():
-                asyncio.run_coroutine_threadsafe(self.reload_runtime_config(section), _service_loop)
-
     async def reload_runtime_config(self, section: str = "all"):
         """直播运行中配置热重载：不关播无感刷新商品、违禁词、主播人设与配置上下文"""
         logger.info("执行运行时配置热重载, section=%s", section)
@@ -407,6 +606,11 @@ class LiveSessionController:
             await get_active_avatar_driver().flush_talk()
         except Exception:
             logger.exception("数字人驱动 flush_talk 打断失败")
+        # 联动动静分离缝合器打断 (Smoothstep 缓动停顿并挂起切片断点)
+        try:
+            self.stitcher.trigger_interrupt(ResumePolicy.REWIND_SENTENCE)
+        except Exception:
+            logger.exception("切片缝合器打断失败")
         # 向前端 WebSocket 广播打断信令
         from server.routes.ws_live import ws_manager
         await ws_manager.broadcast("TRIGGER_BARGE_IN", {
@@ -595,7 +799,7 @@ class LiveSessionController:
         previous_orchestrator = global_media_router.avatar_orchestrator
         if previous_orchestrator is not None:
             try:
-                await asyncio.wait_for(previous_orchestrator.stop(), timeout=4.0)
+                await asyncio.wait_for(_call_async_compat(previous_orchestrator.stop), timeout=4.0)
             except Exception:
                 logger.exception(
                     "旧 Avatar Provider 编排器未确认停止；中止热替换并保持程序化 shadow"
@@ -662,24 +866,36 @@ class LiveSessionController:
         task.add_done_callback(self._background_tasks.discard)
         return task
 
-    async def start(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False, avatar_asset_dir: str = ""):
+    def set_state_detail(self, state: str) -> None:
+        """更新当前直播生命周期状态机 (PRECHECKING / LOCAL_READY / OBS_STREAMING / PLATFORM_CONFIRMED / AI_RUNNING 等)"""
+        logger.info(f"直播会话状态流转: {self.state_detail} -> {state}")
+        self.state_detail = state
+
+    async def start(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False, avatar_asset_dir: str = "", execution_mode: str = "PREVIEW"):
         """事务式启动资源；任一步失败都回滚已启动任务和设备。"""
         try:
             await self._start_resources(
                 session_id, products, room_id, platform, theme, voice_id,
                 avatar_path, mode, landmarks_path, demo_mode=demo_mode,
                 avatar_asset_dir=avatar_asset_dir,
+                execution_mode=execution_mode,
             )
         except Exception:
             logger.exception("直播资源启动失败，正在回滚")
             await self.stop()
             raise
 
-    async def _start_resources(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False, avatar_asset_dir: str = ""):
+    async def _start_resources(self, session_id: str, products: list, room_id: Optional[str] = None, platform: str = "bilibili", theme: str = "", voice_id: Optional[str] = None, avatar_path: str = "", mode: str = "B", landmarks_path: str = "", demo_mode: bool = False, avatar_asset_dir: str = "", execution_mode: str = "PREVIEW"):
         if self.is_live:
             return
         self.is_live = True
         self.demo_mode = demo_mode
+        self.execution_mode = execution_mode
+        self.anchor_id = None
+        self.voice_id = voice_id
+        self.avatar_asset_dir = avatar_asset_dir or ""
+        self.state_detail = "LOCAL_READY"
+        self.platform_confirmed = False
         self._session_generation += 1
         self._audio_generation += 1
         self.session_id = session_id
@@ -719,8 +935,16 @@ class LiveSessionController:
             logger.exception("加载神经渲染 sidecar 配置失败，继续使用本地 renderer")
             global_media_router.detach_sidecar()
 
-        # 启动数字人渲染引擎与音画帧管道 (根据模式、主播底图与人脸关键点)
-        global_media_router.select_driver(mode=mode, avatar_path=avatar_path, landmarks_path=landmarks_path, avatar_asset_dir=avatar_asset_dir)
+        # 启动数字人渲染引擎与音画帧管道 (根据模式、主播底图与人脸关键点，商业档位硬阻断)
+        global_media_router.set_execution_mode(execution_mode)
+        global_media_router.set_on_degraded(self._on_media_degraded)
+        global_media_router.select_driver(
+            mode=mode,
+            avatar_path=avatar_path,
+            landmarks_path=landmarks_path,
+            avatar_asset_dir=avatar_asset_dir,
+            execution_mode=execution_mode,
+        )
         await global_media_router.start()
 
         # 启动 VRAM 看门狗 (无 GPU 环境自动空转)
@@ -728,6 +952,14 @@ class LiveSessionController:
         # 启动低配机 CPU/内存自适应降频看门狗 (保障音频算力优先)
         from server.core.monitoring.system_resource_watchdog import global_resource_watchdog
         global_resource_watchdog.start()
+        # 启动 P1 媒体质量看门狗与 SLI 监控 (按档位套用停滞门限 + 输出就绪探针)
+        from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+        _configure_media_watchdog(execution_mode)
+        global_media_watchdog.reset()
+        global_media_watchdog.start()
+        # 启动场次成本计量中枢
+        from server.core.compliance.cost_privacy_manager import global_cost_privacy_manager
+        global_cost_privacy_manager.start_session(session_id=session_id)
 
         # 根据平台经注册表选择真实抓取器；正式平台绝不静默注入假弹幕
         from server.adapters.danmaku.registry import global_danmaku_registry
@@ -783,7 +1015,234 @@ class LiveSessionController:
             self.vision_task.cancel()
         self.vision_task = asyncio.create_task(self._vision_loop())
 
+        # 动静分离核心：从 ecommerce_sku_slices 表真实加载商品就绪切片并装载入队
+        await self._load_product_slices_to_stitcher(products)
+
+        # 启动缝合器 25 FPS 连续帧循环调度协程
+        if self.stitcher_task and not self.stitcher_task.done():
+            self.stitcher_task.cancel()
+        self.stitcher_task = asyncio.create_task(self._stitcher_frame_loop())
+
         logger.info(f"直播会话已启动: {session_id}，平台: {platform}")
+
+    async def _load_product_slices_to_stitcher(self, products: list):
+        """开播时从 ecommerce_sku_slices 数据库表装载商品切片资产至待播队列"""
+        self.stitcher.clear_playlist()
+        prod_ids = []
+        if isinstance(products, list):
+            for p in products:
+                if isinstance(p, dict) and p.get("id"):
+                    prod_ids.append(str(p["id"]))
+                elif hasattr(p, "id"):
+                    prod_ids.append(str(p.id))
+
+        from server.database.db import AsyncSessionLocal
+        from server.database.models import SkuSlice
+        async with AsyncSessionLocal() as session:
+            stmt = select(SkuSlice).where(SkuSlice.is_active == 1)
+            if prod_ids:
+                stmt = stmt.where(SkuSlice.product_id.in_(prod_ids))
+            stmt = stmt.order_by(SkuSlice.product_id, SkuSlice.created_at)
+            res = await session.execute(stmt)
+            slices = res.scalars().all()
+
+        loaded_count = 0
+        for s in slices:
+            v_p = Path(s.video_path)
+            if v_p.exists():
+                noise_profile = None
+                if s.bg_noise_profile:
+                    try:
+                        noise_profile = json.loads(s.bg_noise_profile)
+                    except Exception:
+                        pass
+                handle = HybridSliceHandle(
+                    slice_id=s.id,
+                    product_id=s.product_id,
+                    slot_code=s.slot_code,
+                    video_path=s.video_path,
+                    audio_path=s.audio_path,
+                    duration_sec=float(s.duration_sec or 0.0),
+                    loudness_lufs=float(s.loudness_lufs or -16.0),
+                    noise_profile=noise_profile,
+                )
+                self.stitcher.enqueue_slice(handle)
+                loaded_count += 1
+
+        logger.info(
+            f"[LiveSessionController] 动静分离初始化：已为 {len(prod_ids)} 个商品装载 {loaded_count} 个高精切片"
+        )
+
+    async def _stitcher_frame_loop(self):
+        """25 FPS 驱动流缝合器：统一向 global_frame_bus 扇出最高优先级(100)视频帧"""
+        frame_interval = 1.0 / 25.0
+        while self.is_live:
+            t0 = time.monotonic()
+            try:
+                # 若当前正处于实时动轨交互状态，自动从活动渲染驱动获取最新帧喂入动轨供帧缓冲区
+                if self.stitcher.state == StitcherState.STREAMING_REALTIME:
+                    rt_frame = None
+                    if hasattr(global_media_router, "get_latest_frame_bgr"):
+                        rt_frame = global_media_router.get_latest_frame_bgr()
+                    if rt_frame is not None:
+                        self.stitcher.feed_realtime_frame(rt_frame)
+
+                # 获取待机底图作为无切片或过渡停顿时的底托
+                base_idle = None
+                if hasattr(global_media_router, "get_latest_frame_bgr"):
+                    base_idle = global_media_router.get_latest_frame_bgr()
+
+                frame = self.stitcher.tick_frame(base_idle_frame=base_idle)
+                if frame is not None:
+                    # 向 global_frame_bus 发布帧 (优先级 100 压制本地 shadow)
+                    global_frame_bus.publish_frame(
+                        frame,
+                        owner="hybrid_stitcher",
+                        priority=100,
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"[HybridStitcher] 帧循环异常: {e}")
+
+            elapsed = time.monotonic() - t0
+            sleep_time = max(0.002, frame_interval - elapsed)
+            await asyncio.sleep(sleep_time)
+
+    def _on_slice_transition_filler(
+        self,
+        old_slice: Optional[HybridSliceHandle],
+        next_slice: Optional[HybridSliceHandle],
+        filler_text: str,
+    ) -> None:
+        """
+        切片转场过场词事件钩子：
+        1. 登记当前直播上下文，并通过 WebSocket 广播给前端中控大屏；
+        2. 启动异步任务调用 synthesize_preview_audio 合成该语气过场词音频；
+        3. 向 global_virtual_audio 投递播放 (带 audio_generation 栅栏，支持打断)。
+        """
+        try:
+            from server.routes.ws_live import ws_manager
+            old_slot = old_slice.slot_code if old_slice else ""
+            next_slot = next_slice.slot_code if next_slice else ""
+            logger.info(
+                f"[LiveSessionController] 切片转场过场词触发: '{filler_text}' "
+                f"({old_slot} -> {next_slot})"
+            )
+            self.live_context["last_transition_filler"] = filler_text
+
+            async def _synthesize_and_play():
+                try:
+                    # 1. 广播信令给中控大屏
+                    await ws_manager.broadcast(
+                        "TRANSITION_FILLER",
+                        {
+                            "filler_text": filler_text,
+                            "old_slice_id": old_slice.slice_id if old_slice else None,
+                            "old_slot_code": old_slot,
+                            "next_slice_id": next_slice.slice_id if next_slice else None,
+                            "next_slot_code": next_slot,
+                            "timestamp": time.time(),
+                        },
+                    )
+
+                    # 2. TTS 合成过场词语音
+                    from server.core.audio.tts_preview_service import (
+                        PreviewSpeechParams,
+                        synthesize_preview_audio,
+                    )
+                    gen_before = self._audio_generation
+                    tts_params = PreviewSpeechParams(
+                        provider_name="edge_tts",
+                        voice_name="zh-CN-XiaoxiaoNeural",
+                        text=filler_text,
+                    )
+                    audio_bytes, _media_type = await synthesize_preview_audio(tts_params)
+
+                    # 3. 栅栏检查：若在合成期间发生了打断或已停播，则丢弃
+                    if (
+                        not self.is_live
+                        or self._audio_generation != gen_before
+                        or not audio_bytes
+                    ):
+                        return
+
+                    # 4. 投递到 global_virtual_audio 播放
+                    global_virtual_audio.play_chunk(
+                        audio_bytes,
+                        fallback_sample_rate=24000,
+                        codec="wav",
+                        audio_generation=self._audio_generation,
+                        audio_id=f"filler_{uuid.uuid4().hex[:8]}_{self._audio_generation}",
+                    )
+                    logger.info(
+                        f"[LiveSessionController] 过场词音频已送入虚拟声卡: '{filler_text}', gen={self._audio_generation}"
+                    )
+                except Exception as ex:
+                    logger.debug(f"[LiveSessionController] 过场词合成/播放异常: {ex}")
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_synthesize_and_play())
+            except RuntimeError:
+                pass
+        except Exception as e:
+            logger.debug(f"[LiveSessionController] 切片转场回调处理异常: {e}")
+
+    def _on_slice_audio_playback(
+        self,
+        slice_handle: HybridSliceHandle,
+        start_frame: int = 0,
+        use_crossfade: bool = True,
+    ) -> None:
+        """
+        向 virtual_audio 投递切片音频，实现动静分离中静轨的声音真实播出。
+        支持每轮播动态微变速、WAV头自动剥离、断点重入截取与 50ms 平滑 Cross-fade。
+        """
+        if not self.is_live or slice_handle is None:
+            return
+
+        try:
+            pcm_bytes = slice_handle.get_audio_pcm(dynamic_varispeed=True, start_frame=start_frame)
+            if not pcm_bytes:
+                return
+
+            pcm_float = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+            if use_crossfade and len(pcm_float) > CROSSFADE_SAMPLES_16K:
+                prev_tail = getattr(self, "_last_slice_audio_tail", None)
+                if prev_tail is None:
+                    prev_tail = np.zeros(CROSSFADE_SAMPLES_16K, dtype=np.float32)
+                faded_pcm = apply_audio_crossfade(
+                    prev_tail,
+                    pcm_float,
+                    crossfade_samples=CROSSFADE_SAMPLES_16K,
+                )
+                self._last_slice_audio_tail = pcm_float[-CROSSFADE_SAMPLES_16K:].copy()
+                pcm_bytes = (np.clip(faded_pcm, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+            else:
+                self._last_slice_audio_tail = (
+                    pcm_float[-CROSSFADE_SAMPLES_16K:].copy()
+                    if len(pcm_float) >= CROSSFADE_SAMPLES_16K
+                    else None
+                )
+
+            audio_id = f"slice_{slice_handle.slice_id}_{self._audio_generation}_{start_frame}"
+            global_virtual_audio.play_chunk(
+                pcm_bytes,
+                fallback_sample_rate=16000,
+                codec="pcm_s16le",
+                allow_raw_pcm=True,
+                audio_generation=self._audio_generation,
+                audio_id=audio_id,
+            )
+            logger.info(
+                f"[LiveSessionController] 投递切片音频至虚拟声卡: {slice_handle.slice_id} "
+                f"(帧偏移={start_frame}/{slice_handle.total_frames}, 字节数={len(pcm_bytes)}, "
+                f"比率={slice_handle.current_loop_speed_ratio:.4f}, gen={self._audio_generation})"
+            )
+        except Exception as e:
+            logger.warning(f"[LiveSessionController] 投递切片音频失败: {e}")
 
     async def _load_douyin_cookie_config(self) -> dict:
         """读取用户在 app_settings 配置的抖音鉴权 Cookie (douyin_ttwid / douyin_ms_token，选填)"""
@@ -859,16 +1318,21 @@ class LiveSessionController:
                 await self._safe_close("danmaku_fetcher", self.fetcher.stop, timeout=3.0)
                 self.fetcher = None
 
-            # 2. 取消主消费、场观、视觉任务
+            # 2. 取消主消费、场观、视觉与缝合器任务
             session_tasks = [
-                task for task in (self.worker_task, self.viewer_task, self.vision_task)
+                task for task in (self.worker_task, self.viewer_task, self.vision_task, self.stitcher_task)
                 if task and not task.done()
             ]
             for task in session_tasks:
                 task.cancel()
             if session_tasks:
                 await asyncio.gather(*session_tasks, return_exceptions=True)
-            self.worker_task = self.viewer_task = self.vision_task = None
+            self.worker_task = self.viewer_task = self.vision_task = self.stitcher_task = None
+            try:
+                self.stitcher.clear_playlist()
+                self._last_slice_audio_tail = None
+            except Exception:
+                pass
 
             # 3. 收敛后台广播/数据库任务
             pending = [task for task in self._background_tasks if not task.done()]
@@ -900,6 +1364,8 @@ class LiveSessionController:
             await self._safe_close("detach_remote", global_media_router.detach_remote, timeout=2.0)
             await self._safe_close("media_router", global_media_router.stop, timeout=3.0)
             await self._safe_close("detach_sidecar", global_media_router.detach_sidecar, timeout=2.0)
+            global_media_router.reset_media_degraded()
+            global_media_router.set_on_degraded(None)
 
             # 6. 停止摄像头、声卡和视觉感知设备
             await self._safe_close("vision", global_vision.close, timeout=2.0)
@@ -908,9 +1374,20 @@ class LiveSessionController:
                 await self._safe_close("vram_watchdog", self.vram_watchdog.stop, timeout=2.0)
             from server.core.monitoring.system_resource_watchdog import global_resource_watchdog
             await self._safe_close("resource_watchdog", global_resource_watchdog.stop, timeout=2.0)
+            from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+            await self._safe_close("media_watchdog", global_media_watchdog.stop, timeout=2.0)
 
             # 7. 清空事件队列
             await self._safe_close("event_queue", self.event_queue.clear, timeout=1.0)
+
+            # 7.1 关闭残留的 WebRTC/WHEP 会话，避免跨场次泄漏 ICE/DTLS 连接
+            try:
+                from server.core.media.webrtc_streamer import get_webrtc_stream_manager
+                webrtc_manager = get_webrtc_stream_manager()
+                if webrtc_manager is not None:
+                    await self._safe_close("webrtc_sessions", webrtc_manager.close_all, timeout=3.0)
+            except Exception as webrtc_close_exc:
+                logger.debug(f"WebRTC 会话收敛跳过（可选依赖缺失）: {webrtc_close_exc}")
 
         finally:
             # 8. 最终复位所有身份和引用
@@ -1185,9 +1662,16 @@ class LiveSessionController:
                             if speak_text:
                                 full_reply += speak_text
                                 await self._speak_sentence(speak_text, active_role)
+                except Exception as llm_err:
+                    logger.error("LLM 话术生成或流迭代异常: %s", llm_err, exc_info=True)
+                    if self.execution_mode in ("PRODUCTION", "PILOT"):
+                        await self.transition_to_ai_paused(f"LLM 话术生成失败: {llm_err}")
                 finally:
                     # 无论正常结束、打断 break 还是异常，强制广播复位平息态
                     await ws_manager.broadcast("speaking_state", {"is_speaking": False})
+                    # 动静分离核心：实时答复结束，驱动缝合器 Smoothstep 4 步缓动回切切片断点并重锚定时钟
+                    if self.stitcher.state == StitcherState.STREAMING_REALTIME:
+                        self.stitcher.finish_realtime_reply()
 
                 # 维护多轮对话历史供 LLM 上下文引用
                 if full_reply.strip():
@@ -1433,7 +1917,7 @@ class LiveSessionController:
                 pcm_transaction.abort("source_incomplete")
             close_stream = getattr(stream, "aclose", None)
             if close_stream is not None:
-                await close_stream()
+                await _call_async_compat(close_stream)
 
     async def _switch_to_edge_tts(self):
         """运行期 TTS 故障后原子卸载远程媒体源并切换 Edge 驱动。"""
@@ -1441,7 +1925,7 @@ class LiveSessionController:
         # 先取消远程帧优先级，避免驱动停止期间继续暴露旧画面。
         global_media_router.detach_remote()
         try:
-            await previous.stop()
+            await _call_async_compat(previous.stop)
         except Exception:
             logger.exception("停止故障 TTS 驱动失败")
         fallback = EdgeTTSMediaDriver()
@@ -1691,6 +2175,10 @@ class LiveSessionController:
         except Exception as tts_err:
             if not is_current():
                 return
+            if self.execution_mode in ("PRODUCTION", "PILOT"):
+                logger.error("【商业上线硬门禁】商业生产档位严禁静默切换未经授权的异音色！TTS 故障: %s，已进入 AI_PAUSED", tts_err)
+                await self.transition_to_ai_paused(f"TTS 合成失败: {tts_err}")
+                return
             if isinstance(driver, EdgeTTSMediaDriver):
                 logger.warning("Edge-TTS 语音合成失败或返回零字节音频，丢弃该句以防爆音: %s", tts_err)
                 return
@@ -1726,8 +2214,8 @@ class LiveSessionController:
         if not full_audio or len(full_audio) == 0 or not is_current():
             return
 
-        codec = getattr(driver, "audio_codec", "mp3")
-        mime_type = getattr(driver, "audio_mime_type", "audio/mpeg")
+        codec = str(getattr(driver, "audio_codec", "mp3") or "mp3")
+        mime_type = str(getattr(driver, "audio_mime_type", "audio/mpeg") or "audio/mpeg")
         sample_rate = int(getattr(driver, "audio_sample_rate", 24000))
         channels = int(getattr(driver, "audio_channels", 1))
         from server.core.media.shared_playback_clock import global_shared_playback_clock
@@ -2019,6 +2507,7 @@ class LiveStartRequest(BaseModel):
     platform: Optional[str] = "bilibili"
     demo_mode: Optional[bool] = False  # 是否为明确的演示模式 (允许使用 mock 弹幕)
     obs_auto_link: Optional[bool] = False  # 是否联动 OBS 同步开启推流
+    execution_mode: Optional[str] = None  # 运行档位: DEMO / PREVIEW / PILOT / PRODUCTION (未指定时读取 LIVE_AGENT_MODE 或默认为 PREVIEW)
 
 class LiveInterruptRequest(BaseModel):
     text: str
@@ -2064,8 +2553,46 @@ async def get_live_status():
             "status": "running" if running else "stopped",
             "session_id": global_live_controller.session_id,
         },
+        "execution_mode": getattr(global_live_controller, "execution_mode", "PREVIEW"),
+        "state_detail": getattr(global_live_controller, "state_detail", "STOPPED" if not running else "LOCAL_READY"),
+        "platform_confirmed": getattr(global_live_controller, "platform_confirmed", False),
         "external_publish": _build_external_publish_status(),
     }
+
+
+@router.get("/preflight")
+async def get_preflight_status(
+    mode: str = "PREVIEW",
+    anchor_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    供前端控制台主动执行开播全栈门禁预检：
+    返回结构化检查清单、各项目通过状态、严重等级与阻断原因，驱动开播按钮置灰与诊断展示。
+    """
+    # 默认无参数请求保持旧控制台契约；显式 PRODUCTION/PILOT 使用统一结构化门禁。
+    # 这样可以平滑升级旧前端，同时不允许正式开播绕过统一门禁。
+    if mode.upper() == "PREVIEW" and not anchor_id:
+        legacy = await _legacy_preflight_check(db)
+        legacy["data"]["mode"] = mode.upper()
+        return legacy
+
+    from server.core.operations.preflight import global_preflight_service
+    avatar_asset_dir = None
+    if anchor_id:
+        from server.database.db import AsyncSessionLocal
+        from server.database.models import Anchor
+        async with AsyncSessionLocal() as session:
+            anchor = await session.get(Anchor, anchor_id)
+            if anchor and getattr(anchor, "avatar_asset_dir", None):
+                avatar_asset_dir = str(anchor.avatar_asset_dir)
+    report = await global_preflight_service.run_preflight(
+        mode=mode,
+        avatar_asset_dir=avatar_asset_dir,
+        force=True,
+    )
+    return {"code": 0 if report.passed else 400, "data": report.to_dict()}
+
 
 async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
     """在生命周期锁内创建持久化场次并启动本地直播源。"""
@@ -2103,6 +2630,10 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
     platform = (req.platform or "bilibili").strip()
     platform_lower = platform.lower()
     is_demo = bool(getattr(req, "demo_mode", False) or platform_lower in ("mock", "demo") or target_room.lower() in ("room_demo", "mock"))
+    raw_mode = (getattr(req, "execution_mode", None) or os.getenv("LIVE_AGENT_MODE") or "").strip()
+    if not raw_mode:
+        raw_mode = "DEMO" if is_demo else "PREVIEW"
+    execution_mode = raw_mode.upper()
 
     # 正式直播平台严禁空房间静默进入仿真模式，必须拦截并校验
     if platform_lower in ("bilibili", "douyin", "kuaishou", "wechat") and not is_demo:
@@ -2199,6 +2730,44 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
             logger.warning("神经唇形算力预检异常（不阻断开播）: %s", e)
             lipsync_preflight = {"level": "unavailable", "ok": False, "reason": str(e)}
 
+    # 统一全栈生产开播门禁检查 (依据《商业化运营改造方案》v3.0.0 第四章)
+    from server.core.operations.preflight import global_preflight_service
+    preflight_report = await global_preflight_service.run_preflight(
+        mode=execution_mode,
+        avatar_asset_dir=avatar_asset_dir if has_video_avatar else None,
+        voice_id=target_voice_id,
+        force=True,
+    )
+    if not preflight_report.passed:
+        logger.error(
+            "统一生产开播门禁未通过，已强制阻断: mode=%s, reasons=%s",
+            execution_mode, preflight_report.blocking_reasons,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "PREFLIGHT_BLOCKED",
+                "message": f"当前环境未达到 {execution_mode} 档位生产准入标准，已强制阻断开播",
+                "blocking_reasons": preflight_report.blocking_reasons,
+                "report": preflight_report.to_dict(),
+            },
+        )
+
+    # 灰度与 Kill Switch 开关校验 (依据《商业化运营改造方案》§10 与 §12 P1)
+    from server.core.compliance.kill_switch import global_kill_switch
+    if not global_kill_switch.is_feature_enabled("stream_push", platform=platform, anchor_id=req.anchor_id):
+        logger.critical(
+            "🚨【Kill Switch 熔断阻断开播】主播 %s 在平台 %s 的推流权限已被熔断切断！",
+            req.anchor_id, platform,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "KILL_SWITCH_BLOCKED",
+                "message": f"当前主播或平台 ({platform}) 已被 Kill Switch 熔断禁用开播与推流",
+            },
+        )
+
     session_record = LiveSessionRecord(
         session_id=session_id,
         platform=platform,
@@ -2209,17 +2778,21 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         anchor_id=req.anchor_id,
         product_snapshot_json=json.dumps(products, ensure_ascii=False),
         status="starting",
+        execution_mode=execution_mode,
+        state_detail="LOCAL_READY",
+        platform_confirmed=False,
     )
     db.add(session_record)
     await db.commit()
 
     try:
         is_demo = bool(getattr(req, "demo_mode", False))
+        global_live_controller.anchor_id = req.anchor_id
         await global_live_controller.start(
             session_id, products, target_room, platform=platform, theme=live_theme,
             voice_id=target_voice_id, avatar_path=avatar_path, mode=live_mode,
             landmarks_path=landmarks_path, demo_mode=is_demo,
-            avatar_asset_dir=avatar_asset_dir,
+            avatar_asset_dir=avatar_asset_dir, execution_mode=execution_mode,
         )
         setattr(session_record, "status", "live")
         await db.commit()
@@ -2252,14 +2825,21 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
                     obs_degraded = True
                     obs_error_msg = str(e)
                     logger.warning("联动 OBS 开始推流异常: %s", e)
+
+        current_detail = "OBS_STREAMING" if obs_linked else "LOCAL_READY"
+        setattr(session_record, "state_detail", current_detail)
+        global_live_controller.set_state_detail(current_detail)
+        await db.commit()
     except Exception as exc:
         await db.rollback()
         record = await db.get(LiveSessionRecord, session_id)
         if record:
             setattr(record, "status", "failed")
+            setattr(record, "state_detail", "FAILED")
             setattr(record, "end_time", utc_now())
             await db.commit()
         raise HTTPException(status_code=500, detail=f"直播资源启动失败: {exc}") from exc
+
 
     # 启动直播自动录制以留存全场视频便于复盘与 OSS 归档
     try:
@@ -2283,17 +2863,20 @@ async def _start_live_unlocked(req: LiveStartRequest, db: AsyncSession):
         "voice_id": target_voice_id,
         "role_id": active_role.role_id,
         "mode": live_mode,
+        "execution_mode": execution_mode,
+        "state_detail": global_live_controller.state_detail,
+        "platform_confirmed": global_live_controller.platform_confirmed,
         "obs_linked": obs_linked,
         "degraded": obs_degraded,
         "obs_error": obs_error_msg,
-"local_source": {"status": "running", "preview": "/api/v1/live/stream/preview"},
+        "local_source": {"status": "running", "preview": "/api/v1/live/stream/preview"},
         "external_publish": _build_external_publish_status(),
-        # 神经唇形算力预检结论：让前端能如实提示「本地仅适合预览」，
-        # 而不是让用户开播后自己发现持续掉帧。
+        "preflight_report": preflight_report.to_dict(),
         "lipsync_preflight": lipsync_preflight,
         "avatar_asset_health": asset_health,
-        "message": f"本地直播源已成功启动 ({platform}, 模式 {live_mode})；外部平台发布需人工验收"
+        "message": f"直播源已成功启动 ({platform}, 模式 {live_mode}, 档位 {execution_mode}, 状态 {global_live_controller.state_detail})"
     }
+
 
 
 @router.post("/start")
@@ -2626,6 +3209,51 @@ async def interrupt_live(req: LiveInterruptRequest):
     return {"code": 0 if res.get("accepted") else 1, "message": "人工插话已成功抢占插播", "data": res}
 
 
+class LiveTakeoverRequest(BaseModel):
+    action: str = "takeover"  # takeover / release
+    operator: Optional[str] = "admin"
+    reason: Optional[str] = "人工控制台接管"
+
+
+@router.post("/takeover")
+async def takeover_live(req: LiveTakeoverRequest):
+    """
+    人工接管直播间 (依据《商业化运营改造方案》§6.3):
+    - action="takeover": 立即原子打断 AI/TTS，状态切换为 HUMAN_TAKEOVER
+    - action="release": 释放接管，恢复正常直播
+    """
+    if not global_live_controller.is_live:
+        raise HTTPException(status_code=400, detail="直播尚未开播，无法接管")
+    if req.action == "takeover":
+        res = await global_live_controller.takeover(operator=req.operator or "admin", reason=req.reason or "")
+        return {"code": 0, "message": "人工接管已生效，AI 与语音播报已原子抢占", "data": res}
+    elif req.action == "release":
+        res = await global_live_controller.release_takeover(operator=req.operator or "admin")
+        return {"code": 0, "message": "人工接管已释放，恢复正常直播状态", "data": res}
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的接管动作: {req.action}")
+
+
+@router.post("/pause-ai")
+async def pause_ai_live(reason: str = "运营手动暂停"):
+    """手动暂停 AI 生成进入 AI_PAUSED 安全态"""
+    if not global_live_controller.is_live:
+        raise HTTPException(status_code=400, detail="直播未开播")
+    await global_live_controller.transition_to_ai_paused(reason)
+    return {"code": 0, "message": "AI 已暂停", "state_detail": global_live_controller.state_detail}
+
+
+@router.post("/resume-ai")
+async def resume_ai_live():
+    """从暂停或降级态恢复 AI 生成"""
+    if not global_live_controller.is_live:
+        raise HTTPException(status_code=400, detail="直播未开播")
+    result = await global_live_controller.resume_ai()
+    if not result.get("ok"):
+        return {"code": 409, "message": "AI 恢复被重新预检阻断", "data": result}
+    return {"code": 0, "message": "AI 已恢复", "data": result, "state_detail": global_live_controller.state_detail}
+
+
 @router.post("/voice-interrupt")
 async def voice_interrupt_live(
     file: UploadFile = File(...),
@@ -2695,123 +3323,132 @@ async def inject_mock_event(req: MockEventRequest):
         )
         return {"code": 0, "message": "已注入仿真促单提问 (P1)，AI 主播将优先解答", "data": res}
 
-# ---------------------------------------------------------------------------
-# 硬件探测与运行档位推荐 (规划 §8.1)
-# ---------------------------------------------------------------------------
-def _probe_gpu() -> dict:
-    """本机 GPU 探测 —— 委托 `gpu_capability.probe_local_gpu` 单一事实源。
 
-    历史缺陷：本函数曾自带一套完整的 torch → nvidia-smi → WMI 三级探测
-    (`_get_torch` / `_find_nvidia_smi` / `_wmi_gpu_probe`)，与
-    `core/hardware/gpu_capability.probe_local_gpu` 并存。两套实现口径一旦
-    不一致，就会出现「预检说硬件达标、开播时说不够」的矛盾，且探测逻辑需改
-    两处极易漏改。现已统一：探测事实源只有gpu_capability 一处。
+class OverlayCouponRequest(BaseModel):
+    sku: str = ""
+    title: str = "直播间专属优惠券"
+    amount: str = "立减 30 元"
+    desc: str = "点击左下角领券立减"
+    seconds: int = 20
 
-    保留本函数（而非让调用方直接引用 gpu_capability）有两个原因：
-      1. `_hardware_payload` 需要把它卸载到线程池执行（子进程探测会阻塞事件循环）；
-      2. 测试以 patch 本模块 `_probe_gpu` 的方式注入假硬件数据。
 
-    返回结构固定为既有 4 键契约，不得增减字段。
-    """
-    from server.core.hardware.gpu_capability import probe_local_gpu
+@router.post("/overlay/coupon")
+async def trigger_overlay_coupon(req: OverlayCouponRequest):
+    """一键触发画中画优惠券画层 (方案 4.2)"""
+    from server.core.tools.tool_bus import trigger_pip_coupon
+    res = await trigger_pip_coupon(
+        sku=req.sku,
+        title=req.title,
+        amount=req.amount,
+        desc=req.desc,
+        seconds=req.seconds,
+    )
+    return {"code": 0, "message": "画中画优惠券已触发", "data": res}
 
-    gpu = probe_local_gpu()
+
+class OverlayUrgencyRequest(BaseModel):
+    sku: str = ""
+    title: str = "🔥 限量抢购 倒计时"
+    desc: str = "库存告急，先到先得！"
+    seconds: int = 60
+
+
+@router.post("/overlay/urgency")
+async def trigger_overlay_urgency(req: OverlayUrgencyRequest):
+    """一键触发逼单倒计时画层 (方案 4.2)"""
+    from server.core.tools.tool_bus import trigger_urgency_countdown
+    res = await trigger_urgency_countdown(
+        sku=req.sku,
+        title=req.title,
+        seconds=req.seconds,
+        desc=req.desc,
+    )
+    return {"code": 0, "message": "逼单倒计时已触发", "data": res}
+
+
+class BlockDanmakuRequest(BaseModel):
+    user_name: str
+    keyword: str = ""
+    reason: str = "违规弹幕人工拉黑"
+
+
+@router.post("/danmaku/block")
+async def block_danmaku_user(req: BlockDanmakuRequest):
+    """一键拉黑违规弹幕发送者或关键词并写入违禁词库 (方案 4.1)"""
+    from server.database.db import AsyncSessionLocal
+    from server.database.models import ProhibitedWord
+    import uuid
+
+    added = []
+    async with AsyncSessionLocal() as session:
+        if req.keyword.strip():
+            kw = req.keyword.strip()
+            word_obj = ProhibitedWord(
+                id=f"blk_kw_{uuid.uuid4().hex[:8]}",
+                word=kw,
+                action_policy="drop",
+                category="sensitive",
+                role_scope="all",
+                platform="all",
+            )
+            session.add(word_obj)
+            added.append(kw)
+
+        if req.user_name.strip():
+            u_kw = req.user_name.strip()
+            user_word = ProhibitedWord(
+                id=f"blk_u_{uuid.uuid4().hex[:8]}",
+                word=u_kw,
+                action_policy="drop",
+                category="sensitive",
+                role_scope="all",
+                platform="all",
+            )
+            session.add(user_word)
+            added.append(u_kw)
+
+        await session.commit()
+
     return {
-        "gpu_name": gpu.gpu_name,
-        "vram_total_gb": gpu.vram_total_gb,
-        "vram_used_gb": gpu.vram_used_gb,
-        "cuda_available": gpu.cuda_available,
+        "code": 0,
+        "message": f"已成功拉黑违规目标: {', '.join(added)}",
+        "data": {"user_name": req.user_name, "keyword": req.keyword, "blocked_rules": added},
     }
 
-def _resolve_landmarks_for_avatar(avatar_path: str) -> str:
-    """
-    按主播底图解析人脸关键点缓存 (规划 §4.2)：
-    - 已有缓存 (同目录 <图名>_landmarks.json) 直接复用，不重复检测
-    - 无缓存则执行一次 MediaPipe/Haar 检测并落盘 (线程池中调用)
-    - 底图缺失或检测结果无效时返回空串，渲染器回退比例定位
-    """
-    if not avatar_path:
-        return ""
-    from pathlib import Path as _Path
-    import json as _json
-    from server.core.vision.face_landmarks import detect_face_landmarks
+# ---------------------------------------------------------------------------
+# 兼容再导出：以下符号被其他生产模块与测试直接导入 / patch（缝），不可移除。
+# 转发体必须薄，且在**函数体内**解析目标 —— 顶层 import 会把缝变成早绑定，
+# 使 patch("server.routes.live.<X>") 静默失效（测试绿而线上行为已变）。
+# 守卫见 server/tests/test_live_seam_late_binding.py。
+# ---------------------------------------------------------------------------
+from server.routes.live_hardware import (  # noqa: E402
+    _resolve_landmarks_for_avatar,
+    router as _hardware_router,
+)
 
-    photo = _Path(avatar_path)
-    if not photo.exists():
-        return ""
-    cache = photo.with_name(f"{photo.stem}_landmarks.json")
-    if not cache.exists():
-        try:
-            detect_face_landmarks(str(photo), str(cache))
-        except Exception as e:
-            logger.debug(f"人脸关键点检测失败: {e}")
-            return ""
-    try:
-        data = _json.loads(cache.read_text(encoding="utf-8"))
-        box = data.get("face_box")
-        if box and len(box) == 4 and box[2] > 0:
-            return str(cache)
-    except Exception:
-        pass
-    return ""
+
+def _probe_gpu() -> dict:
+    """缝：本机 GPU 委托探测（单一事实源 gpu_capability）。"""
+    from server.routes.live_hardware import probe_gpu
+
+    return probe_gpu()
 
 
 def _recommend_tier(gpu_info: dict) -> str:
-    """按显卡硬件与算力推荐运行模式 (纯本地硬件 vs 本地云端混合)"""
-    vram = gpu_info.get("vram_total_gb", 0.0) or 0.0
-    if gpu_info.get("cuda_available") and vram >= 7.5:
-        return "纯本地硬件 (本地单机运行)"
-    return "本地云端混合 (端云协同模式)"
+    """缝：按硬件推荐运行模式。"""
+    from server.routes.live_hardware import recommend_tier
 
-# 硬件负载 TTL 缓存 (避免多客户端 5s 轮询反复 spawn nvidia-smi/WMI 子进程)
-_HW_PAYLOAD_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
-_HW_CACHE_TTL_SEC = 3.0
+    return recommend_tier(gpu_info)
 
 
 async def _hardware_payload() -> dict:
-    import platform
-    now = time.time()
-    cached_data = _HW_PAYLOAD_CACHE.get("data")
-    last_ts = float(_HW_PAYLOAD_CACHE.get("ts") or 0.0)
-    if isinstance(cached_data, dict) and now - last_ts < _HW_CACHE_TTL_SEC:
-        # 动态指标 (CPU/内存占用) 实时更新，静态探测 (GPU/型号) 走缓存
-        cached = dict(cached_data)
-        cpu_percent = psutil.cpu_percent(interval=None)
-        memory = psutil.virtual_memory()
-        cached.update(
-            cpu_percent=cpu_percent,
-            ram_used_gb=round(memory.used / (1024 ** 3), 2),
-            ram_percent=memory.percent,
-        )
-        return cached
+    """缝：硬件负载载荷（含 TTL 缓存）。"""
+    from server.routes.live_hardware import hardware_payload
 
-    cpu_percent = psutil.cpu_percent(interval=None)
-    memory = psutil.virtual_memory()
-    # 重量级 GPU 探测 (nvidia-smi/WMI 子进程) 卸载到线程池，严禁阻塞事件循环 (ADR-08)
-    gpu_info = await asyncio.to_thread(_probe_gpu)
-    from server.core.hardware.gpu_capability import evaluate_compute
-    compute_plan = await evaluate_compute(feature_name="全局高性能计算", required_vram_gb=2.0)
-    cpu_name = platform.processor() or os.environ.get("PROCESSOR_IDENTIFIER", "") or "未知处理器"
+    return await hardware_payload()
 
-    payload = {
-        "cpu_name": cpu_name,
-        "cpu_cores": psutil.cpu_count(logical=True) or 0,
-        "cpu_percent": cpu_percent,
-        "ram_used_gb": round(memory.used / (1024 ** 3), 2),
-        "ram_total_gb": round(memory.total / (1024 ** 3), 2),
-        "ram_percent": memory.percent,
-        "gpu": gpu_info,
-        "gpu_capability": compute_plan.to_dict(),
-        "recommended_mode": _recommend_tier(gpu_info)
-    }
-    _HW_PAYLOAD_CACHE["ts"] = now
-    _HW_PAYLOAD_CACHE["data"] = payload
-    return payload
 
-@router.get("/hardware")
-async def get_hardware_status():
-    """获取本地硬件资源负载与显存建议 (兼容路由)"""
-    return {"code": 0, "data": await _hardware_payload()}
+router.include_router(_hardware_router)
 
 
 class OrderRequest(BaseModel):
@@ -2865,6 +3502,9 @@ async def register_order(req: OrderRequest, db: AsyncSession = Depends(get_db)):
 
     if not global_live_controller.is_live or not global_live_controller.session_id:
         raise HTTPException(status_code=400, detail="直播间尚未开播")
+
+    if global_live_controller.execution_mode == "DEMO":
+        raise HTTPException(status_code=403, detail="【商业准入安全拦截】DEMO 演示模式严禁登记真实交易订单与扣减库存")
 
     external_id = (req.external_id or f"manual-{uuid.uuid4().hex}").strip()
     existing = (await db.execute(select(Order).where(Order.external_id == external_id))).scalar_one_or_none()
@@ -3043,7 +3683,6 @@ async def get_live_stats(db: AsyncSession = Depends(get_db)):
     stats = global_live_controller.stats
     is_live = global_live_controller.is_live
 
-    mode = None
     anchor_id = None
     res = await db.execute(select(AppSetting).where(AppSetting.key == SETTING_KEY_LIVE_MODE))
     row = res.scalar_one_or_none()
@@ -3099,6 +3738,36 @@ async def get_live_stats(db: AsyncSession = Depends(get_db)):
             "queue_metrics": global_live_controller.event_queue.get_stats(),
             "guardrail_hits": stats["guardrail_hits"] if is_live else 0,
             "flash_sales": stats["flash_sales"] if is_live else 0,
+            "stitcher_state": (
+                global_live_controller.stitcher.state.value if (is_live and getattr(global_live_controller, "stitcher", None)) else "idle"
+            ),
+            "stitcher_badge": (
+                (
+                    "【静轨·高精切片】播发中" if global_live_controller.stitcher.state.value == "playing_batch_slice"
+                    else "【打断中·平滑停顿】4-step 缓动停顿" if global_live_controller.stitcher.state.value == "interrupted_holding"
+                    else "【动轨·实时驱动】正在互动答复观众" if global_live_controller.stitcher.state.value == "streaming_realtime"
+                    else "【过渡中·断点回切】4-step 句首回退重入" if global_live_controller.stitcher.state.value == "blending_transition"
+                    else "【动静融合中】"
+                ) if (is_live and getattr(global_live_controller, "stitcher", None)) else "【待命中】"
+            ),
+            "active_slice_info": (
+                {
+                    "slice_id": global_live_controller.stitcher.current_slice.slice_id,
+                    "product_id": global_live_controller.stitcher.current_slice.product_id,
+                    "slot_code": global_live_controller.stitcher.current_slice.slot_code,
+                    "duration_sec": global_live_controller.stitcher.current_slice.duration_sec,
+                    "current_frame_idx": global_live_controller.stitcher.current_frame_idx,
+                    "loudness_target": f"{global_live_controller.stitcher.current_slice.loudness_lufs:.1f} LUFS",
+                    "architecture": "batch_stream_hybrid",
+                    "diffusion_model": "ByteDance LatentSync UNet3D",
+                } if (is_live and getattr(global_live_controller, "stitcher", None) and global_live_controller.stitcher.current_slice)
+                else ({
+                    "architecture": "batch_stream_hybrid",
+                    "diffusion_model": "ByteDance LatentSync UNet3D",
+                    "loudness_target": "-16.0 LUFS",
+                    "status": "standby_or_idle",
+                } if is_live else None)
+            ),
             "network": {
                 "ws_clients": len(ws_clients()),
                 "status": "connected" if is_live else "idle"
@@ -3205,6 +3874,10 @@ async def _pf_tts_check(cfg: Optional[dict]) -> dict:
     is_bailian_cloud = any(k in base.lower() for k in ["aliyuncs.com", "dashscope", "maas"]) or "bailian" in provider
     if "cosyvoice" in provider or is_bailian_cloud:
         if is_bailian_cloud:
+            if not api_key:
+                return _pf("warn", "tts", "语音合成 (TTS)",
+                           "阿里云百炼 CosyVoice 未配置 API Key，开播将自动回退微软免费语音",
+                           "请前往【TTS 语音(3)】填入 DashScope API Key", "settings_tts")
             return _pf("pass", "tts", "语音合成 (TTS)", f"阿里云百炼 CosyVoice 云端音色克隆已就绪 ({model_name})")
 
         # 否则属于本地私有化部署的 CosyVoice 服务 (如 127.0.0.1:50000 / 9233 等)
@@ -3239,136 +3912,7 @@ def _pf_obs_check() -> dict:
                "免费下载安装 OBS Studio: obsproject.com", None)
 
 
-def _pf_avatar_check(configs: list) -> dict:
-    """校验本地 Avatar 能力、远端配置与现有运行态；不在 GET 中启动远端连接。"""
-    from server.adapters.media.avatar_provider_registry import (
-        AvatarProviderAvailability,
-        get_avatar_provider_descriptor,
-        normalize_avatar_provider_config,
-    )
-
-    try:
-        media_status = global_media_router.get_preview_status()
-    except Exception as exc:
-        logger.warning("Avatar preflight 状态读取失败: %s", exc)
-        media_status = {}
-    local_available = media_status.get("cv_available") is True
-
-    if not configs:
-        if local_available:
-            return _pf(
-                "pass", "avatar", "数字人画面与云渲染",
-                "本地程序化 Avatar 可用；未启用远端 Provider，远端渲染为可选增强",
-            )
-        return _pf(
-            "warn", "avatar", "数字人画面与云渲染",
-            "本地 OpenCV 程序化 Avatar 不可用，当前只能使用 mock 画面；未启用远端 Provider",
-            "安装 OpenCV 运行依赖，或在【开播向导】配置可用的 Avatar Provider", "wizard",
-        )
-
-    valid_configs = []
-    invalid_configs = []
-    for config in configs:
-        try:
-            extra = json.loads(config.extra_params_json or "{}")
-            if not isinstance(extra, dict):
-                raise ValueError("extra_params 必须是 object")
-            adapter_id = str(extra.get("adapter") or "").strip().lower()
-            descriptor = get_avatar_provider_descriptor(adapter_id)
-            if descriptor.availability is AvatarProviderAvailability.PLANNED:
-                raise ValueError(f"{descriptor.display_name} 仍为计划支持，尚未交付或验收")
-            canonical = normalize_avatar_provider_config(
-                extra,
-                base_url=config.base_url,
-                credential_present=bool(config.encrypted_api_key),
-            )
-            valid_configs.append((config, descriptor, canonical))
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            invalid_configs.append(f"{config.id}: {exc}")
-
-    if invalid_configs:
-        detail = "；".join(invalid_configs[:3])
-        return _pf(
-            "fail", "avatar", "数字人画面与云渲染",
-            f"启用的远端 Avatar 配置无效：{detail}。本地程序化 shadow 仍保留，但该配置不会被冒充为可用节点",
-            "在【云端模型】修复或停用无效的 Avatar Provider 实例", "settings",
-        )
-
-    provider_summary = media_status.get("avatar_provider") or {}
-    provider_states = {
-        state.get("provider_id"): state
-        for state in (media_status.get("avatar_providers") or [])
-        if isinstance(state, dict) and state.get("provider_id")
-    }
-    orchestrator_running = provider_summary.get("running") is True
-    healthy_ids = []
-    unverified_ids = []
-    unavailable_ids = []
-
-    for config, descriptor, _canonical in valid_configs:
-        provider_id = f"neural_renderer:{config.id}"
-        state = provider_states.get(provider_id)
-        if descriptor.availability is AvatarProviderAvailability.EXPERIMENTAL:
-            unverified_ids.append(config.id)
-            continue
-        if state is None:
-            unavailable_ids.append(config.id)
-            continue
-        capabilities = state.get("capabilities") or {}
-        adapter = state.get("adapter") or {}
-        verified = (
-            capabilities.get("verification") == "verified"
-            and capabilities.get("eligible_for_auto") is True
-        )
-        healthy = bool(
-            orchestrator_running
-            and state.get("up") is True
-            and state.get("ready") is True
-            and verified
-            and state.get("circuit_state") != "open"
-            and adapter.get("remote_ready") is True
-            and adapter.get("degraded") is not True
-        )
-        if healthy:
-            healthy_ids.append(config.id)
-        elif not verified:
-            unverified_ids.append(config.id)
-        else:
-            unavailable_ids.append(config.id)
-
-    local_note = "本地程序化 shadow 可用" if local_available else "本地程序化画面当前不可用"
-    if healthy_ids:
-        if not local_available:
-            return _pf(
-                "warn", "avatar", "数字人画面与云渲染",
-                f"{len(healthy_ids)} 个远端 renderer-only Provider 已通过当前运行时握手，但本地程序化 shadow 不可用；远端故障时只能降级为 mock 画面",
-                "安装本地 OpenCV 运行依赖以恢复热 shadow；外部平台画面仍需单独验收", "wizard",
-            )
-        return _pf(
-            "pass", "avatar", "数字人画面与云渲染",
-            f"{local_note}；{len(healthy_ids)} 个远端 renderer-only Provider 已通过当前运行时握手与能力门禁。外部平台画面仍需单独验收",
-        )
-    if unverified_ids:
-        return _pf(
-            "warn", "avatar", "数字人画面与云渲染",
-            f"{local_note}；{len(unverified_ids)} 个远端 Provider 仍为 experimental/unverified，不进入自动渲染池，也不能视为已验收",
-            "仅在沙箱完成音频、完成、中断、视频轨和时间戳验收后，才能升级 Provider 状态", "wizard",
-        )
-    if not orchestrator_running:
-        return _pf(
-            "warn", "avatar", "数字人画面与云渲染",
-            f"{local_note}；{len(valid_configs)} 个远端 Provider 配置有效，但尚未开播或编排器未启动，需在运行时握手后确认",
-            "可先使用本地程序化画面开播；远端节点状态将在运行后重新检查", "wizard",
-        )
-    return _pf(
-        "warn", "avatar", "数字人画面与云渲染",
-        f"{local_note}；远端 Provider 当前未就绪或已降级，未将其标记为通过",
-        "检查 Provider 运行状态、鉴权、网络、熔断与额度；本地 shadow 可继续承接画面", "settings",
-    )
-
-
-@router.get("/preflight")
-async def preflight_check(db: AsyncSession = Depends(get_db)):
+async def _legacy_preflight_check(db: AsyncSession):
     """
     开播前真实检查：
     模式/角色/大模型/TTS/Avatar/OBS/商品或主题/硬件/违禁词库
@@ -3406,16 +3950,6 @@ async def preflight_check(db: AsyncSession = Depends(get_db)):
             "model_name": row.model_name or "",
             "api_key": decrypt_secret(str(row.encrypted_api_key)) if row.encrypted_api_key else "",
         }
-
-    res = await db.execute(
-        select(ApiProviderConfig)
-        .where(
-            ApiProviderConfig.config_group == "neural_renderer",
-            ApiProviderConfig.is_active == 1,
-        )
-        .order_by(ApiProviderConfig.id.asc())
-    )
-    avatar_configs = list(res.scalars().all())
 
     role = global_role_manager.get_active_role()
 
@@ -3937,6 +4471,10 @@ async def websocket_asr_endpoint(websocket: WebSocket):
     客户端流式上行 16kHz 16-bit 单声道 PCM 数据，服务端 VAD 检测人声，
     触发瞬间打断与段落转写，并将识别结果作为现场提问注入直播交互。
     """
+    from server.core.security.ws_auth import verify_websocket_auth
+    if not await verify_websocket_auth(websocket):
+        return
+
     await websocket.accept()
     session_id = f"asr_{uuid.uuid4().hex[:8]}"
     manager = get_full_duplex_asr_manager()
@@ -3995,7 +4533,7 @@ async def websocket_asr_endpoint(websocket: WebSocket):
             message = await websocket.receive()
             if "bytes" in message and message["bytes"]:
                 pcm_chunk = message["bytes"]
-                res = session.feed_pcm(pcm_chunk)
+                res = await asyncio.to_thread(session.feed_pcm, pcm_chunk)
                 if "speech_start" in res.get("events", []):
                     await websocket.send_json({"type": "speech_start"})
                 if "speech_end" in res.get("events", []):
@@ -4135,10 +4673,10 @@ async def start_clip_recording(req: StartRecordRequest = Body(default_factory=la
 @router.post("/record/stop", summary="停止录制并封装导出 MP4 切片")
 async def stop_clip_recording():
     """
-    停止录制，自动调用 FFmpeg 封装带声画同步的标准 H.264 MP4 文件
+    停止录制，自动调用 FFmpeg 封装带声画同步的标准 H.264 MP4 文件 (线程池异步封装，不阻塞事件循环)
     """
     recorder_mgr = get_record_manager()
-    res = recorder_mgr.stop_recording()
+    res = await asyncio.to_thread(recorder_mgr.stop_recording)
     if res.get("code") != 0:
         raise HTTPException(status_code=400, detail=res.get("message", "停止录制失败"))
     return res
@@ -4175,5 +4713,132 @@ async def delete_recording(record_id: str):
         "code": 0 if success else 1,
         "message": "切片文件已删除"
     }
+
+
+# ============================================================================
+# 🛡️ P1 商业化质量看门狗、Kill Switch 熔断与成本隐私治理接口 (依据《商业化方案》§12)
+# ============================================================================
+
+class KillSwitchUpdateRequest(BaseModel):
+    feature: str
+    enabled: bool
+    platform: Optional[str] = None
+    anchor_id: Optional[str] = None
+    operator: Optional[str] = "admin"
+    reason: Optional[str] = ""
+
+class EmergencyCutRequest(BaseModel):
+    platform: Optional[str] = None
+    anchor_id: Optional[str] = None
+    operator: Optional[str] = "admin"
+    reason: Optional[str] = "紧急风控熔断"
+
+class BudgetSetRequest(BaseModel):
+    budget_limit_cny: float
+
+class PrivacyEraseRequest(BaseModel):
+    user_id: str
+    operator: Optional[str] = "dpo_admin"
+    reason: Optional[str] = "用户行使被遗忘权"
+
+
+@router.get("/quality/metrics", summary="获取媒体质量 SLI 指标与 SLO 评估快照")
+async def get_media_quality_metrics():
+    """返回有效 FPS、丢帧率、音画漂移 p95/p99、TTS 首包延时与违规诊断清单"""
+    from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+    return {
+        "code": 0,
+        "data": global_media_watchdog.get_sli_snapshot(),
+    }
+
+
+@router.get("/quality/runbook", summary="获取媒体质量排障 Runbook 手册")
+async def get_media_quality_runbook():
+    """获取所有媒体质量指标对应的排障 Runbook 标准操作步骤"""
+    from server.core.monitoring.media_quality_watchdog import MediaQualityWatchdog
+    return {
+        "code": 0,
+        "data": MediaQualityWatchdog.RUNBOOKS,
+    }
+
+
+@router.get("/governance/kill-switch", summary="获取灰度 Feature Flag 与 Kill Switch 状态")
+async def get_kill_switch_status():
+    """获取全局、各平台与各主播的开关矩阵及最近熔断审计记录"""
+    from server.core.compliance.kill_switch import global_kill_switch
+    return {
+        "code": 0,
+        "data": global_kill_switch.get_switches_status(),
+    }
+
+
+@router.post("/governance/kill-switch", summary="动态更新 Feature Flag 开关")
+async def update_kill_switch(req: KillSwitchUpdateRequest):
+    """更新指定主播、平台或全局功能开关 (如禁用带货促单或推流)"""
+    from server.core.compliance.kill_switch import global_kill_switch
+    try:
+        record = global_kill_switch.set_switch(
+            feature=req.feature,
+            enabled=req.enabled,
+            platform=req.platform,
+            anchor_id=req.anchor_id,
+            operator=req.operator or "admin",
+            reason=req.reason or "",
+        )
+        return {"code": 0, "message": "开关更新成功", "data": record}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/governance/kill-switch/emergency-cut", summary="一键紧急熔断切断 (Kill Switch)")
+async def emergency_kill_switch(req: EmergencyCutRequest):
+    """在发生平台风控、舆情或严重违规时秒级熔断指定范围或全局所有功能"""
+    from server.core.compliance.kill_switch import global_kill_switch
+    record = global_kill_switch.emergency_kill_all(
+        platform=req.platform,
+        anchor_id=req.anchor_id,
+        operator=req.operator or "admin",
+        reason=req.reason or "紧急风控熔断",
+    )
+    return {"code": 0, "message": "紧急熔断已执行，已切断全部功能", "data": record}
+
+
+@router.get("/cost/summary", summary="获取当前场次成本核算与用量快照")
+async def get_session_cost_summary():
+    """获取 LLM Token、TTS 字符数、GPU 时长产生费用与每单履约成本"""
+    from server.core.compliance.cost_privacy_manager import global_cost_privacy_manager
+    return {
+        "code": 0,
+        "data": global_cost_privacy_manager.calculate_current_cost(),
+    }
+
+
+@router.post("/cost/budget", summary="设置当前场次预算硬上限")
+async def set_session_budget(req: BudgetSetRequest):
+    """设置场次预算硬上限，达到上限后将自动触发 AI 暂停熔断，防止失控计费"""
+    from server.core.compliance.cost_privacy_manager import global_cost_privacy_manager
+    global_cost_privacy_manager.budget_limit_cny = max(0.0, float(req.budget_limit_cny))
+    global_cost_privacy_manager.warning_triggered = False
+    global_cost_privacy_manager.cap_exceeded = False
+    return {
+        "code": 0,
+        "message": f"场次预算硬上限已更新为 ¥{global_cost_privacy_manager.budget_limit_cny:.2f} CNY",
+        "data": global_cost_privacy_manager.calculate_current_cost(),
+    }
+
+
+@router.post("/privacy/erase-user", summary="响应用户被遗忘权并抹除用户隐私数据")
+async def erase_user_privacy_data(req: PrivacyEraseRequest):
+    """彻底抹除用户行为日志与标识，并留存不可篡改的数据抹除审计记录"""
+    from server.core.compliance.cost_privacy_manager import global_cost_privacy_manager
+    try:
+        record = global_cost_privacy_manager.erase_user_data(
+            user_id=req.user_id,
+            operator=req.operator or "dpo_admin",
+            reason=req.reason or "用户行使被遗忘权",
+        )
+        return {"code": 0, "message": "用户隐私数据已成功抹除", "data": record}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 

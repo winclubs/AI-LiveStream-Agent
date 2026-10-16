@@ -1,4 +1,5 @@
 import asyncio
+import os
 import pytest
 from server.config import encrypt_secret, decrypt_secret, mask_api_key
 from server.core.guardrails.aho_corasick import ProhibitedWordSanitizer
@@ -330,6 +331,7 @@ def test_bilibili_packet_codec():
     assert subs[0][2] == b'{"cmd":"TEST"}'
 
 # 5. 测试：真实驱动与弹幕适配器
+@pytest.mark.requires_edge_tts_network
 def test_media_and_danmaku_adapters():
     from server.adapters.media.edgetts_driver import EdgeTTSMediaDriver
     from server.adapters.media.cosyvoice_driver import CosyVoiceMediaDriver
@@ -454,6 +456,7 @@ def test_barge_in_cooperative_playback_interrupt():
 def test_gpu_probe_offloads_blocking_io():
     import time as _time
     from server.routes import live as _live_mod
+    from server.routes import live_hardware as _hw_mod
 
     async def _async_test():
         original_probe = _live_mod._probe_gpu
@@ -469,10 +472,14 @@ def test_gpu_probe_offloads_blocking_io():
             _time.sleep(0.3)
             return {"gpu_name": "FakeGPU", "vram_total_gb": 8.0, "vram_used_gb": 1.0, "cuda_available": False}
 
-        _live_mod._probe_gpu = slow_probe
-        _live_mod._HW_PAYLOAD_CACHE["data"] = None
-        _live_mod._HW_PAYLOAD_CACHE["ts"] = 0.0
+        # 状态重置必须与恢复同处 try/finally：早先把重置写在 try 之外，
+        # 一旦中途断言失败，_probe_gpu 会永久停留在 slow_probe 上污染后续用例。
         try:
+            _live_mod._probe_gpu = slow_probe
+            # 硬件负载 TTL 缓存随实现一同迁至 live_hardware（live.py 只留薄缝）。
+            _hw_mod._HW_PAYLOAD_CACHE["data"] = None
+            _hw_mod._HW_PAYLOAD_CACHE["ts"] = 0.0
+
             hb_task = asyncio.create_task(heartbeat())
             await asyncio.sleep(0.05)
             ticks_before = ticks["n"]
@@ -490,8 +497,10 @@ def test_gpu_probe_offloads_blocking_io():
             )
         finally:
             _live_mod._probe_gpu = original_probe
-            _live_mod._HW_PAYLOAD_CACHE["data"] = None
-            _live_mod._HW_PAYLOAD_CACHE["ts"] = 0.0
+            _hw_mod._HW_PAYLOAD_CACHE["data"] = None
+            _hw_mod._HW_PAYLOAD_CACHE["ts"] = 0.0
+            if not stop_heartbeat.is_set():
+                stop_heartbeat.set()
 
     asyncio.run(_async_test())
 
@@ -687,7 +696,6 @@ def test_select_driver_passes_landmarks_to_renderer():
 def test_resolve_landmarks_for_avatar(monkeypatch):
     import json as _json
     import tempfile
-    import os as _os
     from pathlib import Path as _Path
     import numpy as np
     from PIL import Image as _PILImage
@@ -869,7 +877,6 @@ def _build_douyin_frame(pb, method="WebcastChatMessage", user="抖音老铁", te
 
 
 def test_douyin_fetcher_parses_real_protobuf_envelope():
-    import asyncio
     import gzip
     from server.adapters.danmaku import proto_reader as pb
     from server.adapters.danmaku.douyin_fetcher import DouyinDanmakuFetcher
@@ -1453,7 +1460,6 @@ def test_poisson_blink_scheduler():
     assert 0.08 <= duration <= 0.2, f"单次眨眼闭合时长 {duration:.3f}s 超出 100~150ms"
 
     # 4. synth_frame 兼容显式眨眼状态
-    import numpy as np
     from server.core.media.procedural_renderer import synth_frame
     base = synth_frame.__globals__["generate_default_portrait"](64, 96)
     f = synth_frame(base, 64, 96, 1.0, 0.0, is_blinking=True)
@@ -1699,11 +1705,16 @@ def test_price_auditor_guardrail():
     assert c2 == good_sentence
 
 
-# 4.12 测试：缺失可选重依赖 (numpy/opencv) 时媒体中枢必须优雅降级而非启动崩溃
+# 4.12 测试：缺失可选重依赖 (numpy/opencv) 时媒体中枢必须 fail-closed 而非静默开零画面直播
 def test_media_router_graceful_degradation_without_cv2():
     """
-    模拟全新环境未安装 numpy/opencv-python：
-    媒体路由必须回退到仿真驱动、状态遥测可读、且不抛异常（回归 ADR-16 部署健壮性）
+    模拟全新环境未安装 numpy/opencv-python。
+
+    契约（上线诊断 RISK-10 修正）：
+    状态遥测仍须可读（不崩溃），但 ``start()`` 必须**拒绝启动**。
+    历史上此处断言「降级为仿真驱动后可正常启动」—— 那正是「有声音、零画面」
+    的静默事故来源：后台不报错、前端不告警、观众只看到黑屏或静止画面。
+    现改为 fail-closed：缺可选依赖时宁可不播，绝不假装在播。
     """
     import subprocess
     import sys
@@ -1729,7 +1740,13 @@ def test_media_router_graceful_degradation_without_cv2():
         assert status["cv_available"] is False
         assert "virtual_cam" in status
         assert global_media_router.get_latest_jpeg() == b""
-        asyncio.run(global_media_router.start())
+        try:
+            asyncio.run(global_media_router.start())
+        except RuntimeError as exc:
+            assert "mock" in str(exc).lower(), f"拒绝原因必须指明仿真驱动: {exc}"
+        else:
+            raise AssertionError("缺 cv2/numpy 时 start() 必须 fail-closed，绝不允许静默开零画面直播")
+        assert global_media_router.is_running is False
         asyncio.run(global_media_router.stop())
         print("DEGRADATION_OK")
         """
@@ -1740,6 +1757,10 @@ def test_media_router_graceful_degradation_without_cv2():
         capture_output=True,
         text=True,
         encoding="utf-8",
+        # 固定子进程 stdout/stderr 编码：否则在中文 Windows 控制台（GBK）
+        # 下子进程按 GBK 输出，父进程按 UTF-8 解码会抛 UnicodeDecodeError，
+        # 使本用例结果依赖控制台代码页而非被测行为。
+        env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
         timeout=90,
     )
     assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
