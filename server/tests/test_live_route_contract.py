@@ -26,7 +26,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-LIVE_PY = ROOT / "server" / "routes" / "live.py"
 
 #: 对外暴露的 HTTP 契约（方法, 路径）。
 #:
@@ -253,44 +252,80 @@ def test_export_is_not_none(name):
 # 3. 结构性契约（拆分质量的守门指标）
 # ---------------------------------------------------------------------------
 
-def test_live_py_stays_below_size_budget():
-    """live.py 必须持续瘦身。
+# ---------------------------------------------------------------------------
+# 4. 结构性契约（拆分质量的守门指标）
+# ---------------------------------------------------------------------------
 
-    这是**防回归**指标：拆分后若又把代码塞回 live.py，本测试会失败。
-    预算设为拆分完成后的目标值 + 合理余量。
+#: 结构预算表：(模块 glob 相对 ROOT, 行数预算, 单函数预算, 单类预算)。
+#: 拆分后新模块必须同等受约束 —— 否则「指标被搬走」而非真正收敛。
+STRUCTURE_BUDGETS: list[tuple[str, int, int, int]] = [
+    ("server/routes/live.py", 900, 200, 400),
+    ("server/routes/live_*.py", 600, 200, 400),
+    ("server/core/live/**/*.py", 700, 200, 400),
+]
+
+#: 拆分完成后必须存在的路由子模块。与 live.py 的端点分组一一对应。
+EXPECTED_SUBMODULES = (
+    "hardware", "preflight", "lifecycle", "obs", "danmaku",
+    "orders", "overlay", "stream", "avatar_ctl", "asr",
+    "recording", "governance",
+)
+
+
+def _budget_modules() -> list[tuple[Path, int, int, int]]:
+    matched: list[tuple[Path, int, int, int]] = []
+    for pattern, lines, func, cls in STRUCTURE_BUDGETS:
+        matched += [(p, lines, func, cls) for p in sorted(ROOT.glob(pattern)) if p.is_file()]
+    return matched
+
+
+def test_structure_budget_covers_live_surface():
+    """预算表必须覆盖 façade + 全部路由子模块 + core 控制器。
+
+    拆分完成前本测试为红（子模块尚未创建），这是设计意图：
+    它是 S1/S2 的进度守门灯。**不得放宽断言**来「让它变绿」。
     """
-    line_count = len(LIVE_PY.read_text(encoding="utf-8").splitlines())
-    assert line_count <= 900, (
-        f"server/routes/live.py 仍有 {line_count} 行，超过 900 行预算。\n"
-        "新功能请放入 live.py 之外的模块（本文件即拆分守门指标）。"
+    covered = {p.name for p, *_ in _budget_modules()}
+    expected = {"live.py"} | {f"live_{n}.py" for n in EXPECTED_SUBMODULES}
+    missing = expected - covered
+    assert not missing, (
+        f"结构预算表未覆盖以下模块: {sorted(missing)}\n"
+        "新增路由子模块时必须同步登记预算，否则拆分成果无守门指标。"
     )
 
 
-def test_no_giant_function_in_live_py():
-    """live.py 内不得再出现超长函数（单函数上限 200 行）。"""
-    tree = ast.parse(LIVE_PY.read_text(encoding="utf-8"))
-    oversized = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            size = node.end_lineno - node.lineno + 1
-            if size > 200:
-                oversized.append((node.name, size))
-    assert not oversized, (
-        "live.py 中存在超长函数（上限 200 行），应拆分到专门模块:\n  "
-        + "\n  ".join(f"{n} ({s} 行)" for n, s in sorted(oversized, key=lambda x: -x[1]))
-    )
+def test_no_module_exceeds_line_budget():
+    offenders = []
+    for path, lines, _f, _c in _budget_modules():
+        n = len(path.read_text(encoding="utf-8").splitlines())
+        if n > lines:
+            offenders.append(f"{path.relative_to(ROOT).as_posix()}: {n} 行 > 预算 {lines}")
+    assert not offenders, "超出行数预算:\n  " + "\n  ".join(offenders)
 
 
-def test_no_giant_class_in_live_py():
-    """live.py 内不得再有巨型类（单类上限 400 行）。"""
-    tree = ast.parse(LIVE_PY.read_text(encoding="utf-8"))
-    oversized = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            size = node.end_lineno - node.lineno + 1
-            if size > 400:
-                oversized.append((node.name, size))
-    assert not oversized, (
-        "live.py 中存在巨型类（上限 400 行），应拆分到专门模块:\n  "
-        + "\n  ".join(f"{n} ({s} 行)" for n, s in oversized)
-    )
+def test_no_oversized_function_in_live_surface():
+    offenders = []
+    for path, _l, func_limit, _c in _budget_modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                size = node.end_lineno - node.lineno + 1
+                if size > func_limit:
+                    offenders.append(
+                        f"{path.relative_to(ROOT).as_posix()}::{node.name} ({size} 行 > {func_limit})"
+                    )
+    assert not offenders, "存在超长函数:\n  " + "\n  ".join(sorted(offenders))
+
+
+def test_no_oversized_class_in_live_surface():
+    offenders = []
+    for path, _l, _f, cls_limit in _budget_modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                size = node.end_lineno - node.lineno + 1
+                if size > cls_limit:
+                    offenders.append(
+                        f"{path.relative_to(ROOT).as_posix()}::{node.name} ({size} 行 > {cls_limit})"
+                    )
+    assert not offenders, "存在巨型类:\n  " + "\n  ".join(offenders)
