@@ -4,10 +4,7 @@ const path = require('path');
 const files = [
   'server/static/svg/tts_cosyvoice.svg',
   'server/static/svg/tts_edgetts.svg',
-  'server/static/svg/tts_chattts.svg',
-  'server/static/svg/tts_gptsovits.svg',
-  'server/static/svg/tts_elevenlabs.svg',
-  'server/static/svg/tts_custom.svg'
+  'server/static/svg/tts_elevenlabs.svg'
 ];
 
 console.log("=== TTS 引擎 SVG 尺寸与盛满一致性校验 ===");
@@ -32,7 +29,7 @@ files.forEach(fileRel => {
 });
 
 if (allPass) {
-  console.log("\n🎉 全部 6 个 TTS 引擎 Logo 图标规格 100% 统一（48x48，rx=12 盛满无缩边）！");
+  console.log("\n🎉 全部 3 个 TTS 引擎 Logo 图标规格 100% 统一（48x48，rx=12 盛满无缩边）！");
 } else {
   console.error("\n存在未统一的图标规格！");
   process.exit(1);

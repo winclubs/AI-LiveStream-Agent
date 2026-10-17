@@ -8,9 +8,8 @@ download_weights.py 一键权重下载器单元测试
 4. _download_single_file 多源失败时如实返回 False 并清理 .part 临时文件。
 """
 import importlib.util
-import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 

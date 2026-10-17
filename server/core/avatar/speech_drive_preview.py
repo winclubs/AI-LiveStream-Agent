@@ -36,7 +36,7 @@ FPS = 25
 MAX_FRAMES = 300                 # 约 12 秒，与 sidecar 帧预算同量级
 MAX_TEXT_LENGTH = 500
 MEL_CONTEXT_SAMPLES = 3200       # ±200ms @16k，对齐 LatentSync 上下文窗口
-SAMPLES_PER_FRAME_16K = int(16000 // FPS)  # 640 采样/帧 @16k 25fps，分段渲染切片粒度
+SAMPLES_PER_FRAME_16K = 16000 // FPS  # 640 采样/帧 @16k 25fps，分段渲染切片粒度
 # 分段渲染轮次上限：云端每轮 ~45s 安全窗口，12 轮远超 MAX_FRAMES=300 帧的试播预算，
 # 仅作为异常兜底（节点每轮零进展时的终止条件），正常 300 帧 4~5 轮内完成
 LATENTSYNC_MAX_BATCH_ROUNDS = 12
@@ -960,9 +960,10 @@ class SpeechDrivePreviewService:
             "avatar_id": anchor_id,
             "audio_b64": base64.b64encode(wav_buf.getvalue()).decode("ascii"),
             "face_imgs_b64": face_imgs_b64,
-            "guidance_scale": 1.0,
-            "num_inference_steps": 20,
-            "seed": 1247,
+            "guidance_scale": float(os.environ.get("LIVE_AGENT_LATENTSYNC_GUIDANCE_SCALE", "1.0")),
+            "num_inference_steps": int(os.environ.get("LIVE_AGENT_LATENTSYNC_NUM_INFERENCE_STEPS", "20")),
+            # seed<=0 表示每次随机，避免同一句话每次试播微表情完全一致（缺少自然变化）
+            "seed": int(os.environ.get("LIVE_AGENT_LATENTSYNC_SEED", "1247")),
         }
 
         timeout = aiohttp.ClientTimeout(total=180.0, connect=10.0)

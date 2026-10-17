@@ -23,7 +23,6 @@
 
 import argparse
 import asyncio
-import os
 import sys
 from pathlib import Path
 
@@ -80,7 +79,6 @@ def _compose_placeholder_clip(
     n_src = len(src_frames)
 
     # 动作名标注 (促单指引购物车 / 挥手欢迎 等)
-    label = f"#{action_code} {action_name}"
     font = cv2.FONT_HERSHEY_SIMPLEX
     # 中文场景用兜底英文标签，避免无中文字体时乱码
     fallback_label = f"Action #{action_code}: {action_name}"

@@ -31,7 +31,7 @@ class SceneOverlayState:
         self._set("coupon", "coupon", payload, seconds)
 
     def set_scene(self, kind: str, payload: Dict[str, Any], seconds: int) -> None:
-        if kind not in {"closeup", "size_chart"}:
+        if kind not in {"closeup", "size_chart", "pip_coupon", "urgency_countdown"}:
             raise ValueError(f"unsupported scene overlay: {kind}")
         self._set("scene", kind, payload, seconds)
 
@@ -189,8 +189,23 @@ def _draw_scene(frame, scene: Dict[str, Any]) -> None:
     cv2.addWeighted(overlay, 0.9, frame, 0.1, 0, dst=frame)
 
     payload = scene.get("payload") or {}
-    lines = [payload.get("title") or ("PRODUCT" if scene.get("kind") == "closeup" else "SIZE CHART")]
-    if scene.get("kind") == "closeup":
+    kind = scene.get("kind")
+    if kind == "pip_coupon":
+        lines = [
+            payload.get("title") or "🎁 直播间专属优惠券",
+            payload.get("desc") or "立减特惠 · 限时生效",
+            f"券额: {payload.get('amount', '抢购中')}",
+            "点击左下角购物车自动抵扣",
+        ]
+    elif kind == "urgency_countdown":
+        lines = [
+            payload.get("title") or "🔥 限量抢购 倒计时",
+            payload.get("desc") or "库存告急，先到先得！",
+            f"剩余时间: {payload.get('seconds', 60)} 秒",
+            "手慢无！倒计时结束恢复原价",
+        ]
+    elif kind == "closeup":
+        lines = [payload.get("title") or "PRODUCT"]
         image_h = max(1, card_h - 48)
         image_w = max(1, card_w // 2)
         image = _load_closeup_image(payload.get("image"), image_w, image_h)
@@ -198,6 +213,7 @@ def _draw_scene(frame, scene: Dict[str, Any]) -> None:
             frame[y0 + 34:y0 + 34 + image_h, x0 + 6:x0 + 6 + image_w] = image
         lines.extend([payload.get("sku"), "PRODUCT CLOSEUP"])
     else:
+        lines = [payload.get("title") or "SIZE CHART"]
         chart = payload.get("size_chart") or {}
         columns = list(chart.get("columns") or [])[:4]
         rows = list(chart.get("rows") or [])[:5]

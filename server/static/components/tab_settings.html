@@ -1,193 +1,223 @@
       <div class="tab-content" id="tab-settings">
-        <div class="panel-card" style="border: 1px solid rgba(45,212,160,0.35);">
-          <div style="display:flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
-            <div>
-              <div style="display:inline-flex; align-items:center; gap:9px; font-weight: 700; font-size: 14px; color: var(--signal);">
-                <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-                当前直播模式：<span id="settings-mode-name">未设置</span>
-              </div>
-              <div id="settings-mode-desc" class="field-tip" style="margin-top: 8px; font-size: 12.5px;">请先在【开播向导】中选择直播模式，此处将只呈现该模式所需的配置项。</div>
+        <!-- 当前直播模式微状态条 -->
+        <div class="cyber-panel-hw" style="margin-bottom: 24px;">
+          <div class="cyber-panel-header" style="background: rgba(0, 242, 254, 0.04);">
+            <div class="cyber-panel-title">
+              <span class="cyber-hud-icon">
+                <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #00f2fe; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+                </svg>
+              </span>
+              <span>当前直播模式遥测：<span id="settings-mode-name" style="color: #00f2fe; font-family: var(--font-mono);">未设置</span></span>
+              <span class="cyber-chip-tag active">MODE TELEMETRY</span>
             </div>
-            <button class="btn btn-sm" id="btn-goto-wizard" onclick="goWizard()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
+            <button class="btn btn-sm btn-secondary" id="btn-goto-wizard" onclick="goWizard()" style="display: inline-flex; align-items: center; gap: 5px;">
+              <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
               去完成开播向导
             </button>
+          </div>
+          <div style="padding: 12px 20px;">
+            <div id="settings-mode-desc" style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5;">请先在【开播向导】中选择直播模式，此处将根据所选模式联动生效核心决策链路。</div>
           </div>
         </div>
 
         <!-- 云端大语言模型 (AI 思考大脑) 多生态选型与配置中心 -->
-        <div class="panel-card" style="border: 1.5px solid rgba(245, 158, 11, 0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-          <div class="panel-header" style="border-bottom: 1px solid rgba(245, 158, 11, 0.2); padding-bottom: 12px; margin-bottom: 16px;">
-            <span class="panel-title" style="color: #F59E0B; display: flex; align-items: center; gap: 8px;">
-              <svg class="icon" viewBox="0 0 24 24" style="stroke: #F59E0B;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-              云端大语言模型 (AI 主播思考大脑)
-            </span>
-            <span class="brand-badge gold">核心决策大脑</span>
-          </div>
-
-          <p class="page-intro" style="margin-bottom: 18px;">
-            AI 思考大脑负责<strong>深度理解直播间弹幕、智能检索知识库、高情商话术组织与逼单促单</strong>。
-            所有 API 密钥均由 <strong>AES-256-GCM 硬件级加密</strong>。支持配置多个模型，随时一键设为默认大脑。
-          </p>
-
-          <!-- 区域 1: 内置主流大模型品牌网格 (Logo + 名称) -->
-          <div style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
-            <span>选择大模型品牌 (点击下方品牌即可配置)</span>
-            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">已内置 8 大主流模型生态</span>
-          </div>
-
-          <!-- 大模型算力与本地部署硬件要求提示条 (针对两类人群提供选型指引) -->
-          <div id="llm-gpu-requirement-banner" style="background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <span class="brand-badge gold" style="font-size: 11px;">算力选型指南</span>
-              <span style="font-size: 12px; color: #cbd5e1;">
-                商业云端大模型（<strong>DeepSeek / 通义千问 / Kimi / MiniMax</strong>）走极速云端 API 调用，<strong>对本地显卡零负担（0 显存占用，推荐低配/轻薄本用户使用）</strong>；若自建本地私有化大模型 (Ollama)，需确保本机独立显存 &gt;= 8GB。
+        <div class="cyber-panel-hw" style="margin-bottom: 24px;">
+          <div class="cyber-panel-header">
+            <div class="cyber-panel-title">
+              <span class="cyber-hud-icon">
+                <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #00f2fe; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                </svg>
               </span>
+              <span>云端大语言模型 (AI 主播思考大脑枢纽)</span>
+              <span class="cyber-chip-tag active">DECISION CORE</span>
             </div>
-            <div style="font-size: 11.5px; color: #34d399; background: rgba(16, 185, 129, 0.1); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.25);">
-              💡 推荐两类人群首选云端 DeepSeek
+            <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+              COGNITIVE NEURAL ENGINE
             </div>
           </div>
 
-          <div id="llm-ecosystem-grid" class="llm-ecosystem-grid"></div>
+          <div style="padding: 18px 20px;">
+            <p class="page-intro" style="margin-bottom: 18px; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+              AI 思考大脑负责<strong>深度理解直播间弹幕、毫秒级检索知识库、高情商话术组织与逼单促单</strong>。
+              所有 API 密钥均由 <strong>AES-256-GCM 硬件级高强度加密</strong>。支持配置多个模型，随时一键设为默认大脑。
+            </p>
 
-          <!-- 区域 2: 当前大模型配置编辑面板 (含获取模型 & 连通性测试) -->
-          <div id="llm-editor-box" class="llm-editor-box">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.12); padding-bottom: 12px;">
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <img id="llm-editor-logo" src="/static/svg/model_deepseek.svg" alt="logo" style="width: 36px; height: 36px; border-radius: 50%;">
-                <div>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span id="llm-editor-title" style="font-size: 15px; font-weight: 700; color: var(--text-primary);">配置 DeepSeek 深度求索</span>
-                    <span id="llm-editor-badge" class="brand-badge green">高情商带货首选</span>
+            <!-- 区域 1: 内置主流大模型品牌网格 (Logo + 名称) -->
+            <div style="font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+              <span style="display: flex; align-items: center; gap: 8px;">
+                <span style="width: 3px; height: 14px; background: #00f2fe; border-radius: 2px;"></span>
+                选择大模型品牌 (点击下方品牌卡片即可配置)
+              </span>
+              <span style="font-size: 11.5px; color: var(--text-muted); font-weight: normal;">已内置 8 大主流生态通道</span>
+            </div>
+
+            <!-- 大模型算力与本地部署硬件要求提示条 -->
+            <div id="llm-gpu-requirement-banner" style="background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span class="cyber-chip-tag active" style="font-size: 10.5px;">算力选型指南</span>
+                <span style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+                  商业云端大模型（<strong style="color: #38bdf8;">DeepSeek / 通义千问 / Kimi / MiniMax</strong>）走极速云端 API 调用，<strong style="color:#34d399;">对本地显卡零负担（0 显存占用，推荐低配/轻薄本用户使用）</strong>；自建本地大模型需独显 &gt;= 8GB。
+                </span>
+              </div>
+              <div style="font-size: 11.5px; color: #34d399; font-weight: 600;">
+                💡 推荐首选云端 DeepSeek
+              </div>
+            </div>
+
+            <div id="llm-ecosystem-grid" class="llm-ecosystem-grid"></div>
+
+            <!-- 区域 2: 当前大模型配置编辑面板 (含获取模型 & 连通性测试) -->
+            <div id="llm-editor-box" class="llm-editor-box cyber-matrix-card"
+              style="margin-top: 14px; padding: 20px; background: rgba(10, 20, 32, 0.85); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px dashed rgba(148, 163, 184, 0.18); padding-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img id="llm-editor-logo" src="/static/svg/model_deepseek.svg" alt="logo"
+                    style="width: 40px; height: 40px; border-radius: 10px; border: 1px solid rgba(0, 242, 254, 0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span id="llm-editor-title" style="font-size: 15px; font-weight: 700; color: #f8fafc;">配置 DeepSeek 深度求索</span>
+                      <span id="llm-editor-badge" class="brand-badge green">高情商带货首选</span>
+                    </div>
+                    <div id="llm-editor-desc" style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">国产性价比标杆，逼单促单与弹幕互动极力推荐。</div>
                   </div>
-                  <div id="llm-editor-desc" style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">国产性价比标杆，逼单促单与弹幕互动极力推荐。</div>
                 </div>
+                <input type="hidden" id="llm-editor-provider" value="deepseek">
+                <input type="hidden" id="llm-editor-config-id" value="">
+                <!-- 存储当前选中的具体模型代号，未获取时为空，禁止虚假默认值 -->
+                <input type="hidden" id="llm-input-model" value="">
               </div>
-              <input type="hidden" id="llm-editor-provider" value="deepseek">
-              <input type="hidden" id="llm-editor-config-id" value="">
-              <!-- 存储当前选中的具体模型代号，未获取时为空，禁止虚假默认值 -->
-              <input type="hidden" id="llm-input-model" value="">
-            </div>
 
-            <!-- 第一行：服务商 API 接口地址 (Base URL):（输入框） -->
-            <div style="margin-bottom: 14px;">
-              <label class="form-label" for="llm-input-url">服务商 API 接口地址 (Base URL):</label>
-              <input type="text" id="llm-input-url" class="form-control" placeholder="https://api.deepseek.com/v1" title="服务商 API 接口地址 (Base URL)" aria-label="服务商 API 接口地址 (Base URL)">
-              <div id="llm-editor-url-pills" class="quick-pills-box" style="margin-top: 6px;"></div>
-            </div>
+              <!-- 第一行：服务商 API 接口地址 (Base URL):（输入框） -->
+              <div style="margin-bottom: 14px;">
+                <label class="form-label" for="llm-input-url" style="font-size: 12px; margin-bottom: 5px;">服务商 API 接口地址 (Base URL):</label>
+                <input type="text" id="llm-input-url" class="form-control" placeholder="https://api.deepseek.com/v1" title="服务商 API 接口地址 (Base URL)" aria-label="服务商 API 接口地址 (Base URL)"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+                <div id="llm-editor-url-pills" class="quick-pills-box" style="margin-top: 6px;"></div>
+              </div>
 
-            <!-- 第二行：API 访问密钥 (API Key - 硬件级 AES-256 加密):（输入框） -->
-            <div style="margin-bottom: 16px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <label class="form-label" for="llm-input-key" style="margin-bottom: 0;">API 访问密钥 (API Key - 硬件级 AES-256 加密):</label>
-                <span id="llm-key-status-hint" style="font-size: 11px; color: var(--accent-emerald);">本地硬件级加密存储</span>
-              </div>
-              <div class="api-key-input-wrapper" style="margin-top: 6px;">
-                <input type="password" id="llm-input-key" class="form-control" style="padding-right: 42px;" placeholder="输入 sk-xxxx 密钥（若已配置过不修改请留空）" autocomplete="off" title="API 访问密钥 (API Key)" aria-label="API 访问密钥 (API Key)">
-                <button type="button" id="btn-toggle-key-eye" class="btn-toggle-eye" title="点击显示真实密钥明文" onclick="toggleLLMKeyVisibility()">
-                  <svg id="icon-eye-show" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
-              </div>
-            </div>
-
-            <!-- 第三行：获取模型、测试连通性 （两个按钮） -->
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
-              <button type="button" class="btn btn-sm btn-primary" id="btn-fetch-models" onclick="handleFetchRemoteModels()" style="display: inline-flex; align-items: center; gap: 6px;">
-                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                获取模型
-              </button>
-              <button type="button" class="btn btn-sm" id="btn-test-llm" onclick="handleTestLLMConnectivity()" style="display: inline-flex; align-items: center; gap: 6px;">
-                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                测试连通性
-              </button>
-            </div>
-
-            <!-- 第四行：获取到X个模型 / 握手成功或者失败，延时 -->
-            <div id="llm-status-bar" class="llm-status-bar">
-              <div id="llm-models-count-status" style="color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
-                <span>获取状态: 尚未获取模型（请点击上方「获取模型」）</span>
-              </div>
-              <div id="llm-ping-latency-status" style="color: var(--text-muted); font-family: var(--font-mono); font-size: 12px;">
-                握手测试: 未测试
-              </div>
-            </div>
-            <div id="llm-test-result" style="display: none; margin-bottom: 12px;"></div>
-
-            <!-- 第五行：获取到的具体 模型 (未获取时绝对不塞入任何虚假数据) -->
-            <div style="margin-bottom: 6px;">
-              <div style="margin-bottom: 8px;">
-                <label class="form-label" style="margin-bottom: 0; font-weight: 600;">
-                  获取到的具体模型 (点击选择当前要使用的模型):
-                </label>
-              </div>
-              <div id="llm-fetched-models-container" class="fetched-models-box">
-                <div style="color: var(--text-muted); font-size: 12px;">
-                  暂未获取模型。请在第二行输入 API Key 后，点击第三行「获取模型」实时加载。
+              <!-- 第二行：API 访问密钥 (API Key - 硬件级 AES-256 加密):（输入框） -->
+              <div style="margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                  <label class="form-label" for="llm-input-key" style="margin-bottom: 0; font-size: 12px;">API 访问密钥 (API Key - 硬件级 AES-256 加密):</label>
+                  <span id="llm-key-status-hint" style="font-size: 11px; color: #34d399;">本地硬件级加密存储</span>
+                </div>
+                <div class="api-key-input-wrapper" style="margin-top: 6px;">
+                  <input type="password" id="llm-input-key" class="form-control" style="padding-right: 42px; background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;"
+                    placeholder="输入 sk-xxxx 密钥（若已配置过不修改请留空）" autocomplete="off" title="API 访问密钥 (API Key)" aria-label="API 访问密钥 (API Key)">
+                  <button type="button" id="btn-toggle-key-eye" class="btn-toggle-eye" title="点击显示真实密钥明文" onclick="toggleLLMKeyVisibility()">
+                    <svg id="icon-eye-show" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
                 </div>
               </div>
 
-              <!-- 位于第五行“获取到的具体模型”下方靠右：保存此模型配置操作栏 -->
-              <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
-                <button class="btn btn-sm btn-primary" onclick="handleSaveCurrentLLM()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
-                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                  保存此模型配置
+              <!-- 第三行：获取模型、测试连通性 （两个按钮） -->
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <button type="button" class="btn btn-sm btn-primary" id="btn-fetch-models" onclick="handleFetchRemoteModels()" style="display: inline-flex; align-items: center; gap: 6px;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  获取模型
+                </button>
+                <button type="button" class="btn btn-sm btn-secondary" id="btn-test-llm" onclick="handleTestLLMConnectivity()" style="display: inline-flex; align-items: center; gap: 6px;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  测试连通性
                 </button>
               </div>
-            </div>
-          </div>
 
-          <!-- 区域 3: 已配置的大语言模型清单 (支持设为默认、编辑、删除) -->
-          <div style="margin-top: 24px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <strong style="font-size: 14px; color: var(--text-primary);">已配置的大语言模型清单</strong>
-                <span id="configured-llm-count" class="brand-badge gold">0 个已配置</span>
+              <!-- 第四行：获取到X个模型 / 握手成功或者失败，延时 -->
+              <div id="llm-status-bar" class="llm-status-bar" style="border-left: 3px solid #00f2fe;">
+                <div id="llm-models-count-status" style="color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                  <span>获取状态: 尚未获取模型（请点击上方「获取模型」）</span>
+                </div>
+                <div id="llm-ping-latency-status" style="color: var(--text-muted); font-family: var(--font-mono); font-size: 12px;">
+                  握手测试: 未测试
+                </div>
               </div>
-              <span style="font-size: 12px; color: var(--text-muted);">系统每次直播将采用【当前默认大脑】进行思考</span>
+              <div id="llm-test-result" style="display: none; margin-bottom: 12px;"></div>
+
+              <!-- 第五行：获取到的具体 模型 -->
+              <div style="margin-bottom: 6px;">
+                <div style="margin-bottom: 8px;">
+                  <label class="form-label" style="margin-bottom: 0; font-weight: 600; font-size: 12.5px;">
+                    获取到的具体模型 (点击选择当前要使用的模型):
+                  </label>
+                </div>
+                <div id="llm-fetched-models-container" class="fetched-models-box">
+                  <div style="color: var(--text-muted); font-size: 12px;">
+                    暂未获取模型。请在第二行输入 API Key 后，点击第三行「获取模型」实时加载。
+                  </div>
+                </div>
+
+                <!-- 位于第五行“获取到的具体模型”下方靠右：保存此模型配置操作栏 -->
+                <div style="display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 12px; border-top: 1px dashed rgba(148, 163, 184, 0.18);">
+                  <button class="btn btn-sm btn-primary" onclick="handleSaveCurrentLLM()" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
+                    <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    保存此模型配置
+                  </button>
+                </div>
+              </div>
             </div>
-            <div id="configured-llm-list" class="configured-llm-list"></div>
+
+            <!-- 区域 3: 已配置的大语言模型清单 (支持设为默认、编辑、删除) -->
+            <div style="margin-top: 24px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <strong style="font-size: 13.5px; color: var(--text-primary);">已配置的大语言模型清单</strong>
+                  <span id="configured-llm-count" class="cyber-chip-tag active">0 个已配置</span>
+                </div>
+                <span style="font-size: 12px; color: var(--text-muted);">系统每次直播将采用【当前默认大脑】进行思考</span>
+              </div>
+              <div id="configured-llm-list" class="configured-llm-list"></div>
+            </div>
           </div>
         </div>
 
-
         <!-- 视觉感知通道配置 -->
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              实时多模态视觉感知（眼见即所言）
-            </span>
-            <span id="vision-status" class="brand-badge">读取中...</span>
+        <div class="cyber-panel-hw">
+          <div class="cyber-panel-header">
+            <div class="cyber-panel-title">
+              <span class="cyber-hud-icon">
+                <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #00f2fe; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </span>
+              <span>实时多模态视觉感知（眼见即所言）</span>
+              <span class="cyber-chip-tag active">VISION SENSOR</span>
+            </div>
+            <span id="vision-status" class="cyber-badge-glow">读取中...</span>
           </div>
-          <p class="page-intro" style="margin-bottom: 16px;">
-            开启后，AI 会按设定频次截取<strong>桌面/OBS 推流画面</strong>或<strong>USB 摄像头</strong>，
-            作为图像切片注入多模态大模型，做到"看到商品实物/白板即可讲解"。需使用支持视觉的模型。
-          </p>
-          <div class="grid-3" style="margin-bottom: 14px; align-items: end;">
-            <div>
-              <label class="form-label" for="vision-enabled">启用视觉感知</label>
-              <label for="vision-enabled" style="display:flex; align-items:center; gap:8px; font-size:13px; margin-top:10px; cursor:pointer;">
-                <input type="checkbox" id="vision-enabled" style="width:16px;height:16px;" title="开启画面理解" aria-label="开启画面理解"> 开启画面理解
-              </label>
+          <div style="padding: 18px 20px;">
+            <p class="page-intro" style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+              开启后，AI 会按设定频次截取<strong>桌面/OBS 推流画面</strong>或<strong>USB 摄像头</strong>，
+              作为图像切片注入多模态大模型，做到"看到商品实物/白板即可自然讲解"。需使用支持视觉的多模态模型。
+            </p>
+            <div class="grid-3" style="margin-bottom: 14px; align-items: end; gap: 14px;">
+              <div>
+                <label class="form-label" for="vision-enabled" style="font-size: 12px; margin-bottom: 6px;">启用视觉感知</label>
+                <label for="vision-enabled" style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; color: #f8fafc; padding: 7px 0;">
+                  <input type="checkbox" id="vision-enabled" style="width:16px;height:16px;" title="开启画面理解" aria-label="开启画面理解"> 开启画面理解
+                </label>
+              </div>
+              <div>
+                <label class="form-label" for="vision-source" style="font-size: 12px; margin-bottom: 6px;">画面来源</label>
+                <select id="vision-source" class="form-control" title="画面来源选择" aria-label="画面来源选择"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+                  <option value="desktop_screen">桌面 / OBS 推流画面截屏</option>
+                  <option value="usb_camera">USB 高清摄像头</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label" for="vision-interval" style="font-size: 12px; margin-bottom: 6px;">采样间隔（秒）</label>
+                <input type="number" id="vision-interval" class="form-control" value="2.5" min="0.5" max="30" step="0.5" title="采样间隔（秒）" aria-label="采样间隔（秒）"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+              </div>
             </div>
-            <div>
-              <label class="form-label" for="vision-source">画面来源</label>
-              <select id="vision-source" class="form-control" title="画面来源选择" aria-label="画面来源选择">
-                <option value="desktop_screen">桌面 / OBS 推流画面截屏</option>
-                <option value="usb_camera">USB 高清摄像头</option>
-              </select>
+            <div style="display: flex; justify-content: flex-end; margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(148, 163, 184, 0.18);">
+              <button class="btn btn-sm btn-primary" onclick="saveVisionConfig()" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                保存视觉配置
+              </button>
             </div>
-            <div>
-              <label class="form-label" for="vision-interval">采样间隔（秒）</label>
-              <input type="number" id="vision-interval" class="form-control" value="2.5" min="0.5" max="30" step="0.5" title="采样间隔（秒）" aria-label="采样间隔（秒）">
-            </div>
-          </div>
-          <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
-            <button class="btn btn-sm btn-primary" onclick="saveVisionConfig()" style="background: #10B981; border-color: #10B981; display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; font-weight: 600;">
-              <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              保存视觉配置
-            </button>
           </div>
         </div>
       </div>

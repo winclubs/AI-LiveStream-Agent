@@ -9,11 +9,10 @@
 5. 模拟 ONNX 推理与 render_lip_frame 端到端执行；
 6. ProceduralAvatarDriver 主推流管线集成与能力上报透传。
 """
-import os
 import pickle
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import cv2
 import numpy as np

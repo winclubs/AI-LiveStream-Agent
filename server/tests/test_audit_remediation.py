@@ -2,13 +2,12 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from server.core.queue.priority_queue import PriorityBargeInQueue, LiveEventItem
+from server.core.queue.priority_queue import PriorityBargeInQueue
 from server.adapters.danmaku.base_fetcher import FetcherHealth
 from server.adapters.danmaku.circuit_breaker import CircuitBreakerDanmakuFetcher, STATE_OPEN, STATE_HALF_OPEN, STATE_CLOSED
 from server.adapters.danmaku.douyin_fetcher import DouyinDanmakuFetcher
 from server.adapters.danmaku.bilibili_fetcher import BilibiliDanmakuFetcher
 from server.adapters.media.edgetts_driver import EdgeTTSMediaDriver
-from server.adapters.media.musetalk_driver import Live2DDriver, NeuralLipSyncDriver
 from server.core.media.g2p_viseme import text_to_viseme_sequence
 from server.routes.live import LiveSessionController, _stop_live_unlocked, _start_live_unlocked
 
@@ -235,20 +234,6 @@ def test_chinese_viseme_distinct_mapping():
     # 至少应包含 3 种以上不同唇形音素 (例如 U, E_I, A, O, L_N 等)
     assert len(unique_tags) >= 3, f"中文音素严重退化，仅有: {unique_tags}"
     assert "E_I" in unique_tags or "U" in unique_tags or "O" in unique_tags
-
-
-def test_unimplemented_drivers_honest_error():
-    """验证未实现的 Live2DDriver 与 NeuralLipSyncDriver 调用 start 抛出 NotImplementedError"""
-    async def _run():
-        l2d = Live2DDriver()
-        with pytest.raises(NotImplementedError):
-            await l2d.start()
-
-        neural = NeuralLipSyncDriver()
-        with pytest.raises(NotImplementedError):
-            await neural.start()
-
-    asyncio.run(_run())
 
 
 def test_edgetts_current_task_interrupt():
@@ -616,7 +601,7 @@ def test_virtual_audio_shared_playback_clock():
     """验证 VirtualAudioService 物理声卡写入采样计数与口型驱动共享时钟机制"""
     async def _run():
         import server.core.media.virtual_audio as va_module
-        from server.core.media.virtual_audio import VirtualAudioService, global_virtual_audio
+        from server.core.media.virtual_audio import VirtualAudioService
         from server.adapters.media.musetalk_driver import ProceduralAvatarDriver
 
         with patch.object(va_module, "SD_AVAILABLE", True), patch.object(va_module, "sd", MagicMock()):

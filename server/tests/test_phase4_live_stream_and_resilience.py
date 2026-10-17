@@ -11,14 +11,12 @@ import socket
 import sys
 from pathlib import Path
 
-import uvicorn
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from server.app import app
 from server.core.monitoring.vram_watchdog import VRAMWatchdog
-from scripts.cloud_sidecar_bootstrap import create_sidecar_server_code
 
 
 def get_free_port() -> int:

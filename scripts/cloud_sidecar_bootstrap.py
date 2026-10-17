@@ -21,7 +21,6 @@ AI-LiveStream-Agent 云端 GPU 渲染节点 (Sidecar) 一键拉起与隧道穿�
 import os
 import sys
 import time
-import json
 import re
 import signal
 import shutil
@@ -29,7 +28,7 @@ import socket
 import argparse
 import subprocess
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional
 
 # 配置常量
 DEFAULT_PORT = 8010
@@ -88,7 +87,7 @@ def check_and_install_dependencies():
         try:
             subprocess.check_call(cmd)
             print(f"{GREEN}[✓] 依赖安装完成！{RESET}\n")
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             print(f"{RED}[✗] 依赖安装失败，请手动执行: pip install {' '.join(missing)}{RESET}")
             sys.exit(1)
 

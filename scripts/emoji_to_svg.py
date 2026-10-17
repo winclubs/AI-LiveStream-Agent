@@ -1,8 +1,8 @@
-"""一次性维护脚本：console.js 动态渲染点 emoji → SVG/纯文本"""
+"""一次性维护脚本：modules/*.js 动态渲染点 emoji → SVG/纯文本"""
+import glob
 import io
 
-P = "server/static/js/console.js"
-s = io.open(P, encoding="utf-8").read()
+FILES = sorted(glob.glob("server/static/js/modules/*.js"))
 
 REPL = [
     ('"⚠️ 直播进行中：直播模式与主播角色已锁定，如需更换请先停止直播。"',
@@ -29,13 +29,15 @@ REPL = [
     ('"✓ 配置已保存：直播模式与主播角色约束已生效！"', '"配置已保存：直播模式与主播角色约束已生效！"'),
 ]
 
-count = 0
-for old, new in REPL:
-    if old in s:
-        s = s.replace(old, new)
-        count += 1
-    else:
-        print("NOT FOUND:", old[:48])
-
-io.open(P, "w", encoding="utf-8").write(s)
-print("replaced:", count, "/", len(REPL))
+total = 0
+for P in FILES:
+    s = io.open(P, encoding="utf-8").read()
+    count = 0
+    for old, new in REPL:
+        if old in s:
+            s = s.replace(old, new)
+            count += 1
+    io.open(P, "w", encoding="utf-8").write(s)
+    total += count
+    print(f"{P}: replaced {count} / {len(REPL)}")
+print("total replaced:", total, "across", len(FILES), "modules")

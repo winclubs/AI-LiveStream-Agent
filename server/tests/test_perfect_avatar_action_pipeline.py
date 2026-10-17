@@ -9,24 +9,19 @@ AI 数字人主播终极完美方案全链路自动化回归测试套件
 5. 动作切片 API 端点、神经资产探测与代表帧缩略图预览。
 """
 import asyncio
-import os
-import pickle
 import shutil
-import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from server.config import DATA_DIR
 from server.database.db import AsyncSessionLocal
-from server.database.models import Anchor, AvatarAction, AvatarTask
-from server.core.avatar import get_avatar_task_manager, get_action_state_machine
+from server.database.models import Anchor, AvatarAction
+from server.core.avatar import get_avatar_task_manager
 from server.core.avatar.action_state_machine import mirror_index, ActionStateMachine, ActionClip
-from server.core.avatar.drivers import Procedural2DDriver, CloudSidecarDriver
+from server.core.avatar.drivers import Procedural2DDriver
 from server.app import app
 
 

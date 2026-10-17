@@ -1,45 +1,47 @@
       <div class="tab-content" id="tab-live">
 
-        <!-- 运营参数看板 -->
-        <div id="live-stats-grid" class="grid-4">
-          <div class="stat-cell">
-            <div class="stat-cell-label">直播类型（模式）</div>
-            <div class="stat-cell-value" id="stat-mode">—</div>
+        <!-- 运营参数看板 (赛博遥测矩阵) -->
+        <div id="live-stats-grid" class="grid-4" style="margin-bottom: 18px; gap: 12px;">
+          <div class="stat-cell" style="background: linear-gradient(145deg, rgba(8, 22, 36, 0.92) 0%, rgba(4, 14, 24, 0.96) 100%); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px; padding: 12px 16px;">
+            <div class="stat-cell-label" style="color: #7ea2bd; font-size: 11.5px;">直播类型（模式）</div>
+            <div class="stat-cell-value" id="stat-mode" style="color: #ffffff; font-weight: 700;">—</div>
           </div>
-          <div class="stat-cell">
-            <div class="stat-cell-label">直播是谁（主播）</div>
-            <div class="stat-cell-value" id="stat-anchor">—</div>
+          <div class="stat-cell" style="background: linear-gradient(145deg, rgba(8, 22, 36, 0.92) 0%, rgba(4, 14, 24, 0.96) 100%); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px; padding: 12px 16px;">
+            <div class="stat-cell-label" style="color: #7ea2bd; font-size: 11.5px;">直播是谁（主播）</div>
+            <div class="stat-cell-value" id="stat-anchor" style="color: #ffffff; font-weight: 700;">—</div>
           </div>
-          <div class="stat-cell">
-            <div class="stat-cell-label">直播时长</div>
-            <div class="stat-cell-value" style="font-family: var(--font-mono);" id="stat-duration">00:00:00</div>
+          <div class="stat-cell" style="background: linear-gradient(145deg, rgba(8, 22, 36, 0.92) 0%, rgba(4, 14, 24, 0.96) 100%); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px; padding: 12px 16px;">
+            <div class="stat-cell-label" style="color: #7ea2bd; font-size: 11.5px;">直播时长</div>
+            <div class="stat-cell-value" style="font-family: var(--font-mono); color: #00f2fe; font-weight: 700;" id="stat-duration">00:00:00</div>
           </div>
-          <div class="stat-cell">
-            <div class="stat-cell-label">网络状态</div>
-            <div class="stat-cell-value" id="stat-network">—</div>
+          <div class="stat-cell" style="background: linear-gradient(145deg, rgba(8, 22, 36, 0.92) 0%, rgba(4, 14, 24, 0.96) 100%); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px; padding: 12px 16px;">
+            <div class="stat-cell-label" style="color: #7ea2bd; font-size: 11.5px;">网络状态</div>
+            <div class="stat-cell-value" id="stat-network" style="color: #10e7b7; font-weight: 700;">—</div>
           </div>
-          <div class="stat-cell">
-            <div class="stat-cell-label">当前场观（最高）</div>
-            <div class="stat-cell-value num" style="color: var(--signal);" id="stat-viewers">0</div>
+          <div class="stat-cell" style="background: linear-gradient(145deg, rgba(8, 22, 36, 0.92) 0%, rgba(4, 14, 24, 0.96) 100%); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px; padding: 12px 16px;">
+            <div class="stat-cell-label" style="color: #7ea2bd; font-size: 11.5px;">当前场观（最高）</div>
+            <div class="stat-cell-value num" style="color: #10e7b7; font-weight: 800;" id="stat-viewers">0</div>
           </div>
-          <div class="stat-cell">
-            <div class="stat-cell-label">打赏收益</div>
-            <div class="stat-cell-value num" style="color: var(--amber);" id="stat-gift">¥0.00</div>
+          <div class="stat-cell" style="background: linear-gradient(145deg, rgba(8, 22, 36, 0.92) 0%, rgba(4, 14, 24, 0.96) 100%); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px; padding: 12px 16px;">
+            <div class="stat-cell-label" style="color: #7ea2bd; font-size: 11.5px;">打赏收益</div>
+            <div class="stat-cell-value num" style="color: #f59e0b; font-weight: 800;" id="stat-gift">¥0.00</div>
           </div>
-          <div class="stat-cell">
-            <div class="stat-cell-label">成交额 GMV</div>
-            <div class="stat-cell-value num" style="color: var(--sky);" id="stat-gmv">¥0.00</div>
+          <div class="stat-cell" style="background: linear-gradient(145deg, rgba(8, 22, 36, 0.92) 0%, rgba(4, 14, 24, 0.96) 100%); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px; padding: 12px 16px;">
+            <div class="stat-cell-label" style="color: #7ea2bd; font-size: 11.5px;">成交额 GMV</div>
+            <div class="stat-cell-value num" style="color: #00f2fe; font-weight: 800;" id="stat-gmv">¥0.00</div>
           </div>
-          <div class="stat-cell">
-            <div class="stat-cell-label">弹幕量 / 违规拦截</div>
-            <div class="stat-cell-value num" id="stat-volume">0 / <span style="color: var(--red);">0</span></div>
+          <div class="stat-cell" style="background: linear-gradient(145deg, rgba(8, 22, 36, 0.92) 0%, rgba(4, 14, 24, 0.96) 100%); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 10px; padding: 12px 16px;">
+            <div class="stat-cell-label" style="color: #7ea2bd; font-size: 11.5px;">弹幕量 / 违规拦截</div>
+            <div class="stat-cell-value num" id="stat-volume" style="color: #ffffff; font-weight: 800;">0 / <span style="color: #f43f5e;">0</span></div>
           </div>
         </div>
 
         <!-- 成交登记 -->
-        <div class="panel-card" style="display:flex; align-items:center; gap: 14px; flex-wrap: wrap;">
-          <span style="font-size: 13px; font-weight: 700; display:inline-flex; align-items:center; gap:8px;">
-            <svg class="icon" style="color: var(--amber);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="18"/></svg>
+        <div class="panel-card cyber-panel-hw" style="display:flex; align-items:center; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; padding: 14px 20px;">
+          <span style="font-size: 13.5px; font-weight: 700; color: #ffffff; display:inline-flex; align-items:center; gap:8px;">
+            <span class="cyber-hud-icon" style="width: 24px; height: 24px;">
+              <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #f59e0b; fill: none; stroke-width: 2;"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="18"/></svg>
+            </span>
             成交登记
           </span>
           <input type="number" id="order-amount" class="form-control" style="width: 150px;" placeholder="金额（元）" min="0.01" step="0.01" title="成交金额（元）" aria-label="成交金额（元）">
@@ -49,85 +51,97 @@
         </div>
 
         <!-- 数字人监视器 -->
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title" style="gap: 12px;">
-              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
-              数字人实时流式视窗
-              <span id="live-state-badge" class="badge-optional" style="font-weight: 600;">○ 待机未开播</span>
-            </span>
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <select id="live-platform-select" class="form-control" style="width: 128px; padding: 7px 8px; font-size: 12px;" title="选择直播平台" aria-label="选择直播平台">
-                <option value="douyin" selected>抖音直播</option>
-                <option value="kuaishou">快手直播</option>
-                <option value="wechat">微信视频号</option>
-                <option value="bilibili">B站直播</option>
-                <option value="relay">通用Webhook中继</option>
-                <option value="demo">离线演练模式</option>
-              </select>
-              <input type="text" id="live-room-input" class="form-control" style="width: 160px; padding: 7px 11px; font-size: 12px;" placeholder="房间号/直播链接(演练免填)" title="房间号或直播链接" aria-label="房间号或直播链接">
-              <button class="btn btn-sm" onclick="openAvatarViewport()" title="弹出独立无边框绿幕视窗，供抖音/快手/视频号直播伴侣窗口捕获与色度抠图" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #10B981; font-weight: 600; padding: 5px 10px; display: inline-flex; align-items: center; gap: 5px;">
-                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px; stroke: #10B981;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                🎥 独立绿幕视窗
-              </button>
-              <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; user-select: none; margin: 0 4px;" title="离线演练：无需真实直播间，自动生成模拟观众、弹幕互动与大额礼物">
-                <input type="checkbox" id="demo-mode-check" style="cursor: pointer;">
-                <span style="color: #38BDF8; font-weight: 600;">离线演练</span>
-              </label>
-              <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; user-select: none; margin: 0 4px;" title="开播时通过 OBS WebSocket 联动开启 OBS 推流">
-                <input type="checkbox" id="obs-auto-link-check" style="cursor: pointer;">
-                <span style="color: var(--text-secondary);">OBS联动</span>
-              </label>
-              <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; user-select: none; margin: 0 4px;" title="开播时自动启动内置 RTMP 直推引擎 (脱离 OBS 一键推流)">
-                <input type="checkbox" id="rtmp-auto-link-check" style="cursor: pointer;">
-                <span style="color: #10B981; font-weight: 600;">内置直推</span>
-              </label>
-              <!-- 流媒体协议选择 -->
-              <select id="stream-protocol-select" class="form-control" style="width: 110px; padding: 5px 6px; font-size: 11px;" onchange="changeStreamProtocol(this.value)" title="选择控制台大屏流媒体协议">
-                <option value="webrtc" selected>⚡ WebRTC (200ms)</option>
-                <option value="mjpeg">🖼️ MJPEG 兼容流</option>
-              </select>
-              <!-- 麦克风全双工实时打断按钮 -->
-              <button id="btn-toggle-mic-asr" class="btn btn-sm" onclick="toggleFullDuplexMic()" title="开启麦克风全双工监听与极速打断" style="padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); color: #60a5fa;">
-                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px; stroke: #60a5fa;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-                <span id="mic-asr-btn-text">🎙️ 麦克风打断</span>
-              </button>
-              <!-- 切片录制按钮 -->
-              <button id="btn-toggle-recording" class="btn btn-sm" onclick="toggleRecording()" title="一键开始录制当前讲解短视频切片" style="padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171;">
-                <span id="recording-dot" style="display:none; width:8px; height:8px; border-radius:50%; background:#ef4444;"></span>
-                <span id="recording-btn-text">🎥 录制切片</span>
-              </button>
-              <button class="btn btn-sm" onclick="openRecordingsModal()" title="查看已录制带货切片列表并下载" style="padding: 5px 8px;">
-                🗂️ 切片库
-              </button>
-              <button class="btn btn-sm" onclick="toggleRtmpModal()" title="设置 RTMP 直推服务器地址与推流码" style="padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px;">
-                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                直推设置
-              </button>
-              <button class="btn btn-sm" onclick="runPreflight({ auto: false })" title="开播前逐项检查模式/角色/AI/OBS/商品等开播条件">
-                <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                开播前检查
-              </button>
-              <button id="btn-toggle-live" class="btn btn-sm btn-primary" onclick="toggleLiveState()">
-                <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                启动本地直播源
-              </button>
+        <div class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+          <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 12px; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px;">
+            <!-- 上层：视窗标题与流媒体接入配置区 -->
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700; display: inline-flex; align-items: center; gap: 10px;">
+                <span class="cyber-hud-icon">
+                  <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
+                </span>
+                数字人实时流式视窗
+                <span id="live-state-badge" class="cyber-badge-glow green" style="font-size: 11px;">○ 待机未开播</span>
+                <span id="rtmp-stream-badge" class="cyber-badge-glow green" style="display: none; font-size: 11px;">● RTMP直推</span>
+              </span>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <select id="live-platform-select" class="form-control" style="width: 120px; padding: 6px 8px; font-size: 12px;" title="选择直播平台" aria-label="选择直播平台">
+                  <option value="douyin" selected>抖音直播</option>
+                  <option value="kuaishou">快手直播</option>
+                  <option value="wechat">微信视频号</option>
+                  <option value="bilibili">B站直播</option>
+                  <option value="relay">通用Webhook中继</option>
+                  <option value="demo">离线演练模式</option>
+                </select>
+                <input type="text" id="live-room-input" class="form-control" style="width: 165px; padding: 6px 10px; font-size: 12px;" placeholder="房间号/直播链接(演练免填)" title="房间号或直播链接" aria-label="房间号或直播链接">
+                <!-- 流媒体协议选择 -->
+                <select id="stream-protocol-select" class="form-control" style="width: 110px; padding: 5px 6px; font-size: 11px;" onchange="changeStreamProtocol(this.value)" title="选择控制台大屏流媒体协议">
+                  <option value="webrtc" selected>⚡ WebRTC (200ms)</option>
+                  <option value="mjpeg">🖼️ MJPEG 兼容流</option>
+                </select>
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; cursor: pointer; user-select: none;" title="离线演练：无需真实直播间，自动生成模拟观众、弹幕互动与大额礼物">
+                  <input type="checkbox" id="demo-mode-check" style="cursor: pointer;">
+                  <span style="color: #38BDF8; font-weight: 600;">离线演练</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; cursor: pointer; user-select: none;" title="开播时通过 OBS WebSocket 联动开启 OBS 推流">
+                  <input type="checkbox" id="obs-auto-link-check" style="cursor: pointer;">
+                  <span style="color: var(--text-secondary);">OBS联动</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; cursor: pointer; user-select: none;" title="开播时自动启动内置 RTMP 直推引擎 (脱离 OBS 一键推流)">
+                  <input type="checkbox" id="rtmp-auto-link-check" style="cursor: pointer;">
+                  <span style="color: #10B981; font-weight: 600;">内置直推</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 下层：播控执行动作区 -->
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border-subtle);">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-sm" onclick="openAvatarViewport()" title="弹出独立无边框绿幕视窗，供抖音/快手/视频号直播伴侣窗口捕获与色度抠图" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); color: #10B981; font-weight: 600;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px; stroke: #10B981;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  🎥 独立绿幕视窗
+                </button>
+                <button id="btn-toggle-mic-asr" class="btn btn-sm" onclick="toggleFullDuplexMic()" title="开启麦克风全双工监听与极速打断" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8;">
+                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px; stroke: #38bdf8;"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  <span id="mic-asr-btn-text">🎙️ 开启麦克风</span>
+                </button>
+                <button id="btn-toggle-recording" class="btn btn-sm" onclick="toggleRecording()" title="一键开始录制当前讲解短视频切片" style="background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.35); color: #f43f5e;">
+                  <span id="recording-dot" style="display:none; width:8px; height:8px; border-radius:50%; background:#f43f5e;"></span>
+                  <span id="recording-btn-text">🎥 录制切片</span>
+                </button>
+                <button class="btn btn-sm" onclick="openRecordingsModal()" title="查看已录制带货切片列表并下载">
+                  🗂️ 切片库
+                </button>
+                <button class="btn btn-sm" onclick="toggleRtmpModal()" title="设置 RTMP 直推服务器地址与推流码">
+                  <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  直推设置
+                </button>
+                <button class="btn btn-sm" onclick="runPreflight({ auto: false })" title="开播前逐项检查模式/角色/AI/OBS/商品等开播条件">
+                  <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  开播前检查
+                </button>
+              </div>
+              <div>
+                <button id="btn-toggle-live" class="btn btn-primary" onclick="toggleLiveState()" style="padding: 6px 18px; font-weight: 700;">
+                  <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  启动本地直播源
+                </button>
+              </div>
             </div>
           </div>
 
-          <!-- 核心算力调度与硬件达标遥测条 (针对本地独显 vs 远端租赁GPU 两类人群透明呈现) -->
-          <div id="live-gpu-telemetry-bar" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+          <!-- 核心算力调度与硬件达标遥测条 (未来赛博暗青科技遥测条) -->
+          <div id="live-gpu-telemetry-bar" style="background: rgba(8, 22, 36, 0.88); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);">
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-              <span style="font-size: 12px; font-weight: 700; color: #10B981; display: inline-flex; align-items: center; gap: 6px;">
-                <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #10B981; fill: none; stroke-width: 2.2;"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="2" x2="9" y2="4" /><line x1="15" y1="2" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="22" /><line x1="15" y1="20" x2="15" y2="22" /><line x1="20" y1="9" x2="22" y2="9" /><line x1="20" y1="14" x2="22" y2="14" /><line x1="2" y1="9" x2="4" y2="9" /><line x1="2" y1="14" x2="4" y2="14" /></svg>
+              <span style="font-size: 12px; font-weight: 700; color: #10e7b7; display: inline-flex; align-items: center; gap: 6px;">
+                <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: #10e7b7; fill: none; stroke-width: 2.2;"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="2" x2="9" y2="4" /><line x1="15" y1="2" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="22" /><line x1="15" y1="20" x2="15" y2="22" /><line x1="20" y1="9" x2="22" y2="9" /><line x1="20" y1="14" x2="22" y2="14" /><line x1="2" y1="9" x2="4" y2="9" /><line x1="2" y1="14" x2="4" y2="14" /></svg>
                 算力状态:
               </span>
-              <span id="live-gpu-source-badge" class="brand-badge green">探查中...</span>
-              <span id="live-gpu-detail-text" style="font-size: 12px; color: #cbd5e1;">正在检测本机显卡显存与远端 GPU 连接...</span>
+              <span id="live-gpu-source-badge" class="cyber-badge-glow green" style="font-size: 11px;">探查中...</span>
+              <span id="live-gpu-detail-text" style="font-size: 12px; color: #ffffff;">正在检测本机显卡显存与远端 GPU 连接...</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span id="live-gpu-requirement-tip" style="font-size: 11.5px; color: #94a3b8;">1080P 写实真人需 GPU 显存 &gt;= 4GB 或远端云显卡</span>
-              <button type="button" class="btn btn-xs btn-ghost" onclick="switchToTab('gpu')" style="color: #38bdf8; font-size: 11.5px; padding: 2px 8px; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 4px;" title="前往 GPU 配置中心切换或配置云端 GPU">
+              <span id="live-gpu-requirement-tip" style="font-size: 11.5px; color: #7ea2bd;">720P 高清写实真人需 GPU 显存 &gt;= 4GB 或远端云显卡</span>
+              <button type="button" class="btn btn-xs btn-ghost" onclick="switchToTab('gpu')" style="color: #00f2fe; font-size: 11.5px; padding: 2px 8px; border: 1px solid rgba(0, 242, 254, 0.35); border-radius: 4px; background: rgba(0, 242, 254, 0.08);" title="前往 GPU 配置中心切换或配置云端 GPU">
                 配置算力 / 云端 GPU ↗
               </button>
             </div>
@@ -177,12 +191,18 @@
         </div>
 
         <!-- 弹幕瀑布流 -->
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-              P0~P3 优先级弹幕互动瀑布流
-            </span>
+        <div class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+          <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="cyber-hud-icon">
+                <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                </svg>
+              </span>
+              <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700;">
+                P0~P3 优先级弹幕互动瀑布流
+              </span>
+            </div>
             <div style="display: flex; gap: 10px;">
               <button class="btn btn-sm" onclick="sendMockDanmaku('danmaku')">模拟促单提问（P1）</button>
               <button class="btn btn-sm btn-primary" onclick="sendMockDanmaku('gift')">
@@ -195,12 +215,18 @@
         </div>
 
         <!-- 运营人工插播 -->
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" style="color: var(--amber);" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              运营人工紧急插播（Barge-in 打断）
-            </span>
+        <div class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+          <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="cyber-hud-icon">
+                <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #f59e0b; fill: none; stroke-width: 2.2;">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+              </span>
+              <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700;">
+                运营人工紧急插播（Barge-in 打断）
+              </span>
+            </div>
           </div>
           <p class="page-intro" style="margin-bottom: 14px;">
             发生直播突发情况或需要紧急改口时，输入内容可<strong>瞬时打断当前正在发音的数字人</strong>，优先播报该话术。
@@ -247,18 +273,18 @@
               <input type="password" id="rtmp-input-key" class="form-control" placeholder="输入从平台开播后台获取的直播码" style="width: 100%; font-family: var(--font-mono); font-size: 13px;">
             </div>
 
-            <!-- 推流实时运行状态卡片 -->
-            <div id="rtmp-runtime-status-card" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 8px; padding: 12px; margin-bottom: 18px;">
+            <!-- 推流实时运行状态卡片 (赛博暗青风格) -->
+            <div id="rtmp-runtime-status-card" style="background: rgba(6, 18, 30, 0.88); border: 1px solid rgba(0, 242, 254, 0.22); border-radius: 8px; padding: 12px; margin-bottom: 18px; box-shadow: inset 0 2px 6px rgba(0,0,0,0.4);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-size: 12px; color: #94a3b8;">推流运行状态:</span>
-                <span id="rtmp-status-indicator" style="font-size: 12px; font-weight: 700; color: #94a3b8;">○ 未启动</span>
+                <span style="font-size: 12px; color: #7ea2bd;">推流运行状态:</span>
+                <span id="rtmp-status-indicator" style="font-size: 12px; font-weight: 700; color: #7ea2bd;">○ 未启动</span>
               </div>
-              <div style="display: flex; gap: 16px; font-size: 12px; color: #cbd5e1; font-family: var(--font-mono);">
-                <div>已推时长: <span id="rtmp-metric-duration" style="color: #10B981;">00:00:00</span></div>
-                <div>已发视频帧: <span id="rtmp-metric-frames">0</span></div>
-                <div>音频流量: <span id="rtmp-metric-audio">0 KB</span></div>
+              <div style="display: flex; gap: 16px; font-size: 12px; color: #ffffff; font-family: var(--font-mono);">
+                <div>已推时长: <span id="rtmp-metric-duration" style="color: #10e7b7; font-weight: 700;">00:00:00</span></div>
+                <div>已发视频帧: <span id="rtmp-metric-frames" style="color: #00f2fe;">0</span></div>
+                <div>音频流量: <span id="rtmp-metric-audio" style="color: #7ea2bd;">0 KB</span></div>
               </div>
-              <div id="rtmp-error-banner" style="display: none; margin-top: 8px; font-size: 12px; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 6px 10px; border-radius: 4px;"></div>
+              <div id="rtmp-error-banner" style="display: none; margin-top: 8px; font-size: 12px; color: #f43f5e; background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.35); padding: 6px 10px; border-radius: 4px;"></div>
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; align-items: center;">
@@ -286,12 +312,12 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th style="width: 80px;">封面</th>
-                    <th>切片标题 / SKU</th>
-                    <th>时长</th>
-                    <th>体积</th>
-                    <th>录制时间</th>
-                    <th style="width: 130px;">操作</th>
+                    <th class="col-pct-12">封面</th>
+                    <th class="col-pct-38">切片标题 / SKU</th>
+                    <th class="col-pct-12">时长</th>
+                    <th class="col-pct-12">体积</th>
+                    <th class="col-pct-14">录制时间</th>
+                    <th class="col-pct-12" style="text-align: right;">操作</th>
                   </tr>
                 </thead>
                 <tbody id="recordings-tbody">

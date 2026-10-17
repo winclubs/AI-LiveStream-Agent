@@ -8,7 +8,7 @@ MiniMax 海螺 AI 云端 TTS 驱动 (规划 §9.2 cloud_minimax / v1.8.0 实装)
   voice_id / group_id 经 tts 配置 extra_params 配置 (voice_id / group_id)
 """
 import logging
-from typing import Optional, AsyncGenerator
+from typing import AsyncGenerator
 from server.adapters.media.base_driver import BaseMediaDriver
 
 logger = logging.getLogger("LiveAgent.MinimaxTTS")

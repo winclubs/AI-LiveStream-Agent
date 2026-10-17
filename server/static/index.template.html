@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI-LiveStream-Agent · 直播控制中枢</title>
   <link rel="icon" type="image/svg+xml" href="/static/svg/favicon.svg">
-  <link rel="stylesheet" href="/static/css/console.css?v=20260918_v16">
+  <link rel="stylesheet" href="/static/css/console.css?v=20261008_clean_v6">
   <style>
     /* 强制大模型生态选择卡片横向一排 8 列 (覆盖 Qwen, DeepSeek, MiniMax, Kimi, GLM, Gemini, ChatGPT, 自定义) */
     .llm-ecosystem-grid {
@@ -24,8 +24,8 @@
       }
     }
     .llm-provider-card {
-      background: rgba(18, 24, 38, 0.75) !important;
-      border: 1.5px solid rgba(148, 163, 184, 0.18) !important;
+      background: rgba(8, 22, 36, 0.85) !important;
+      border: 1.5px solid rgba(0, 242, 254, 0.25) !important;
       border-radius: 10px !important;
       padding: 16px 10px 14px 10px !important;
       display: flex !important;
@@ -35,13 +35,21 @@
       text-align: center !important;
       cursor: pointer !important;
       box-sizing: border-box !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
       -webkit-user-select: none !important;
       user-select: none !important;
+      transition: all 0.18s ease !important;
+    }
+    .llm-provider-card:hover {
+      border-color: #00f2fe !important;
+      background: rgba(0, 242, 254, 0.12) !important;
+      transform: translateY(-2px) !important;
+      box-shadow: 0 6px 18px rgba(0, 242, 254, 0.22) !important;
     }
     .llm-provider-card.selected {
-      border-color: #10B981 !important;
-      background: rgba(16, 185, 129, 0.09) !important;
-      box-shadow: 0 0 0 1.5px #10B981, 0 8px 24px rgba(16, 185, 129, 0.2) !important;
+      border-color: #10e7b7 !important;
+      background: rgba(16, 231, 183, 0.16) !important;
+      box-shadow: 0 0 0 1.5px #10e7b7, 0 6px 20px rgba(16, 231, 183, 0.3) !important;
     }
     .llm-provider-logo {
       width: 44px !important;
@@ -49,16 +57,16 @@
       margin: 0 auto 10px auto !important;
       border-radius: 50% !important;
       padding: 6px !important;
-      background: #090e17 !important;
-      border: 1px solid rgba(148, 163, 184, 0.25) !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+      background: rgba(4, 14, 24, 0.8) !important;
+      border: 1px solid rgba(0, 242, 254, 0.3) !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
       object-fit: contain !important;
       display: block !important;
     }
     .llm-provider-name {
       font-size: 13px !important;
       font-weight: 700 !important;
-      color: #FFFFFF !important;
+      color: #ffffff !important;
       margin-bottom: 4px !important;
       white-space: nowrap !important;
       overflow: hidden !important;
@@ -67,7 +75,7 @@
     }
     .llm-provider-tagline {
       font-size: 11px !important;
-      color: #94A3B8 !important;
+      color: #7ea2bd !important;
       line-height: 1.35 !important;
       display: -webkit-box !important;
       -webkit-line-clamp: 2 !important;
@@ -119,8 +127,6 @@
 
       <!-- INCLUDE: components/tab_knowledge.html -->
 
-      <!-- INCLUDE: components/tab_operations.html -->
-
       <!-- INCLUDE: components/tab_oss.html -->
 
       <!-- INCLUDE: components/tab_preflight.html -->
@@ -131,12 +137,12 @@
   <!-- ============ 开播前检查报告弹窗 ============ -->
   <!-- INCLUDE: components/modal_preflight.html -->
 
-  <!-- ============ 前端控制台主脚本 (已拆分为 modules/*.js，聚合脚本为 console.js) ============ -->
+  <!-- ============ 前端控制台脚本 (按序加载 modules/*.js 源模块) ============ -->
   <script src="/static/js/modules/00_core.js?v=20260920_v6"></script>
   <script src="/static/js/modules/01_navigation.js?v=20260920_v6"></script>
   <script src="/static/js/modules/02_websocket_audio.js?v=20260920_v6"></script>
   <script src="/static/js/modules/03_live_control.js?v=20260920_v6"></script>
-  <script src="/static/js/modules/04_hardware_prereq.js?v=20260920_v6"></script>
+  <script src="/static/js/modules/04_hardware_prereq.js?v=20261008_v2"></script>
   <script src="/static/js/modules/05_roles.js?v=20260920_v6"></script>
   <script src="/static/js/modules/06_guardrails.js?v=20260920_v6"></script>
   <script src="/static/js/modules/07_products.js?v=20260920_v6"></script>
@@ -147,8 +153,7 @@
   <script src="/static/js/modules/12_wizard_preflight.js?v=20260920_v6"></script>
   <script src="/static/js/modules/13_anchors.js?v=20261006_v2"></script>
   <script src="/static/js/modules/14_knowledge.js?v=20260920_v6"></script>
-  <script src="/static/js/modules/15_settings_gpu.js?v=20260920_v6"></script>
-  <script src="/static/js/modules/16_settings_oss.js?v=20260925_v1"></script>
-  <script src="/static/js/modules/17_operations.js?v=20260925_v1"></script>
+  <script src="/static/js/modules/15_settings_gpu.js?v=20261008_v1"></script>
+  <script src="/static/js/modules/16_settings_oss.js?v=20261008_v1"></script>
 </body>
 </html>

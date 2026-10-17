@@ -792,7 +792,6 @@ def create_avatar_provider(
         credential_present=bool(str(credential).strip()),
     )
     adapter_id = canonical["adapter"]
-    descriptor = get_avatar_provider_descriptor(adapter_id)
 
     policy = parse_avatar_provider_policy(canonical, max_safe_concurrency=1)
     if adapter_id == "sidecar_v3":

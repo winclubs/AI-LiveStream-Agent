@@ -1,150 +1,406 @@
-      <div class="tab-content active" id="tab-wizard">
+<div class="tab-content active" id="tab-wizard">
 
-        <!-- 硬件配置概览 -->
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
-              当前电脑硬件配置
+  <!-- 硬件配置概览 (未来赛博控制中心 4 卡片联动) -->
+  <div class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px solid rgba(0, 242, 254, 0.15); padding-bottom: 12px; margin-bottom: 16px;">
+      <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
+            <circle cx="12" cy="12" r="10" stroke-dasharray="4 2"/>
+            <circle cx="12" cy="12" r="3" fill="#00f2fe"/>
+            <line x1="12" y1="2" x2="12" y2="5"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="2" y1="12" x2="5" y2="12"/>
+            <line x1="19" y1="12" x2="22" y2="12"/>
+          </svg>
+        </span>
+        当前电脑硬件配置
+      </span>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span id="hw-panel-tier-badge" class="cyber-badge-glow green">推荐档位检测中...</span>
+      </div>
+    </div>
+
+    <!-- 4 大核心科技硬件卡片 (GPU / CPU / RAM / AI NPU) -->
+    <div class="cyber-hw-grid">
+      
+      <!-- 1. 显卡 GPU 卡片 -->
+      <div class="cyber-hw-card">
+        <div class="cyber-hw-card-body">
+          <div class="cyber-tag-row">
+            <span class="cyber-chip-tag">
+              <svg viewBox="0 0 24 24" class="icon-chip"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h10v10H7z"/></svg>
+              显卡 GPU
             </span>
-            <span id="hw-panel-tier-badge" class="brand-badge green">推荐档位检测中...</span>
           </div>
-          <div class="grid-4">
-            <div class="hw-cell">
-              <div class="hw-cell-label">
-                <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/></svg>
-                显卡 GPU
-              </div>
-              <div class="hw-cell-value" id="hw-panel-gpu">检测中...</div>
-              <div class="hw-cell-sub" id="hw-panel-gpu-sub"></div>
-              <div class="hw-cell-cloud" id="hw-panel-gpu-cloud" style="margin-top: 6px; font-size: 11.5px; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 5px;"></div>
-            </div>
-            <div class="hw-cell">
-              <div class="hw-cell-label">
-                <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>
-                处理器 CPU
-              </div>
-              <div class="hw-cell-value" id="hw-panel-cpu">检测中...</div>
-              <div class="hw-cell-sub" id="hw-panel-cpu-sub"></div>
-            </div>
-            <div class="hw-cell">
-              <div class="hw-cell-label">
-                <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="9" rx="1.5"/><line x1="6" y1="16" x2="6" y2="19"/><line x1="10" y1="16" x2="10" y2="19"/><line x1="14" y1="16" x2="14" y2="19"/><line x1="18" y1="16" x2="18" y2="19"/><line x1="7" y1="11" x2="7" y2="13"/><line x1="11" y1="11" x2="11" y2="13"/><line x1="15" y1="11" x2="15" y2="13"/><line x1="19" y1="11" x2="19" y2="13"/></svg>
-                内存 RAM
-              </div>
-              <div class="hw-cell-value" id="hw-panel-ram">检测中...</div>
-              <div class="hw-cell-sub" id="hw-panel-ram-sub"></div>
-            </div>
-            <div class="hw-cell">
-              <div class="hw-cell-label">
-                <svg class="icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                系统推荐
-              </div>
-              <div class="hw-cell-value" id="hw-panel-tier" style="color: var(--signal);">检测中...</div>
-              <div class="hw-cell-sub" id="hw-panel-tier-sub"></div>
+          <div class="cyber-hw-name" id="hw-panel-gpu">检测中...</div>
+          <div class="cyber-hw-sub" id="hw-panel-gpu-sub">正在探测 GPU 驱动与显存信息...</div>
+          <div class="cyber-hw-footer">
+            <div class="cyber-stat-pill red" id="hw-gpu-stat-pill">
+              <span class="stat-num" id="hw-gpu-stat-load">--</span>
+              <span class="stat-div">/</span>
+              <span class="stat-unit" id="hw-gpu-stat-mem">-- GB</span>
             </div>
           </div>
         </div>
-
-        <!-- 直播必备软件信息 -->
-        <div class="panel-card" id="panel-software-prerequisites">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-              直播必备软件信息
-            </span>
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span id="prereq-overall-badge" class="brand-badge green">检测中...</span>
-              <button class="btn btn-ghost btn-sm" id="btn-recheck-prereqs" title="重新检测必备软件" style="padding: 3px 8px; font-size: 11.5px;">
-                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 12px; height: 12px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                重新检测
-              </button>
-            </div>
-          </div>
-
-          <div id="prereq-alert-banner" class="prereq-alert-banner warning" style="display:none;">
-            <div class="prereq-alert-icon">
-              <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            </div>
-            <div id="prereq-alert-text">
-              检测中...
-            </div>
-          </div>
-
-          <div class="prereq-list" id="prereq-cards-container">
-            <!-- 动态由 JS 渲染各软件清单行 -->
-            <div class="hw-cell" style="text-align: center; color: var(--text-muted); padding: 24px;">
-              正在探测推流生态与必备组件就绪状态...
-            </div>
-          </div>
-        </div>
-
-        <!-- 第一步：数字人渲染与算力运行模式 -->
-        <div class="panel-card" id="wizard-gpu-panel">
-          <div class="panel-header" style="margin-bottom: 12px;">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/></svg>
-              第一步 · 数字人渲染与算力运行模式
-            </span>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span id="wizard-gpu-badge" class="brand-badge green">同步中...</span>
-              <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 2px 8px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="前往「GPU配置(2)」调整算力模式与云端节点">
-                跳转到 GPU配置(2) ↗
-              </button>
-            </div>
-          </div>
-          <p class="page-intro" style="margin-bottom: 14px;">
-            系统已依据您在【GPU配置(2)】中激活的配置自动锁定当前生效模式。如需更改算力方案或录入云端节点参数，请前往「GPU配置(2)」调整。
-          </p>
-
-          <!-- 动态渲染双卡片容器：选项1 本机完全满足 vs 选项2 本地硬件+租赁云端GPU -->
-          <div id="wizard-gpu-display-container">
-            <div style="text-align: center; color: var(--text-muted); padding: 24px; font-size: 13px;">
-              正在同步当前 GPU 配置与数字人算力模式...
-            </div>
-          </div>
-        </div>
-
-        <!-- 第二步：选择直播类型与出镜主播 -->
-        <div class="panel-card">
-          <div class="panel-header" style="margin-bottom: 12px;">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              第二步 · 选择直播类型与出镜主播
-            </span>
-          </div>
-          <p class="page-intro" style="margin-bottom: 14px;">
-            首先选择本次开播的<strong>直播类型</strong>，系统将自动推荐专属运营话术；同时在下方指定该类型下的<strong>具体出镜主播</strong>。
-          </p>
-          <div id="wizard-role-cards" class="grid-4"></div>
-          <div id="wizard-anchor-select-container" style="margin-top: 18px; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;"></div>
-
-          <!-- 操作按钮栏：完成配置保存与开播前检查 -->
-          <div style="display: flex; gap: 12px; margin-top: 20px; align-items: center; justify-content: flex-end; flex-wrap: wrap; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;">
-            <span id="wizard-save-status" style="font-size: 12px; color: var(--text-muted); margin-right: auto;"></span>
-            <button class="btn btn-primary" onclick="completeWizard()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              完成配置并保存
-            </button>
-            <button class="btn" onclick="runPreflight({ auto: false })">
-              <svg class="icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              先做开播前检查
-            </button>
-          </div>
-        </div>
-
-        <!-- 开播前检查报告（内嵌） -->
-        <div class="panel-card" style="display: none;" id="preflight-report-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><polyline points="9 14 11 16 15 12"/></svg>
-              开播前检查报告
-            </span>
-            <button class="btn btn-sm" onclick="runPreflight({ auto: false })">
-              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              重新检查
-            </button>
-          </div>
-          <div id="preflight-report-body"></div>
+        <div class="cyber-hw-visual">
+          <!-- 3D 显卡芯片透视矢量插图 -->
+          <svg viewBox="0 0 120 100" class="cyber-3d-svg">
+            <defs>
+              <linearGradient id="gpuChipGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.9"/>
+                <stop offset="100%" stop-color="#0284c7" stop-opacity="0.6"/>
+              </linearGradient>
+              <linearGradient id="gpuCoreGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#10e7b7" stop-opacity="1"/>
+                <stop offset="100%" stop-color="#00f2fe" stop-opacity="0.8"/>
+              </linearGradient>
+              <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur"/>
+                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+              </filter>
+            </defs>
+            <!-- 底部透视底座投影 -->
+            <polygon points="60,82 105,58 60,34 15,58" fill="rgba(0,242,254,0.06)" stroke="rgba(0,242,254,0.22)" stroke-width="1.2"/>
+            <!-- 电路网格走线 -->
+            <path d="M60,82 L60,94 M105,58 L114,64 M15,58 L6,64 M60,34 L60,24" stroke="rgba(0,242,254,0.4)" stroke-width="1" stroke-dasharray="2 2"/>
+            <circle cx="114" cy="64" r="2" fill="#00f2fe"/>
+            <circle cx="6" cy="64" r="2" fill="#00f2fe"/>
+            <circle cx="60" cy="94" r="2" fill="#00f2fe"/>
+            <circle cx="60" cy="24" r="2" fill="#00f2fe"/>
+            <!-- 3D 立方芯片基座下沿 -->
+            <polygon points="18,55 60,78 60,84 18,61" fill="rgba(6,24,38,0.9)" stroke="rgba(0,242,254,0.5)" stroke-width="1.2"/>
+            <polygon points="60,78 102,55 102,61 60,84" fill="rgba(3,15,26,0.95)" stroke="rgba(0,242,254,0.4)" stroke-width="1.2"/>
+            <!-- 芯片顶部发光镜面 -->
+            <polygon points="60,38 102,55 60,74 18,55" fill="url(#gpuChipGrad)" stroke="#00f2fe" stroke-width="1.5" filter="url(#cyanGlow)"/>
+            <!-- 芯片核心高亮层 -->
+            <polygon points="60,46 84,56 60,67 36,56" fill="url(#gpuCoreGlow)" stroke="#ffffff" stroke-width="1"/>
+            <!-- 芯片微型极客纹理 -->
+            <path d="M48,56 L72,56 M60,50 L60,62" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
         </div>
       </div>
+
+      <!-- 2. 处理器 CPU 卡片 -->
+      <div class="cyber-hw-card">
+        <div class="cyber-hw-card-body">
+          <div class="cyber-tag-row">
+            <span class="cyber-chip-tag">
+              <svg viewBox="0 0 24 24" class="icon-chip"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+              处理器 CPU
+            </span>
+          </div>
+          <div class="cyber-hw-name" id="hw-panel-cpu">检测中...</div>
+          <div class="cyber-hw-sub" id="hw-panel-cpu-sub">正在探测多核架构与负载...</div>
+          <div class="cyber-hw-footer">
+            <div class="cyber-stat-pill green" id="hw-cpu-stat-pill">
+              <span class="stat-num" id="hw-cpu-stat-cores">--</span>
+              <span class="stat-unit">核心 / 线程</span>
+            </div>
+          </div>
+        </div>
+        <div class="cyber-hw-visual">
+          <!-- 3D 晶圆处理器透视电路图 -->
+          <svg viewBox="0 0 120 100" class="cyber-3d-svg">
+            <defs>
+              <linearGradient id="cpuGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#0284c7" stop-opacity="0.8"/>
+                <stop offset="100%" stop-color="#00f2fe" stop-opacity="0.9"/>
+              </linearGradient>
+            </defs>
+            <!-- 放射状 PCB 走线 -->
+            <path d="M15,48 L35,48 M85,48 L105,48 M60,18 L60,34 M60,68 L60,84 M25,28 L38,38 M82,62 L95,72 M95,28 L82,38 M25,72 L38,62" 
+                  stroke="rgba(0,242,254,0.35)" stroke-width="1.2" stroke-linecap="round"/>
+            <circle cx="15" cy="48" r="2.2" fill="#00f2fe"/>
+            <circle cx="105" cy="48" r="2.2" fill="#00f2fe"/>
+            <circle cx="60" cy="18" r="2.2" fill="#00f2fe"/>
+            <circle cx="60" cy="84" r="2.2" fill="#00f2fe"/>
+            <circle cx="25" cy="28" r="2" fill="#00f2fe"/>
+            <circle cx="95" cy="72" r="2" fill="#00f2fe"/>
+            <!-- 处理器多层晶圆基底 -->
+            <rect x="36" y="28" width="48" height="48" rx="5" fill="rgba(4,16,28,0.95)" stroke="rgba(0,242,254,0.45)" stroke-width="1.5"/>
+            <!-- 核心金属顶盖 (Heat Spreader) -->
+            <rect x="42" y="34" width="36" height="36" rx="3" fill="url(#cpuGrad)" stroke="#ffffff" stroke-width="1" opacity="0.95"/>
+            <!-- 硅核心晶片 -->
+            <rect x="50" y="42" width="20" height="20" rx="2" fill="#031628" stroke="#10e7b7" stroke-width="1.2"/>
+            <circle cx="60" cy="52" r="4" fill="#10e7b7"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- 3. 内存 RAM 卡片 -->
+      <div class="cyber-hw-card">
+        <div class="cyber-hw-card-body">
+          <div class="cyber-tag-row">
+            <span class="cyber-chip-tag">
+              <svg viewBox="0 0 24 24" class="icon-chip"><rect x="2" y="7" width="20" height="9" rx="1.5"/><line x1="6" y1="16" x2="6" y2="19"/><line x1="10" y1="16" x2="10" y2="19"/><line x1="14" y1="16" x2="14" y2="19"/><line x1="18" y1="16" x2="18" y2="19"/></svg>
+              内存 RAM
+            </span>
+          </div>
+          <div class="cyber-hw-name" id="hw-panel-ram">检测中...</div>
+          <div class="cyber-hw-sub" id="hw-panel-ram-sub">正在计算物理内存配比...</div>
+          <div class="cyber-hw-footer">
+            <div class="cyber-stat-pill green" id="hw-ram-stat-pill">
+              <span class="stat-num" id="hw-ram-stat-percent">--%</span>
+              <span class="stat-unit">已占用</span>
+            </div>
+          </div>
+        </div>
+        <div class="cyber-hw-visual">
+          <!-- 极光青霓虹双环环形仪表盘 -->
+          <svg viewBox="0 0 100 100" class="cyber-3d-svg">
+            <defs>
+              <linearGradient id="ramRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#00f2fe"/>
+                <stop offset="100%" stop-color="#10e7b7"/>
+              </linearGradient>
+            </defs>
+            <!-- 背景暗轨 -->
+            <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(0,242,254,0.12)" stroke-width="6"/>
+            <!-- 动态高亮发光弧光 -->
+            <circle id="hw-ram-ring-arc" cx="50" cy="50" r="38" fill="none" stroke="url(#ramRingGrad)" stroke-width="6.5" 
+                    stroke-dasharray="238" stroke-dashoffset="95" stroke-linecap="round"
+                    transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 0.8s ease;"/>
+            <!-- 内环刻度线 -->
+            <circle cx="50" cy="50" r="28" fill="none" stroke="rgba(0,242,254,0.25)" stroke-width="1.2" stroke-dasharray="3 3"/>
+            <!-- 中心百分比与刻度 -->
+            <text id="hw-ram-ring-text" x="50" y="54" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700" font-family="var(--font-mono)">60%</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- 4. AI NPU (华为昇腾国产旗舰算力 / 云端调度) -->
+      <div class="cyber-hw-card">
+        <div class="cyber-hw-card-body">
+          <div class="cyber-tag-row">
+            <span class="cyber-chip-tag" style="border-color: rgba(16, 231, 183, 0.4); color: #10e7b7;">
+              <svg viewBox="0 0 24 24" class="icon-chip"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+              AI NPU
+            </span>
+          </div>
+          <div class="cyber-hw-name" id="hw-panel-npu">Huawei Ascend 910B2</div>
+          <div class="cyber-hw-sub" id="hw-panel-npu-sub">基于云端算力协同开放，已连通调度网络</div>
+          <div class="cyber-hw-footer">
+            <div class="cyber-stat-pill green" id="hw-npu-stat-pill">
+              <span class="stat-num" id="hw-npu-stat-latency">33ms</span>
+              <span class="stat-unit" id="hw-npu-stat-mem">· 64.0 GB 显存</span>
+            </div>
+          </div>
+        </div>
+        <div class="cyber-hw-visual">
+          <!-- 3D 华为昇腾 NPU 算力芯片插图 -->
+          <svg viewBox="0 0 120 100" class="cyber-3d-svg">
+            <defs>
+              <linearGradient id="npuGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#10e7b7" stop-opacity="0.9"/>
+                <stop offset="100%" stop-color="#00f2fe" stop-opacity="0.7"/>
+              </linearGradient>
+            </defs>
+            <!-- 3D 棱台基座 -->
+            <polygon points="60,80 102,57 60,34 18,57" fill="rgba(6,24,38,0.9)" stroke="rgba(16,231,183,0.3)" stroke-width="1.2"/>
+            <polygon points="18,57 60,80 60,86 18,63" fill="rgba(3,14,24,0.95)" stroke="rgba(16,231,183,0.4)" stroke-width="1"/>
+            <polygon points="60,80 102,57 102,63 60,86" fill="rgba(3,14,24,0.95)" stroke="rgba(16,231,183,0.3)" stroke-width="1"/>
+            <!-- 顶层晶片 -->
+            <polygon points="60,40 96,57 60,74 24,57" fill="url(#npuGrad)" stroke="#10e7b7" stroke-width="1.5"/>
+            <!-- NPU 神经核矩阵发光点阵 -->
+            <ellipse cx="60" cy="57" rx="14" ry="7" fill="none" stroke="#ffffff" stroke-width="1.2"/>
+            <circle cx="60" cy="57" r="2.5" fill="#ffffff"/>
+            <!-- 晶片标牌 -->
+            <text x="60" y="52" text-anchor="middle" fill="#031628" font-size="8.5" font-weight="900" font-family="var(--font-mono)" letter-spacing="1">ASCEND</text>
+          </svg>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 兼容原有 DOM 节点：系统推荐与云端算力整行容器（保留隐藏/补充挂载，确保既有逻辑100%安全） -->
+    <div style="display: none;">
+      <div id="hw-panel-tier"></div>
+      <div id="hw-panel-tier-sub"></div>
+      <div id="hw-panel-gpu-cloud" class="hw-cloud-standalone-bar"></div>
+      <div id="hw-recommend-banner"><div id="hw-recommend-reason"></div></div>
+      <div id="mode-cards"></div>
+    </div>
+  </div>
+
+  <!-- 直播必备软件信息 -->
+  <div class="panel-card" id="panel-software-prerequisites">
+    <div class="panel-header">
+      <span class="panel-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path
+            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+        </svg>
+        直播必备软件信息
+      </span>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span id="prereq-overall-badge" class="brand-badge green">检测中...</span>
+        <button class="btn btn-ghost btn-sm" id="btn-recheck-prereqs" title="重新检测必备软件"
+          style="padding: 3px 8px; font-size: 11.5px;">
+          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 12px; height: 12px;">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          重新检测
+        </button>
+      </div>
+    </div>
+
+    <div id="prereq-alert-banner" class="prereq-alert-banner warning" style="display:none;">
+      <div class="prereq-alert-icon">
+        <svg viewBox="0 0 24 24">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+      </div>
+      <div id="prereq-alert-text">
+        检测中...
+      </div>
+    </div>
+
+    <div class="prereq-list" id="prereq-cards-container">
+      <!-- 动态由 JS 渲染各软件清单行 -->
+      <div class="hw-cell" style="text-align: center; color: var(--text-muted); padding: 24px;">
+        正在探测推流生态与必备组件就绪状态...
+      </div>
+    </div>
+  </div>
+
+  <!-- 第一步：数字人渲染与算力运行模式 -->
+  <div class="panel-card" id="wizard-gpu-panel">
+    <div class="panel-header" style="margin-bottom: 12px;">
+      <span class="panel-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88" />
+        </svg>
+        第一步 · 数字人渲染与算力运行模式
+      </span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span id="wizard-gpu-badge" class="brand-badge green">同步中...</span>
+        <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()"
+          style="font-size: 11.5px; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 2px 8px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+          title="前往「GPU配置(2)」调整算力模式与云端节点">
+          跳转到 GPU配置(2) ↗
+        </button>
+      </div>
+    </div>
+    <p class="page-intro" style="margin-bottom: 14px;">
+      系统已依据您在【GPU配置(2)】中激活的配置自动锁定当前生效模式。如需更改算力方案或录入云端节点参数，请前往「GPU配置(2)」调整。
+    </p>
+
+    <!-- 动态渲染双卡片容器：选项1 本机完全满足 vs 选项2 本地硬件+租赁云端GPU -->
+    <div id="wizard-gpu-display-container">
+      <div style="text-align: center; color: var(--text-muted); padding: 24px; font-size: 13px;">
+        正在同步当前 GPU 配置与数字人算力模式...
+      </div>
+    </div>
+  </div>
+
+  <!-- 第二步：选择直播类型与出镜主播 -->
+  <div class="panel-card">
+    <div class="panel-header" style="margin-bottom: 12px;">
+      <span class="panel-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+        第二步 · 选择直播类型与出镜主播
+      </span>
+    </div>
+    <p class="page-intro" style="margin-bottom: 14px;">
+      首先选择本次开播的<strong>直播类型</strong>，系统将自动推荐专属运营话术；同时在下方指定该类型下的<strong>具体出镜主播</strong>。
+    </p>
+    <div id="wizard-role-cards" class="grid-4"></div>
+    <div id="wizard-anchor-select-container"
+      style="margin-top: 18px; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;"></div>
+  </div>
+
+  <!-- 第三步：专属运营建议与 AI 约束提示词 -->
+  <div class="panel-card cyber-panel-hw">
+    <div class="panel-header" style="margin-bottom: 12px; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 12px;">
+      <span class="panel-title" style="color: #ffffff; font-size: 15px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
+            <path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z"/>
+          </svg>
+        </span>
+        第三步 · 专属运营建议与 AI 约束提示词
+      </span>
+      <span class="cyber-badge-glow green" style="font-size: 11px;">自动联想人设</span>
+    </div>
+
+    <!-- AI 运营建议动态展示区 -->
+    <div id="wizard-suggestion-box" style="margin-bottom: 16px;">
+      <div style="font-size: 12.5px; color: #7ea2bd; line-height: 1.8; background: rgba(0, 242, 254, 0.05); border: 1px dashed rgba(0, 242, 254, 0.2); border-radius: 8px; padding: 12px 14px;">
+        💡 请选择上方直播类型与出镜主播，系统将根据类型和算力模式自动生成专属运营话术与禁忌约束建议。
+      </div>
+    </div>
+
+    <div style="margin-bottom: 14px;">
+      <label class="form-label" for="wizard-theme" style="font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 6px;">
+        今日直播主题
+        <span style="font-weight: 400; font-size: 11.5px; color: #7ea2bd;">（冷场或无互动时，AI 围绕此主题展开带货或宣讲）</span>
+      </label>
+      <input type="text" id="wizard-theme" class="form-control"
+        placeholder="选择主播角色后自动填充专属主题，也可自定义修改"
+        title="今日直播主题" aria-label="今日直播主题" autocomplete="off" spellcheck="false"
+        style="background: rgba(3, 15, 26, 0.9); border: 1px solid rgba(0, 242, 254, 0.25); color: #fff; font-size: 13px;">
+    </div>
+
+    <div style="margin-bottom: 18px;">
+      <label class="form-label" for="wizard-constraint" style="font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 6px;">
+        AI 约束提示词
+        <span style="font-weight: 400; font-size: 11.5px; color: #7ea2bd;">（将写入所选主播人设的 system prompt，即时生效）</span>
+      </label>
+      <textarea id="wizard-constraint" class="form-control" rows="3"
+        placeholder="例如：带货时聚焦当前商品核心卖点，语气热情诚恳；严禁与观众争执，严禁涉及敏感不合规话题。"
+        title="AI 约束提示词" aria-label="AI 约束提示词" spellcheck="false"
+        style="background: rgba(3, 15, 26, 0.9); border: 1px solid rgba(0, 242, 254, 0.25); color: #fff; font-size: 13px; line-height: 1.6;"></textarea>
+    </div>
+
+    <!-- 操作按钮栏：完成配置保存与开播前检查 -->
+    <div
+      style="display: flex; gap: 12px; margin-top: 16px; align-items: center; justify-content: flex-end; flex-wrap: wrap; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 16px;">
+      <span id="wizard-save-status" style="font-size: 12px; color: var(--text-muted); margin-right: auto;"></span>
+      <button class="btn btn-primary" onclick="completeWizard()" style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg class="icon-sm" viewBox="0 0 24 24">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+          <polyline points="22 4 12 14.01 9 11.01" />
+        </svg>
+        完成配置并保存
+      </button>
+      <button class="btn" onclick="runPreflight({ auto: false })" style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg class="icon-sm" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        先做开播前检查
+      </button>
+    </div>
+  </div>
+
+  <!-- 开播前检查报告（内嵌） -->
+  <div class="panel-card" style="display: none;" id="preflight-report-card">
+    <div class="panel-header">
+      <span class="panel-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <rect x="8" y="2" width="8" height="4" rx="1" />
+          <polyline points="9 14 11 16 15 12" />
+        </svg>
+        开播前检查报告
+      </span>
+      <button class="btn btn-sm" onclick="runPreflight({ auto: false })">
+        <svg class="icon-sm" viewBox="0 0 24 24">
+          <polyline points="23 4 23 10 17 10" />
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+        </svg>
+        重新检查
+      </button>
+    </div>
+    <div id="preflight-report-body"></div>
+  </div>
+</div>

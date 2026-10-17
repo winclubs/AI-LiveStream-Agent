@@ -14,10 +14,7 @@ from server.app import app
 from server.core.hardware.gpu_capability import (
     GpuInfo,
     CloudGpuInfo,
-    ComputePlan,
-    probe_local_gpu,
     evaluate_compute,
-    MIN_HIGH_PERFORMANCE_VRAM_GB,
 )
 from server.core.avatar.registry import AvatarDriverFactory
 from server.core.avatar.drivers import LocalLiveTalkingDriver, CloudSidecarDriver, Procedural2DDriver

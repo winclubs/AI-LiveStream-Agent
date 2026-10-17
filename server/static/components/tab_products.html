@@ -1,64 +1,134 @@
       <div class="tab-content" id="tab-products">
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg class="icon" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-              商品档案管理
-              <span id="product-edit-hint" style="font-size:12px;color:var(--amber);font-weight:500;"></span>
-            </span>
-          </div>
-          <div class="grid-3" style="margin-bottom: 16px;">
-            <div><label class="form-label" for="product-title">商品标题 <span style="color:var(--red)">*</span></label><input type="text" id="product-title" class="form-control" placeholder="如：2026秋冬加厚羊羔绒外套" title="商品标题" aria-label="商品标题"></div>
-            <div><label class="form-label" for="product-sku">SKU 编码 <span style="color:var(--red)">*</span></label><input type="text" id="product-sku" class="form-control" placeholder="如 SKU_001" title="SKU 编码" aria-label="SKU 编码"></div>
-            <div><label class="form-label" for="product-category">类目</label><input type="text" id="product-category" class="form-control" value="通用" title="类目" aria-label="类目"></div>
-            <div><label class="form-label" for="product-original-price">原价（元）</label><input type="number" id="product-original-price" class="form-control" value="0" min="0" step="0.01" title="原价（元）" aria-label="原价（元）"></div>
-            <div><label class="form-label" for="product-live-price">直播专享价（元）</label><input type="number" id="product-live-price" class="form-control" value="0" min="0" step="0.01" title="直播专享价（元）" aria-label="直播专享价（元）"></div>
-            <div><label class="form-label" for="product-stock">库存（件）</label><input type="number" id="product-stock" class="form-control" value="100" min="0" step="1" title="库存（件）" aria-label="库存（件）"></div>
-          </div>
-          <label class="form-label" for="product-description">商品描述</label>
-          <textarea id="product-description" class="form-control" rows="2" placeholder="材质、适用场景、售后等详细信息" title="商品描述" aria-label="商品描述"></textarea>
-          <div class="grid-2" style="margin-top: 14px;">
-            <div>
-              <label class="form-label" for="product-selling-points">核心卖点（每行一条）</label>
-              <textarea id="product-selling-points" class="form-control" rows="4" placeholder="90%羊毛\n轻盈保暖" title="核心卖点" aria-label="核心卖点"></textarea>
+        <div class="cyber-panel-hw" style="margin-bottom: 24px;">
+          <div class="cyber-panel-header">
+            <div class="cyber-panel-title">
+              <span class="cyber-hud-icon">
+                <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #00f2fe; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>
+                </svg>
+              </span>
+              <span>商品带货档案库 (SKU 知识管理)</span>
+              <span class="cyber-chip-tag active">LIVE COMMERCE HUB</span>
+              <span id="product-edit-hint" style="font-size:12px; color: #f59e0b; font-weight: 600; margin-left: 8px;"></span>
             </div>
-            <div>
-              <label class="form-label" for="product-coupon-script">优惠话术</label>
-              <textarea id="product-coupon-script" class="form-control" rows="4" placeholder="领券后再减30元" title="优惠话术" aria-label="优惠话术"></textarea>
-            </div>
-            <div>
-              <label class="form-label" for="product-faq-data">常见问答（JSON 数组）</label>
-              <textarea id="product-faq-data" class="form-control" rows="5" placeholder='[{"question":"会不会扎？","answer":"内层亲肤"}]' title="常见问答" aria-label="常见问答"></textarea>
-            </div>
-            <div>
-              <label class="form-label" for="product-size-chart">尺码表（JSON 对象）</label>
-              <textarea id="product-size-chart" class="form-control" rows="5" placeholder='{"columns":["尺码","胸围"],"rows":[["M","104"]],"unit":"cm"}' title="尺码表" aria-label="尺码表"></textarea>
+            <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+              PRODUCT ARCHIVE MATRIX
             </div>
           </div>
-          <label class="form-label" for="product-images" style="margin-top: 14px;">商品图片（可多选上传）</label>
-          <input type="file" id="product-images" class="form-control" accept="image/*" multiple title="商品图片" aria-label="商品图片">
-          <div id="product-image-previews" style="display:flex; gap:10px; margin-top:12px; flex-wrap: wrap;"></div>
-          <div style="display: flex; gap: 12px; margin-top: 20px;">
-            <button class="btn btn-primary" onclick="submitProduct()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              保存商品
-            </button>
-            <button class="btn" id="product-reset-btn" onclick="resetProductForm()" style="display:none;">取消编辑</button>
-            <input type="hidden" id="product-edit-id" value="">
+          <div style="padding: 18px 20px;">
+            <p class="page-intro" style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+              录入商品参数、卖点提炼与智能 FAQ 知识，直播时数字人主播将根据观众弹幕提问<strong>毫秒级精准检索回答</strong>，并适时主动逼单讲解。
+            </p>
+            <div class="grid-3" style="margin-bottom: 14px; gap: 12px;">
+              <div>
+                <label class="form-label" for="product-title" style="font-size: 12px; margin-bottom: 5px;">商品标题 <span style="color:#ef4444">*</span></label>
+                <input type="text" id="product-title" class="form-control" placeholder="如：2026秋冬加厚羊羔绒外套" title="商品标题" aria-label="商品标题"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+              </div>
+              <div>
+                <label class="form-label" for="product-sku" style="font-size: 12px; margin-bottom: 5px;">SKU 编码 <span style="color:#ef4444">*</span></label>
+                <input type="text" id="product-sku" class="form-control" placeholder="如 SKU_001" title="SKU 编码" aria-label="SKU 编码"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+              </div>
+              <div>
+                <label class="form-label" for="product-category" style="font-size: 12px; margin-bottom: 5px;">类目</label>
+                <input type="text" id="product-category" class="form-control" value="通用" title="类目" aria-label="类目"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+              </div>
+              <div>
+                <label class="form-label" for="product-original-price" style="font-size: 12px; margin-bottom: 5px;">原价（元）</label>
+                <input type="number" id="product-original-price" class="form-control" value="0" min="0" step="0.01" title="原价（元）" aria-label="原价（元）"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+              </div>
+              <div>
+                <label class="form-label" for="product-live-price" style="font-size: 12px; margin-bottom: 5px;">直播专享价（元）</label>
+                <input type="number" id="product-live-price" class="form-control" value="0" min="0" step="0.01" title="直播专享价（元）" aria-label="直播专享价（元）"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #38bdf8; font-weight: 600;">
+              </div>
+              <div>
+                <label class="form-label" for="product-stock" style="font-size: 12px; margin-bottom: 5px;">库存（件）</label>
+                <input type="number" id="product-stock" class="form-control" value="100" min="0" step="1" title="库存（件）" aria-label="库存（件）"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+              </div>
+            </div>
+
+            <label class="form-label" for="product-description" style="font-size: 12px; margin-bottom: 5px;">商品简要描述</label>
+            <textarea id="product-description" class="form-control" rows="2" placeholder="材质、适用场景、售后等详细信息" title="商品描述" aria-label="商品描述"
+              style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc; margin-bottom: 14px;"></textarea>
+            
+            <div class="grid-2" style="gap: 12px; margin-bottom: 14px;">
+              <div>
+                <label class="form-label" for="product-selling-points" style="font-size: 12px; margin-bottom: 5px;">核心卖点（每行一条）</label>
+                <textarea id="product-selling-points" class="form-control" rows="3" placeholder="90%羊毛&#10;轻盈保暖不臃肿" title="核心卖点" aria-label="核心卖点"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc; font-size: 12px;"></textarea>
+              </div>
+              <div>
+                <label class="form-label" for="product-coupon-script" style="font-size: 12px; margin-bottom: 5px;">促单优惠话术</label>
+                <textarea id="product-coupon-script" class="form-control" rows="3" placeholder="直播间专属领券后再减30元，手慢无！" title="优惠话术" aria-label="优惠话术"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc; font-size: 12px;"></textarea>
+              </div>
+              <div>
+                <label class="form-label" for="product-faq-data" style="font-size: 12px; margin-bottom: 5px;">常见问答（JSON 数组）</label>
+                <textarea id="product-faq-data" class="form-control" rows="4" placeholder='[{"question":"会不会扎？","answer":"内层亲肤舒适不扎人"}]' title="常见问答" aria-label="常见问答"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc; font-family: var(--font-mono); font-size: 11.5px;"></textarea>
+              </div>
+              <div>
+                <label class="form-label" for="product-size-chart" style="font-size: 12px; margin-bottom: 5px;">尺码表（JSON 对象）</label>
+                <textarea id="product-size-chart" class="form-control" rows="4" placeholder='{"columns":["尺码","胸围"],"rows":[["M","104"]],"unit":"cm"}' title="尺码表" aria-label="尺码表"
+                  style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc; font-family: var(--font-mono); font-size: 11.5px;"></textarea>
+              </div>
+            </div>
+
+            <div class="cyber-dashed-divider" style="margin: 16px 0;"></div>
+
+            <label class="form-label" for="product-images" style="font-size: 12px; margin-bottom: 5px;">商品轮播图 / 展示素材（可多选上传）</label>
+            <input type="file" id="product-images" class="form-control" accept="image/*" multiple title="商品图片" aria-label="商品图片"
+              style="background: rgba(8, 22, 36, 0.9) !important; border: 1px solid rgba(0, 242, 254, 0.25) !important; color: #f8fafc;">
+            <div id="product-image-previews" style="display:flex; gap:10px; margin-top:12px; flex-wrap: wrap;"></div>
+
+            <div style="display: flex; gap: 12px; margin-top: 18px; align-items: center; padding-top: 14px; border-top: 1px dashed rgba(148, 163, 184, 0.18);">
+              <button class="btn btn-primary" onclick="submitProduct()" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 20px;">
+                <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                保存商品档案
+              </button>
+              <button class="btn btn-secondary" id="product-reset-btn" onclick="resetProductForm()" style="display:none;">取消编辑</button>
+              <input type="hidden" id="product-edit-id" value="">
+            </div>
           </div>
         </div>
 
-        <div class="panel-card">
-          <div class="panel-header">
-            <span class="panel-title">全部商品</span>
-            <button class="btn btn-sm" onclick="loadProducts()">
-              <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              刷新
+        <div class="cyber-panel-hw">
+          <div class="cyber-panel-header">
+            <div class="cyber-panel-title">
+              <span class="cyber-hud-icon">
+                <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #00f2fe; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
+                  <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                  <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                </svg>
+              </span>
+              <span>全部录入商品档案</span>
+              <span class="cyber-chip-tag active">INVENTORY MATRIX</span>
+            </div>
+            <button class="btn btn-sm btn-secondary" onclick="loadProducts()" style="display: inline-flex; align-items: center; gap: 5px;">
+              <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              刷新数据
             </button>
           </div>
-          <table class="data-table">
-            <thead><tr><th>SKU</th><th>标题</th><th>专享价</th><th>库存</th><th>图</th><th>描述</th><th>操作</th></tr></thead>
-            <tbody id="products-tbody"></tbody>
-          </table>
+          <div style="overflow-x: auto;">
+            <table class="data-table" style="margin-bottom: 0;">
+              <thead>
+                <tr>
+                  <th class="col-pct-14">SKU</th>
+                  <th class="col-pct-30">标题与缩略图</th>
+                  <th class="col-pct-12">专享价</th>
+                  <th class="col-pct-8">库存</th>
+                  <th class="col-pct-6">图</th>
+                  <th class="col-pct-14">描述</th>
+                  <th class="col-pct-16" style="text-align: right;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="products-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>

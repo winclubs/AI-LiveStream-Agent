@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -58,7 +59,8 @@ def main() -> None:
 
     # 4. Node 前端语法 (node --check 一次只校验第一个文件, 多文件会静默忽略后续文件, 必须逐个检查)
     run_step("4/5 Node.js 前端语法检查 (main.js)", ["node", "--check", "apps/desktop-ui/main.js"])
-    run_step("4/5 Node.js 前端语法检查 (console.js)", ["node", "--check", "server/static/js/console.js"])
+    for module_js in sorted((Path("server/static/js/modules")).glob("*.js")):
+        run_step(f"4/5 Node.js 前端语法检查 (modules/{module_js.name})", ["node", "--check", str(module_js)])
 
     # 5. Pytest 全量单测与覆盖率
     temp_dir = os.path.join(tempfile.gettempdir(), f"ai-live-ci-{uuid.uuid4().hex}")

@@ -5,8 +5,6 @@
 【铁律】：必须是真实真人发音，严禁生成任何正弦波或蜂鸣单音频。
 """
 import asyncio
-import os
-import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

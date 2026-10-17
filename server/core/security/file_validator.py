@@ -13,25 +13,6 @@ from fastapi import HTTPException, UploadFile
 
 logger = logging.getLogger("LiveAgent.FileValidator")
 
-# 常见合法多媒体类型的魔数特征
-MAGIC_SIGNATURES = {
-    # 图片
-    "jpeg": [b"\xff\xd8\xff"],
-    "jpg": [b"\xff\xd8\xff"],
-    "png": [b"\x89PNG\r\n\x1a\n"],
-    "gif": [b"GIF87a", b"GIF89a"],
-    "webp": [b"RIFF"],  # 后续需校验 +8 字节处的 WEBP
-    # 视频
-    "mp4": [b"ftyp"],   # 偏离 4 字节处
-    "mov": [b"ftyp", b"moov"],
-    "avi": [b"RIFF"],   # +8 字节处的 AVI
-    "webm": [b"\x1a\x45\xdf\xa3"],
-    "mkv": [b"\x1a\x45\xdf\xa3"],
-    # 音频
-    "wav": [b"RIFF"],   # +8 字节处的 WAVE
-    "mp3": [b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"],
-}
-
 # 明确禁止的高危文件头标志
 MALICIOUS_PREFIXES = [
     b"<?php",

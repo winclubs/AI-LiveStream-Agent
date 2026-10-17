@@ -562,10 +562,6 @@ class ObsWebSocketClient:
                 logger.warning("触发 OBS 停止推流失败: %s", res)
             return res
 
-    async def get_scenes(self) -> Dict[str, Any]:
-        """获取 OBS 场景列表与当前活动场景"""
-        return await self.send_request("GetSceneList")
-
     def get_summary(self) -> Dict[str, Any]:
         """获取轻量摘要供 API 和控制台直接渲染"""
         return {

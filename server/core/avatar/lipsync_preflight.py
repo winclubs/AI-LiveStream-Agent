@@ -28,7 +28,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -161,13 +160,11 @@ class LipSyncPreflight:
     def _do_probe(self, renderer: Any, model_key: str, target_fps: int) -> PreflightResult:
         budget = 1000.0 / max(1, target_fps)
 
-        own_renderer = False
         if renderer is None:
             try:
                 from server.core.avatar.neural_lip_renderer import NeuralLipRenderer
 
                 renderer = NeuralLipRenderer(model_key=model_key or "onnx_lipsync")
-                own_renderer = True
             except Exception as e:
                 return PreflightResult(
                     level=LEVEL_UNAVAILABLE,
@@ -330,8 +327,3 @@ def probe_async(renderer: Any = None, model_key: str = "",
 
     return _run()
 
-
-def probe_blocking(renderer: Any = None, model_key: str = "",
-                   target_fps: int = 25, **kwargs) -> PreflightResult:
-    """同步探测（供脚本/CLI 使用）。"""
-    return global_lipsync_preflight.probe(renderer, model_key, target_fps, **kwargs)

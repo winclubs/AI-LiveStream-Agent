@@ -13,7 +13,6 @@ server/core/monitoring/system_resource_watchdog.py
 4. 提供音频/核心工作进程优先级加固调度 (Windows HIGH_PRIORITY_CLASS)。
 """
 
-import os
 import gc
 import sys
 import time

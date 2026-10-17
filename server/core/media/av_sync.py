@@ -11,6 +11,8 @@ import logging
 from collections import deque
 from typing import Optional
 
+from server.core.media.stats import percentile
+
 logger = logging.getLogger("LiveAgent.AVSync")
 
 # 补偿量上下限 (毫秒)，避免异常抖动导致音画严重漂移
@@ -59,22 +61,14 @@ class AVSyncController:
         self._realtime_latest[metric] = round(latency, 2)
         return latency
 
-    @staticmethod
-    def _percentile(samples, percentile: float) -> float:
-        if not samples:
-            return 0.0
-        values = sorted(float(value) for value in samples)
-        index = min(len(values) - 1, max(0, int(round((len(values) - 1) * percentile))))
-        return round(values[index], 2)
-
     def get_realtime_latency_status(self) -> dict:
         return {
             metric: {
                 "latest_ms": self._realtime_latest[metric],
                 "count": len(samples),
-                "p50_ms": self._percentile(samples, 0.50),
-                "p95_ms": self._percentile(samples, 0.95),
-                "p99_ms": self._percentile(samples, 0.99),
+                "p50_ms": round(percentile(samples, 0.50), 2),
+                "p95_ms": round(percentile(samples, 0.95), 2),
+                "p99_ms": round(percentile(samples, 0.99), 2),
             }
             for metric, samples in self._realtime_samples.items()
         }
@@ -98,9 +92,22 @@ class AVSyncController:
         if drift_ms is None:
             return
         self._drift_locked = True
-        self.recommended_delay_ms = int(
-            max(MIN_DELAY_MS, min(MAX_DELAY_MS, self.base_delay_ms + abs(round(float(drift_ms)))))
-        )
+        # 漂移有向补偿：drift > 0 (音频超前) 增加延迟等待画面；drift < 0 (音频滞后) 减少延迟 (下限 MIN_DELAY_MS)
+        new_delay = self.base_delay_ms + round(float(drift_ms))
+        self.recommended_delay_ms = int(max(MIN_DELAY_MS, min(MAX_DELAY_MS, new_delay)))
+        self._report_drift_to_watchdog(drift_ms)
+
+    def _report_drift_to_watchdog(self, drift_ms: float) -> None:
+        """把实测音画漂移上报媒体质量看门狗，供 SLI 暴露与 7x24 漂移告警。
+
+        架构诚实：延迟导入避免 av_sync 与看门狗互相持有引用；任何上报异常
+        都不得影响主补偿链路。
+        """
+        try:
+            from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+            global_media_watchdog.record_av_drift(float(drift_ms))
+        except Exception:
+            pass
 
     def _refresh_recommendation(self) -> None:
         """未锁定漂移通道时，沿用渲染耗时均值的软件近似补偿"""

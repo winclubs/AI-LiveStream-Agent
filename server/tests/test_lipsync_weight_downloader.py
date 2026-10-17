@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """神经唇形权重按需下载管理器的单元测试"""
-import threading
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 from server.core.avatar.lipsync_weight_downloader import (

@@ -305,6 +305,7 @@ def test_guardrails_audit_logs(client):
     assert "data" in data
     assert "total" in data
 
+@pytest.mark.requires_edge_tts_network
 def test_settings_api(client):
     """测试配置中心读取、参数修改保存与连通性 Ping 探测"""
     # 1. 获取全局配置
@@ -681,7 +682,7 @@ def test_live_mode_wizard_and_lock(client):
     assert bad_res.status_code == 400
 
     # 4. 直播中禁止修改模式
-    client.post("/api/v1/live/start", json={"room_id": "mock"})
+    client.post("/api/v1/live/start", json={"room_id": "mock", "execution_mode": "PREVIEW"})
     lock_res = client.post("/api/v1/settings/live-mode", json={"mode": "A"})
     assert lock_res.status_code == 409
 
@@ -1075,7 +1076,7 @@ def test_products_full_management_and_flash_sale(client):
     assert early.status_code == 400
 
     # 3. 开播后促单成功 (P0 抢占)
-    client.post("/api/v1/live/start", json={"room_id": "mock"})
+    client.post("/api/v1/live/start", json={"room_id": "mock", "execution_mode": "PREVIEW"})
     flash_res = client.post(f"/api/v1/products/{prod_id}/flash-sale")
     assert flash_res.status_code == 200
     assert "促单" in flash_res.json()["message"]
@@ -1163,7 +1164,7 @@ def test_mock_event_injection(client):
     assert early.status_code == 400
 
     # 开播后注入促单提问 (P1)
-    client.post("/api/v1/live/start", json={"room_id": "mock"})
+    client.post("/api/v1/live/start", json={"room_id": "mock", "execution_mode": "PREVIEW"})
     chat_res = client.post("/api/v1/live/mock-event", json={"type": "chat"})
     assert chat_res.status_code == 200
     assert chat_res.json()["code"] == 0
@@ -1362,14 +1363,14 @@ def test_system_version_and_shutdown(client):
         pkg_data = json.loads(pkg_json_path.read_text(encoding="utf-8"))
         assert pkg_data["version"] == APP_VERSION, "Electron 桌面端版本必须与后端 SSOT 对齐"
 
-    console_js_path = BASE_DIR / "server" / "static" / "js" / "console.js"
-    if console_js_path.exists():
+    core_js_path = BASE_DIR / "server" / "static" / "js" / "modules" / "00_core.js"
+    if core_js_path.exists():
         console_match = re.search(
             r'FRONTEND_VERSION\s*=\s*"([^"]+)"',
-            console_js_path.read_text(encoding="utf-8"),
+            core_js_path.read_text(encoding="utf-8"),
         )
-        assert console_match, "console.js 必须声明 FRONTEND_VERSION 常量"
-        assert console_match.group(1) == APP_VERSION, "console.js FRONTEND_VERSION 必须与后端 SSOT 对齐"
+        assert console_match, "00_core.js 必须声明 FRONTEND_VERSION 常量"
+        assert console_match.group(1) == APP_VERSION, "00_core.js FRONTEND_VERSION 必须与后端 SSOT 对齐"
 
     # 2. 验证 GET /api/v1/system/version 增强元数据
     res = client.get("/api/v1/system/version")
@@ -1416,7 +1417,8 @@ def test_digital_human_media_status_and_stream_preview(client):
     # 2. 开播启动数字人流式通道
     start_res = client.post("/api/v1/live/start", json={
         "platform": "mock",
-        "room_id": "room_demo"
+        "room_id": "room_demo",
+        "execution_mode": "PREVIEW"
     })
     assert start_res.status_code == 200
 
@@ -1496,7 +1498,7 @@ def test_danmaku_ws_ingest_requires_live(client):
         # 未开播：发送应被静默忽略
         ws.send_text(_json.dumps({"event_type": "danmaku", "user_name": "中继观众", "text": "你好"}))
         # 开播后注入
-        client.post("/api/v1/live/start", json={"room_id": "mock"})
+        client.post("/api/v1/live/start", json={"room_id": "mock", "execution_mode": "PREVIEW"})
 
         # put 间谍：在入队时刻捕获事件与优先级 (不依赖消费竞态)
         seen = []
@@ -1530,11 +1532,11 @@ def test_danmaku_ws_ingest_requires_live(client):
 def test_duplicate_live_start_rejected(client):
     """回归：重复开播必须返回 409，而不是静默复用旧会话却返回新 session_id"""
     client.post("/api/v1/live/stop")
-    first = client.post("/api/v1/live/start", json={"room_id": "mock"})
+    first = client.post("/api/v1/live/start", json={"room_id": "mock", "execution_mode": "PREVIEW"})
     assert first.status_code == 200
     assert first.json()["is_live"] is True
 
-    duplicate = client.post("/api/v1/live/start", json={"room_id": "mock"})
+    duplicate = client.post("/api/v1/live/start", json={"room_id": "mock", "execution_mode": "PREVIEW"})
     assert duplicate.status_code == 409, f"重复开播应被拒绝，实际 {duplicate.status_code}"
 
     client.post("/api/v1/live/stop")
@@ -1697,7 +1699,7 @@ def test_live_lifecycle_and_order_persistence(client):
     assert bad_start.status_code == 400
 
     # 3. 正常开播
-    ok_start = client.post("/api/v1/live/start", json={"platform": "mock", "room_id": "room_persist_test"})
+    ok_start = client.post("/api/v1/live/start", json={"platform": "mock", "execution_mode": "PREVIEW", "room_id": "room_persist_test"})
     assert ok_start.status_code == 200
 
     # 4. 创建测试商品
@@ -1774,7 +1776,7 @@ def test_console_critical_operation_contracts():
 
     root = Path(__file__).parents[2]
     js_modules = (root / "server/static/js/modules").glob("*.js")
-    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules)) + (root / "server/static/js/console.js").read_text(encoding="utf-8")
+    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules))
     html = (root / "server/static/index.html").read_text(encoding="utf-8")
 
     assert 'let currentMode = "";' in js

@@ -14,6 +14,8 @@ import time
 from collections import deque
 from typing import Any, Dict, Optional
 
+from server.core.media.stats import percentile
+
 logger = logging.getLogger("LiveAgent.SharedPlaybackClock")
 
 # 漂移平滑系数 (EMA)：越小越稳越慢，越大越灵敏越抖
@@ -41,6 +43,7 @@ class SharedPlaybackClock:
         self._last_audio_audio_id: Optional[str] = None
         # 漂移 EMA 状态
         self._drift_ms: float = 0.0
+        self._last_raw_drift_ms: float = 0.0
         self._drift_samples: "deque[float]" = deque(maxlen=_DRIFT_WINDOW)
         self._recommended_delay_ms: int = 0
         # 是否已观测到有效音频锚点 (未观测前不做补偿，避免误判)
@@ -62,6 +65,7 @@ class SharedPlaybackClock:
             self._audio_pts_ms = 0.0
             self._last_audio_audio_id = None
             self._drift_ms = 0.0
+            self._last_raw_drift_ms = 0.0
             self._drift_samples.clear()
             self._recommended_delay_ms = 0
             self._audio_anchored = False
@@ -145,6 +149,7 @@ class SharedPlaybackClock:
             if not self._enabled or not self._audio_anchored:
                 return 0.0
             raw = self._audio_pts_ms - self._video_pts_ms
+            self._last_raw_drift_ms = raw
             # 窗口均值去抖
             self._drift_samples.append(raw)
             avg = sum(self._drift_samples) / len(self._drift_samples)
@@ -178,6 +183,17 @@ class SharedPlaybackClock:
         # 音频超前于画面 -> 视频侧应复帧等待
         return "duplicate_frame"
 
+    def get_drift_percentiles(self) -> Dict[str, float]:
+        """返回当前漂移采样窗口的 p50/p95/p99，供监控和放行门禁使用。"""
+        with self._lock:
+            values = list(self._drift_samples) if self._enabled and self._audio_anchored else []
+        return {
+            "p50_ms": round(percentile(values, 0.50), 2),
+            "p95_ms": round(percentile(values, 0.95), 2),
+            "p99_ms": round(percentile(values, 0.99), 2),
+            "sample_count": len(values),
+        }
+
     # ------------------------------------------------------------------
     # 状态上报
     # ------------------------------------------------------------------
@@ -186,13 +202,17 @@ class SharedPlaybackClock:
         with self._lock:
             anchored = self._audio_anchored
             drift = self._drift_ms
+            raw_drift = self._last_raw_drift_ms
+        percentiles = self.get_drift_percentiles()
         return {
             "shared_playback_clock": True,
             "hardware_dac_clock": False,
             "clock_source": "shared_monotonic_pts" if anchored else "video_monotonic_only",
-            "clock_precision": "sample_aligned" if anchored else "estimated",
+            "clock_precision": "monotonic_chunk_estimated" if anchored else "estimated",
             "alignment_mode": "shared_monotonic_pts" if anchored else "heuristic_uniform",
             "drift_ms": round(drift, 2),
+            "raw_drift_ms": round(raw_drift, 2),
+            "drift_percentiles": percentiles,
             "video_pts_ms": round(self._video_pts_ms, 2),
             "audio_pts_ms": round(self._audio_pts_ms, 2),
             "audio_anchored": anchored,

@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from gpu_sidecar.contracts import (
-    AvatarAsset,
     AvatarManifest,
     BackendDescriptor,
     InferenceActiveMarker,
@@ -219,6 +218,8 @@ class Wav2LipBackend:
                 raise BackendUnavailableError(self._descriptor.unavailable_reason)
             if self._descriptor.available:
                 return self._descriptor
+
+            self._reset_peak_stats_sync()
 
             authorized_license = load_license_manifest(self._license_manifest_path)
             authorized_avatar = load_avatar_manifest(self._avatar_manifest_path)

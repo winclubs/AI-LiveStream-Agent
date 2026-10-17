@@ -941,7 +941,7 @@ async def get_anchor_avatar_asset_frame(
     return FileResponse(str(frame_path), media_type="image/jpeg" if frame_path.suffix == ".jpg" else "image/png")
 
 
-@router.api_route("/{anchor_id}/source-video", methods=["GET", "HEAD"])
+@router.get("/{anchor_id}/source-video")
 async def get_anchor_source_video(anchor_id: str, db: AsyncSession = Depends(get_db)):
     """返回主播出镜录像源视频或切片缩略图用于前端播放预览"""
     anchor = await db.get(Anchor, anchor_id)
@@ -1507,7 +1507,7 @@ async def get_avatar_gpu_runtime_status(db: AsyncSession = Depends(get_db)):
         }
     elif has_local_cuda:
         vram_text = f"{local_info.vram_total_gb:.1f} GB" if local_info.vram_total_gb else "独显"
-        engine_title = "LatentSync 真实神经唇形引擎" if has_onnx_model else "RealAvatarLite 本地硬件加速引擎"
+        engine_title = "Wav2Lip-256 ONNX 神经唇形引擎" if has_onnx_model else "未就绪 (缺少 ONNX 模型)"
         return {
             "code": 0,
             "data": {
@@ -1532,11 +1532,11 @@ async def get_avatar_gpu_runtime_status(db: AsyncSession = Depends(get_db)):
                 "badge_color": "#fbbf24",
                 "badge_bg": "rgba(251, 191, 36, 0.12)",
                 "badge_border": "rgba(251, 191, 36, 0.3)",
-                "badge_title": "ℹ️ 轻量微动态引擎运行中",
+                "badge_title": "⚠️ 算力未就绪 (需配置 GPU 或模型)",
                 "hardware_name": fallback_name,
-                "hardware_detail": "当前未调用独立 GPU，走轻量 CPU 仿射流水线",
-                "engine_name": "RealAvatarLite CPU 轻量微动态",
-                "latency_text": "CPU 计算 ~2ms · 建议在【GPU配置】中启用显卡加速",
+                "hardware_detail": "未检测到可用独立显卡；恪守 ADR-16 强门禁，开播需配置云端 GPU 或本地 ONNX 权重",
+                "engine_name": "未就绪 (严禁假唇形降级 · 需配置算力)",
+                "latency_text": "建议在【GPU配置】中启用云端 GPU 或配置本地 ONNX 权重",
                 "is_hardware_accelerated": False,
             }
         }

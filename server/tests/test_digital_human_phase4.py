@@ -20,11 +20,11 @@ from httpx import ASGITransport, AsyncClient
 from aiortc import RTCPeerConnection
 
 from server.app import app
-from server.core.audio.full_duplex_asr import ASRSession, get_full_duplex_asr_manager
+from server.core.audio.full_duplex_asr import ASRSession
 from server.core.avatar import get_active_avatar_driver
 from server.core.avatar.drivers import Procedural2DDriver
-from server.core.media.webrtc_streamer import get_webrtc_stream_manager, AvatarVideoTrack
-from server.core.media.recorder import get_record_manager, VideoAudioRecorder
+from server.core.media.webrtc_streamer import get_webrtc_stream_manager
+from server.core.media.recorder import get_record_manager
 
 
 @pytest.fixture

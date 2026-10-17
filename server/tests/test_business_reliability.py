@@ -143,7 +143,7 @@ def test_custom_role_can_be_loaded_directly_by_live_start(client):
 
     response = client.post(
         "/api/v1/live/start",
-        json={"room_id": "mock", "platform": "mock", "role_id": role_id},
+        json={"room_id": "mock", "platform": "mock", "execution_mode": "PREVIEW", "role_id": role_id},
     )
     assert response.status_code == 200
     assert response.json()["role_id"] == role_id
@@ -163,7 +163,7 @@ def test_order_idempotency_stock_and_history(client):
     )
     assert product_response.status_code == 200
 
-    started = client.post("/api/v1/live/start", json={"room_id": "mock", "platform": "mock"})
+    started = client.post("/api/v1/live/start", json={"room_id": "mock", "platform": "mock", "execution_mode": "PREVIEW"})
     assert started.status_code == 200
     session_id = started.json()["session_id"]
     external_id = f"manual-{uuid.uuid4().hex}"
@@ -206,7 +206,7 @@ def test_order_idempotency_stock_and_history(client):
 
 
 def test_unknown_and_insufficient_stock_orders_are_rejected(client):
-    client.post("/api/v1/live/start", json={"room_id": "mock", "platform": "mock"})
+    client.post("/api/v1/live/start", json={"room_id": "mock", "platform": "mock", "execution_mode": "PREVIEW"})
     missing = client.post(
         "/api/v1/live/stats/order",
         json={"amount": 1, "sku": "SKU-DOES-NOT-EXIST", "quantity": 1},
@@ -240,7 +240,7 @@ def test_concurrent_live_start_has_one_winner_and_no_ghost_session(
     responses = _post_concurrently(
         test_client,
         "/api/v1/live/start",
-        json={"room_id": "mock", "platform": "mock"},
+        json={"room_id": "mock", "platform": "mock", "execution_mode": "PREVIEW"},
     )
     assert sorted(response.status_code for response in responses) == [200, 409]
 
@@ -276,7 +276,7 @@ def test_concurrent_completed_order_refund_has_one_winner_and_one_restock(
     )
     assert created.status_code == 200
     assert test_client.post(
-        "/api/v1/live/start", json={"room_id": "mock", "platform": "mock"}
+        "/api/v1/live/start", json={"room_id": "mock", "platform": "mock", "execution_mode": "PREVIEW"}
     ).status_code == 200
     sold = test_client.post(
         "/api/v1/live/stats/order",
@@ -345,7 +345,7 @@ def test_historical_external_id_replay_does_not_pollute_current_session_stats(
     ).status_code == 200
 
     session_a = test_client.post(
-        "/api/v1/live/start", json={"room_id": "mock", "platform": "mock"}
+        "/api/v1/live/start", json={"room_id": "mock", "platform": "mock", "execution_mode": "PREVIEW"}
     )
     assert session_a.status_code == 200
     historical_external_id = f"history-{uuid.uuid4().hex}"
@@ -356,7 +356,7 @@ def test_historical_external_id_replay_does_not_pollute_current_session_stats(
     assert test_client.post("/api/v1/live/stop").status_code == 200
 
     session_b = test_client.post(
-        "/api/v1/live/start", json={"room_id": "mock", "platform": "mock"}
+        "/api/v1/live/start", json={"room_id": "mock", "platform": "mock", "execution_mode": "PREVIEW"}
     )
     assert session_b.status_code == 200
     assert test_client.post(

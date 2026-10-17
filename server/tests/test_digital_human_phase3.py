@@ -9,8 +9,6 @@
 5. REST API 端点全生命周期：/avatar/actions 查询、配置保存、切片视频上传抽帧、动作调试测试、删除与待机保护；
 6. 驱动层与直播路由事件深度联动测试。
 """
-import asyncio
-import io
 import time
 from pathlib import Path
 import cv2
@@ -136,6 +134,46 @@ def test_action_state_machine_dual_triggers():
     act_code = sm.evaluate_event("welcome", {"username": "小李"})
     assert act_code is None
     assert sm.current_action == 4  # 依然保持动作 4
+
+
+def test_evaluate_text_falls_through_on_preemption():
+    """高优关键词被抢占拒绝后，应继续尝试低优规则，而不是直接返回 None
+
+    回归 D5：此前首个命中规则被 trigger_action 拒绝时立即 return None，
+    导致「高优抢不到、低优不让进」的死局。
+    """
+    sm = ActionStateMachine()
+
+    # 先让高优动作 4 (P9 致谢) 进入执行
+    sm.evaluate_event("gift", {"gift_name": "嘉年华", "combo": 1})
+    assert sm.current_action == 4
+
+    # 话术同时命中致谢(P9，与当前同优会被接受)与点赞(P3)
+    # 若高优被接受则直接返回 4，无需 fallthrough
+    act_code = sm.evaluate_text("感谢老板大气！也请大家给主播点点关注点点赞！")
+    assert act_code == 4
+
+    # 重置，构造高优被抢占拒绝的场景：当前 P9 执行中，话术只含低优关键词
+    sm.reset_to_idle()
+    sm.evaluate_event("gift", {"gift_name": "嘉年华", "combo": 1})
+    assert sm.current_action == 4
+
+    # 话术中同时含 P5 促单词与 P3 点赞词：P5 低于 P9 被拒，应 fallthrough 到 P3
+    # （P3 同样低于 P9 仍会被拒，此时返回 None 是正确的优先级结果）
+    act_code = sm.evaluate_text("左下角购物车赶紧下单，也请大家点赞关注一下！")
+    assert act_code is None  # P9 执行中，低优一律不可抢占
+
+    # 关键回归场景：当前执行中优先级介于两规则之间
+    # 动作 3 (P5 促单) 执行中，话术含 P9 致谢词与 P2 欢迎词
+    sm.reset_to_idle()
+    sm.trigger_action(3, source="test", priority=5)
+    assert sm.current_action == 3
+
+    # trigger_action 对同优先级可接受：直接命中高优并返回
+    act_code = sm.evaluate_text("感谢家人们，欢迎新进来的朋友！")
+    # P9 致谢应抢占成功（9 > 5）；若 fallthrough 逻辑错误则会卡在首个被拒规则
+    assert act_code == 4
+    assert sm.current_action == 4
 
 
 # ============================================================================

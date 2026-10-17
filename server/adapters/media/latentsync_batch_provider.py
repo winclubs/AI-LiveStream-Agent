@@ -11,15 +11,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import json
 import logging
-import math
 import struct
 import time
 import uuid
 import wave
-from typing import Any, Mapping, Optional, Sequence
-from urllib.parse import urlparse
+from typing import Any, Optional, Sequence
 
 import aiohttp
 
@@ -36,7 +33,7 @@ from server.adapters.media.latentsync_batch_playback import (
     SlicePlaybackTimeline,
     build_timeline,
 )
-from server.core.media.audio_frame import AudioFrame, validate_audio_frame_batch
+from server.core.media.audio_frame import AudioFrame
 
 logger = logging.getLogger("LiveAgent.LatentSyncBatch")
 

@@ -7,7 +7,6 @@
 """
 
 import re
-import time
 import asyncio
 import logging
 from typing import Callable, Dict, Any, Optional
@@ -24,7 +23,8 @@ except ImportError:  # pragma: no cover
 
 class WechatDanmakuFetcher(BaseDanmakuFetcher):
     """
-    微信视频号直播实时弹幕抓取适配器
+    微信视频号直播实时弹幕抓取适配器 [实验性协议 / Experimental]
+    注：基于视频号助手网页端轻量轮询，无官方开放平台强鉴权，生产高并发或频发滑块环境建议搭配专有代理使用。
     支持事件：
       - chat: 观众提问/评论（结合法律/商品/专业咨询意图提权 P1）
       - gift: 微信豆/礼物打赏（大额礼物 >= 50000 豆升级 P0 强打断）
@@ -32,6 +32,7 @@ class WechatDanmakuFetcher(BaseDanmakuFetcher):
       - member: 进场互动 (P2)
     """
     platform_name = "wechat"
+    is_experimental = True
 
     INTENT_KEYWORDS = ["多少钱", "怎么买", "发货", "优惠", "咨询", "怎么联系", "链接", "库存", "正品", "请问", "老师"]
 

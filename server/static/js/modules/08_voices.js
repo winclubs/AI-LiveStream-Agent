@@ -16,16 +16,16 @@ function formatVoiceEngineBadge(providerName) {
         return '<span class="brand-badge" style="background: rgba(2, 132, 199, 0.15); border: 1px solid rgba(2, 132, 199, 0.4); color: #38bdf8; font-size: 11px; padding: 2px 7px;">Edge-TTS</span>';
     } else if (p.includes("cosy")) {
         return '<span class="brand-badge" style="background: rgba(234, 88, 12, 0.15); border: 1px solid rgba(234, 88, 12, 0.4); color: #fb923c; font-size: 11px; padding: 2px 7px;">CosyVoice</span>';
-    } else if (p.includes("sovits") || p.includes("gpt")) {
-        return '<span class="brand-badge" style="background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.4); color: #7dd3fc; font-size: 11px; padding: 2px 7px;">GPT-SoVITS</span>';
     } else if (p.includes("eleven")) {
         return '<span class="brand-badge" style="background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.4); color: #fb7185; font-size: 11px; padding: 2px 7px;">ElevenLabs</span>';
+    } else if (p.includes("moss")) {
+        return '<span class="brand-badge" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399; font-size: 11px; padding: 2px 7px;">MOSS-TTS</span>';
     } else if (p.includes("custom") || p.includes("local") || p.includes("自建")) {
         return '<span class="brand-badge" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #c084fc; font-size: 11px; padding: 2px 7px;">本地自建</span>';
     } else if (p.includes("chat")) {
         return '<span class="brand-badge" style="background: rgba(5, 150, 105, 0.15); border: 1px solid rgba(5, 150, 105, 0.4); color: #34d399; font-size: 11px; padding: 2px 7px;">ChatTTS</span>';
     } else if (p) {
-        return `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.3); color: #cbd5e1; font-size: 11px; padding: 2px 7px;">${escapeHtml(providerName)}</span>`;
+        return `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.3); color: #7ea2bd; font-size: 11px; padding: 2px 7px;">${escapeHtml(providerName)}</span>`;
     }
     return '<span style="color: var(--text-muted); font-size: 11px;">通用引擎</span>';
 }

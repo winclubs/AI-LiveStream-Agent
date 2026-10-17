@@ -2,8 +2,7 @@ import asyncio
 import json
 import base64
 import hashlib
-import pytest
-from server.adapters.obs.obs_client import ObsWebSocketClient, global_obs_client
+from server.adapters.obs.obs_client import ObsWebSocketClient
 
 
 class MockObsServer:

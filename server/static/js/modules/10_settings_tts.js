@@ -384,7 +384,7 @@ async function selectTTSProvider(providerId, existingConfig = null) {
     if (guideBox) {
         if (meta.id === "cosyvoice") {
             guideBox.innerHTML = `
-                <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(234, 88, 12, 0.35); border-radius: 8px; padding: 12px 15px; font-size: 12.5px; color: #cbd5e1; line-height: 1.85;">
+                <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(234, 88, 12, 0.35); border-radius: 8px; padding: 12px 15px; font-size: 12.5px; color: #7ea2bd; line-height: 1.85;">
                     <div style="font-weight: 700; color: #fb923c; margin-bottom: 8px; display: flex; align-items: center; gap: 7px;">
                         <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #fb923c; fill: none; stroke-width: 2.2;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                         阿里云百炼 · CosyVoice 快速开通与发声指南：
@@ -400,7 +400,7 @@ async function selectTTSProvider(providerId, existingConfig = null) {
             guideBox.style.display = "block";
         } else if (meta.id === "elevenlabs") {
             guideBox.innerHTML = `
-                <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(244, 63, 94, 0.35); border-radius: 8px; padding: 12px 15px; font-size: 12.5px; color: #cbd5e1; line-height: 1.8;">
+                <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(244, 63, 94, 0.35); border-radius: 8px; padding: 12px 15px; font-size: 12.5px; color: #7ea2bd; line-height: 1.8;">
                     <div style="font-weight: 700; color: #fb7185; margin-bottom: 6px; display: flex; align-items: center; gap: 7px;">
                         <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #fb7185; fill: none; stroke-width: 2.2;"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                         ElevenLabs 全球顶级情感语音服务：

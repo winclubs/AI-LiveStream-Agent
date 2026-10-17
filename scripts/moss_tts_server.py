@@ -15,12 +15,11 @@ MOSS-TTS-Nano 本地轻量零样本参考推理服务端 (v2.0.0)
 """
 import argparse
 import asyncio
-import io
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import Optional
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -33,7 +32,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse, Response, JSONResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 
 from server.core.audio.moss_nano.moss_cloner import moss_cloner

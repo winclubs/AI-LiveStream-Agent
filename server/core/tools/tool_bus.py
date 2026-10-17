@@ -40,29 +40,9 @@ class MCPToolBus:
 # 内置工具实现
 # ---------------------------------------------------------------------------
 async def query_stock(title: str = "", sku: str = "") -> Dict[str, Any]:
-    """查询商品实时库存"""
-    from sqlalchemy import select
-    from server.database.db import AsyncSessionLocal
-    from server.database.models import Product
-
-    async with AsyncSessionLocal() as session:
-        query = select(Product).where(Product.is_active == 1)
-        if sku:
-            query = query.where(Product.sku_code == sku)
-        elif title:
-            query = query.where(Product.title.contains(title))
-        res = await session.execute(query.limit(1))
-        product = res.scalar_one_or_none()
-
-    if not product:
-        return {"found": False, "title": title or sku, "stock": 0}
-    return {
-        "found": True,
-        "title": product.title,
-        "sku": product.sku_code,
-        "stock": product.current_stock,
-        "live_price": product.live_price,
-    }
+    """查询商品实时库存 (由商品事实中心统一裁决)"""
+    from server.core.commerce.facts_service import global_product_fact_service
+    return await global_product_fact_service.query_realtime_stock(sku=sku, title=title)
 
 
 async def trigger_onscreen_coupon(
@@ -121,12 +101,51 @@ async def show_size_chart(
     return {"ok": True, **payload}
 
 
+async def trigger_pip_coupon(
+    sku: str = "", title: str = "", amount: str = "", desc: str = "", seconds: int = 20,
+) -> Dict[str, Any]:
+    """触发控制台画中画优惠券弹窗画层。"""
+    from server.routes.ws_live import ws_manager
+    duration_sec: int = max(1, min(int(seconds), 300))
+    payload = {
+        "sku": sku,
+        "title": title or "专属福利券",
+        "amount": amount or "立减特惠",
+        "desc": desc or "直播间专属限时福利",
+        "seconds": duration_sec,
+    }
+    global_scene_overlay_state.set_scene("pip_coupon", payload, duration_sec)
+    await ws_manager.broadcast("PIP_COUPON", payload)
+    logger.info(f"画中画优惠券画层已展示: {sku} - {amount} ({duration_sec}s)")
+    return {"ok": True, **payload}
+
+
+async def trigger_urgency_countdown(
+    sku: str = "", title: str = "", seconds: int = 60, desc: str = "",
+) -> Dict[str, Any]:
+    """触发控制台逼单倒计时画层。"""
+    from server.routes.ws_live import ws_manager
+    duration_sec: int = max(5, min(int(seconds), 600))
+    payload = {
+        "sku": sku,
+        "title": title or "🔥 限量抢购 倒计时",
+        "desc": desc or "库存告急，先到先得！",
+        "seconds": duration_sec,
+    }
+    global_scene_overlay_state.set_scene("urgency_countdown", payload, duration_sec)
+    await ws_manager.broadcast("URGENCY_COUNTDOWN", payload)
+    logger.info(f"逼单倒计时画层已展示: {sku} ({duration_sec}s)")
+    return {"ok": True, **payload}
+
+
 def register_builtin_tools():
     """注册内置工具集"""
     global_mcp_tools.register("query_stock", query_stock)
     global_mcp_tools.register("trigger_onscreen_coupon", trigger_onscreen_coupon)
     global_mcp_tools.register("product_closeup", product_closeup)
     global_mcp_tools.register("show_size_chart", show_size_chart)
+    global_mcp_tools.register("trigger_pip_coupon", trigger_pip_coupon)
+    global_mcp_tools.register("trigger_urgency_countdown", trigger_urgency_countdown)
 
 
 # 全局单例 (先于工具注册创建)

@@ -2,12 +2,33 @@ import os
 import sys
 import base64
 import ctypes
+import logging
 from pathlib import Path
 from typing import Any
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-# 项目根路径与数据目录 (支持通过 LIVE_AGENT_DATA_DIR 重定向，用于测试隔离/便携部署)
+_logger = logging.getLogger("LiveAgent.Config")
+
+# 项目根路径
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# ---------------------------------------------------------------------------
+# .env 自动加载（必须在读取任何 LIVE_AGENT_* 之前完成）
+#
+# 顺序是硬性要求：DATA_DIR / SERVER_HOST / SERVER_PORT 均由 os.getenv 读取，
+# 若加载发生在其后，.env 里的数据目录、端口、令牌就永远不生效且不报错 ——
+# 运维只能面对「配了但没反应」。上线诊断 RISK-4。
+#
+# 进程环境变量优先级高于 .env（override=False），保证 CI 与服务管理器
+# 注入的值不会被磁盘文件覆盖。
+# ---------------------------------------------------------------------------
+try:
+    from server.core.env_loader import load_project_dotenv
+
+    load_project_dotenv(BASE_DIR)
+except Exception:  # 加载失败绝不得阻断配置模块导入
+    _logger.warning(".env 自动加载失败，已跳过（不影响启动）", exc_info=True)
+
 ROOT_DIR = BASE_DIR
 DATA_DIR = Path(os.getenv("LIVE_AGENT_DATA_DIR") or (BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -206,7 +227,7 @@ def decrypt_secret(cipher_b64: Any) -> str:
         aesgcm = AESGCM(MASTER_KEY)
         decrypted_bytes = aesgcm.decrypt(nonce, cipher_bytes, None)
         return decrypted_bytes.decode("utf-8")
-    except Exception as e:
+    except Exception:
         # 若解密失败返回空字符串
         return ""
 

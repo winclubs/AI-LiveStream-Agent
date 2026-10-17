@@ -20,14 +20,13 @@ API 契约 (与 CosyVoiceMediaDriver 完全对齐)：
 启动：python scripts/cosyvoice_server.py --host 127.0.0.1 --port 9233
 """
 import argparse
-import asyncio
 import importlib.util
 import logging
 import os
 import shutil
 import sys
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 
 if hasattr(sys.stdout, "reconfigure"):
     try:

@@ -177,9 +177,6 @@ async def synthesize_via_cosyvoice_ws(
             await ws.send(json.dumps(run_task_payload))
 
             # 2. 状态机循环
-            task_started = False
-            task_finished = False
-
             while True:
                 try:
                     msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
@@ -199,7 +196,6 @@ async def synthesize_via_cosyvoice_ws(
                     action = header.get("action") or header.get("event")
 
                     if action == "task-started":
-                        task_started = True
                         # 发送待合成文本
                         continue_payload = {
                             "header": {
@@ -227,7 +223,6 @@ async def synthesize_via_cosyvoice_ws(
                         await ws.send(json.dumps(finish_payload))
 
                     elif action == "task-finished":
-                        task_finished = True
                         break
 
                     elif action == "task-failed":

@@ -1,7 +1,6 @@
 import asyncio
 import time
-import pytest
-from server.core.queue.priority_queue import PriorityBargeInQueue, LiveEventItem
+from server.core.queue.priority_queue import PriorityBargeInQueue
 from server.adapters.danmaku.circuit_breaker import CircuitBreakerDanmakuFetcher
 from server.adapters.danmaku.base_fetcher import BaseDanmakuFetcher
 

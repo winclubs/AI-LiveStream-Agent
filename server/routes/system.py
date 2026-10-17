@@ -411,9 +411,6 @@ def _detect_prerequisites() -> Dict[str, Any]:
     全量探测直播必备及配套软件生态状态 (用于本地调试与商业演播室开播诊断)
     覆盖: OBS Studio, 虚拟摄像头驱动, pyvirtualcam库, 平台直播伴侣, 多媒体核心
     """
-    procs = _scan_running_processes()
-    registry_apps = _scan_windows_registry_apps()
-
     items: List[Dict[str, Any]] = []
 
     # 1. OBS Studio 检测 (调用全局统一 SSOT 探测函数)
@@ -570,18 +567,10 @@ def _detect_prerequisites() -> Dict[str, Any]:
     from server.core.media.rtmp_streamer import find_ffmpeg_binary
     ffmpeg_path = find_ffmpeg_binary()
     ffmpeg_ok = bool(ffmpeg_path)
-    cv2_ok = False
-    try:
-        import cv2
-        cv2_ok = True
-    except ImportError:
-        pass
-    ort_ok = False
-    try:
-        import onnxruntime
-        ort_ok = True
-    except ImportError:
-        pass
+    import importlib.util
+
+    cv2_ok = importlib.util.find_spec("cv2") is not None
+    ort_ok = importlib.util.find_spec("onnxruntime") is not None
 
     media_ready = ffmpeg_ok and cv2_ok
     if media_ready and ort_ok:
@@ -670,6 +659,7 @@ def _detect_prerequisites() -> Dict[str, Any]:
     # Windows 平台双重保险：若 sounddevice 未捕获，进一步检查注册表已安装软件
     if not has_cable and sys.platform == "win32":
         try:
+            registry_apps = _scan_windows_registry_apps()
             for app_k in registry_apps.keys():
                 if "vbcable" in app_k or "vb-audio" in app_k or "virtual audio cable" in app_k:
                     has_cable = True

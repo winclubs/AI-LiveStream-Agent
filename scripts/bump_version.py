@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_JSON = REPO_ROOT / "version.json"
 PYPROJECT_TOML = REPO_ROOT / "pyproject.toml"
 PACKAGE_JSON = REPO_ROOT / "apps" / "desktop-ui" / "package.json"
-CONSOLE_JS = REPO_ROOT / "server" / "static" / "js" / "console.js"
+CONSOLE_JS = REPO_ROOT / "server" / "static" / "js" / "modules" / "00_core.js"
 
 
 def get_current_versions() -> dict[str, str]:
@@ -62,9 +62,9 @@ def get_current_versions() -> dict[str, str]:
         try:
             content = CONSOLE_JS.read_text(encoding="utf-8")
             match = re.search(r'FRONTEND_VERSION\s*=\s*"([^"]+)"', content)
-            versions["console.js"] = match.group(1) if match else "not found"
+            versions["00_core.js"] = match.group(1) if match else "not found"
         except Exception as e:
-            versions["console.js"] = f"error: {e}"
+            versions["00_core.js"] = f"error: {e}"
 
     return versions
 
@@ -123,22 +123,7 @@ def bump_version(new_version: str) -> None:
         PACKAGE_JSON.write_text(json.dumps(pkg_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"  [OK] [apps/desktop-ui/package.json] {old_pkg_v} -> {new_version}")
 
-    # 4. 更新 console.js 前端版本常量 (前端用它判断后端是否为残留旧进程, 漏更会导致误报)
-    if CONSOLE_JS.exists():
-        content = CONSOLE_JS.read_text(encoding="utf-8")
-        new_content, count = re.subn(
-            r'FRONTEND_VERSION\s*=\s*"[^"]+"',
-            f'FRONTEND_VERSION = "{new_version}"',
-            content,
-            count=1,
-        )
-        if count > 0:
-            CONSOLE_JS.write_text(new_content, encoding="utf-8")
-            print(f"  [OK] [server/static/js/console.js] FRONTEND_VERSION -> {new_version}")
-        else:
-            print("  [WARN] console.js 未找到 FRONTEND_VERSION 常量, 请人工确认", file=sys.stderr)
-
-    # 5. 更新 modules/00_core.js 前端模块源码版本常量
+    # 4. 更新 modules/00_core.js 前端模块源码版本常量 (前端用它判断后端是否为残留旧进程, 漏更会导致误报)
     core_js = REPO_ROOT / "server" / "static" / "js" / "modules" / "00_core.js"
     if core_js.exists():
         c_content = core_js.read_text(encoding="utf-8")

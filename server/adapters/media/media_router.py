@@ -37,6 +37,40 @@ class MediaDriverRouter(BaseMediaDriver):
         self._sidecar_tasks: set[asyncio.Task] = set()
         self._orchestrator_start_task: Optional[asyncio.Task] = None
         self._batch_prefetcher = None
+        self.execution_mode: str = "PREVIEW"
+        self.is_degraded: bool = False
+        self.degrade_reason: Optional[str] = None
+        self.on_degraded_callback = None
+
+    def set_execution_mode(self, mode: str) -> None:
+        """设置当前运行档位: DEMO / PREVIEW / PILOT / PRODUCTION"""
+        self.execution_mode = (mode or "PREVIEW").upper()
+
+    def set_on_degraded(self, callback) -> None:
+        """设置进入媒体降级状态时的异步/同步回调"""
+        self.on_degraded_callback = callback
+
+    def mark_media_degraded(self, reason: str) -> None:
+        """标记媒体质量降级，并在商业模式下阻断假画面静默混淆"""
+        self.is_degraded = True
+        self.degrade_reason = reason
+        logger.error(
+            "【媒体质量硬阻断】档位=%s，神经渲染异常触发 MEDIA_DEGRADED: %s",
+            self.execution_mode,
+            reason,
+        )
+        if self.on_degraded_callback is not None:
+            try:
+                res = self.on_degraded_callback(reason)
+                if asyncio.iscoroutine(res):
+                    asyncio.create_task(res)
+            except Exception:
+                logger.exception("调用 media degraded 回调异常")
+
+    def reset_media_degraded(self) -> None:
+        """恢复正常渲染状态"""
+        self.is_degraded = False
+        self.degrade_reason = None
 
     def attach_remote(self, driver):
         """挂载端云分离远程渲染驱动 (帧回传优先显示)"""
@@ -57,6 +91,19 @@ class MediaDriverRouter(BaseMediaDriver):
         self.sidecar_driver = None
         self.avatar_orchestrator = None
         self._detach_batch_prefetcher()
+        self._release_frame_bus_ownership()
+
+    def _release_frame_bus_ownership(self) -> None:
+        """云端/远端帧源摘除后立即让出帧源租约，让本地 shadow 无缝接管。
+
+        不主动释放时，shadow 需等待租约自然到期 (0.3s) 才能抢占，云端断流瞬间
+        会出现一段无主画面；主动释放可把热备切换压到一帧以内。
+        """
+        try:
+            from server.core.media.frame_bus import global_frame_bus
+            global_frame_bus.release_ownership()
+        except Exception as exc:
+            logger.debug(f"帧源租约释放跳过: {exc}")
 
     def attach_avatar_orchestrator(
         self,
@@ -140,20 +187,34 @@ class MediaDriverRouter(BaseMediaDriver):
             logger.exception("远端 Avatar Provider 编排器启动失败")
 
     async def _submit_sidecar_frames(self, frame_list) -> None:
+        is_commercial = self.execution_mode in ("PRODUCTION", "PILOT")
         try:
             if self.avatar_orchestrator is not None:
                 outcome = await self.avatar_orchestrator.dispatch_sentence(frame_list)
                 if outcome.fallback_reason:
+                    if is_commercial:
+                        self.mark_media_degraded(f"远端 Provider 调度失败: {outcome.fallback_reason}")
+                        return
                     logger.warning(
                         "远端 Avatar 当前句未接管，继续使用程序化 shadow: %s",
                         outcome.fallback_reason,
                     )
+                else:
+                    if self.is_degraded:
+                        self.reset_media_degraded()
                 return
             if self.sidecar_driver is not None:
                 await self.sidecar_driver.feed_audio_frames(frame_list)
+                if self.is_degraded:
+                    self.reset_media_degraded()
+            elif is_commercial:
+                self.mark_media_degraded("商业模式下未挂载任何有效的神经渲染 Provider")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            if is_commercial:
+                self.mark_media_degraded(f"神经渲染 Provider 事务异常: {exc}")
+                return
             logger.warning("神经渲染 Provider 事务失败，继续使用程序化画面: %s", exc)
 
     async def _cancel_sidecar_tasks(self, timeout: float = 2.0) -> None:
@@ -194,23 +255,25 @@ class MediaDriverRouter(BaseMediaDriver):
         avatar_path: str = "",
         landmarks_path: str = "",
         avatar_asset_dir: str = "",
+        execution_mode: Optional[str] = None,
     ) -> BaseMediaDriver:
         """根据当前直播模式与媒体依赖能力选择渲染驱动 (主播底图与人脸关键点同步下发)
 
         参数职责严格区分：
         - avatar_path: 主播**肖像照片**，用于底图与关键点定位
         - avatar_asset_dir: 主播**切片资产目录**(face_imgs/ + coords.pkl)，神经唇形必需
-
-        保留边界（审计结论）：
-        - MockMediaDriver 不产出任何视频帧，只有音频链路，用于无 GPU 联调。
-          它不会生成"假唇形"，故保留，但**仅允许显式选择**。
-        - 历史缺陷一：`or not CV_AVAILABLE` 会在缺少 numpy/opencv 时静默降级到
-          mock，用户按 local/hybrid（要求真人画面）开播却"成功"得到无画面直播，
-          属于谎报可用。改为如实失败。
-        - 历史缺陷二：切片资产目录从未传入，神经渲染被静默旁路，唇形退化为
-          mouth_open 模拟驱动（表现为"只会微笑"）。此处显式挂载。
+        - execution_mode: 运行档位 (DEMO / PREVIEW / PILOT / PRODUCTION)
         """
+        if execution_mode:
+            self.set_execution_mode(execution_mode)
+
+        is_commercial = self.execution_mode in ("PRODUCTION", "PILOT")
+
         if mode == "D":
+            if is_commercial:
+                raise RuntimeError(
+                    f"当前运行档位为 {self.execution_mode}，严禁使用轻量仿真媒体驱动(Mock/模式D)进行商业直播！必须使用通过门禁验证的神经渲染链路。"
+                )
             # 显式联调模式：仅音频链路，不产出数字人画面
             self.active_driver = global_mock_media_driver
             self.driver_type = "mock"
@@ -232,6 +295,10 @@ class MediaDriverRouter(BaseMediaDriver):
         if avatar_asset_dir:
             global_procedural_avatar_driver.set_avatar_asset(avatar_asset_dir)
         else:
+            if is_commercial:
+                raise RuntimeError(
+                    f"当前运行档位为 {self.execution_mode}，必须提供主播切片资产目录以驱动神经唇形，禁止纯程序化假唇形上线！"
+                )
             logger.warning(
                 "未提供主播切片资产目录 (avatar.avatar_asset_dir)，"
                 "神经唇形无法工作；唇形必须由真实神经渲染产生，不提供模拟驱动回退"
@@ -368,6 +435,24 @@ class MediaDriverRouter(BaseMediaDriver):
         await self._cancel_sidecar_tasks(timeout=0.5)
 
     async def start(self):
+        # 上线诊断 RISK-10 纵深防御：start() 必须独立校验驱动类型。
+        #
+        # select_driver() 本身已是 fail-closed（缺依赖/缺资产直接 raise），
+        # 但构造函数在 CV_AVAILABLE=False 时仍会把 active_driver 初始化为
+        # 零画面的 no-op MockMediaDriver，且历史上 start() 无任何守卫。
+        # 任何绕过 select_driver 的新增/重构路径都会因此静默开出一场
+        # 「有声音、零画面」的直播 —— 后台不报错、前端不告警，属最难发现的
+        # 一类事故。此处硬拦截，使 mock 驱动永远无法进入运行态。
+        if self.driver_type == "mock":
+            self.is_running = False
+            raise RuntimeError(
+                "拒绝启动：当前活动驱动为轻量仿真驱动 (MockMediaDriver)，"
+                "该驱动仅提供音频链路、不产出数字人画面，绝不允许进入运行态。"
+                "请通过 select_driver() 选择真实神经渲染驱动；"
+                "若为未安装 numpy/opencv 导致的可选依赖缺失，请执行 "
+                "pip install numpy opencv-python 后重试。"
+            )
+
         await self.active_driver.start()
         self.is_running = True
         if self.avatar_orchestrator is not None:
@@ -433,10 +518,19 @@ class MediaDriverRouter(BaseMediaDriver):
             "clock_source": clock_status.get("clock_source"),
             "clock_precision": clock_status.get("clock_precision", "none"),
             "av_drift_ms": clock_status.get("drift_ms", 0.0),
+            "av_drift_percentiles": clock_status.get("drift_percentiles", {
+                "p50_ms": 0.0,
+                "p95_ms": 0.0,
+                "p99_ms": 0.0,
+                "sample_count": 0,
+            }),
             "local_preview": bool(status.get("is_running")),
             "virtual_camera": bool((status.get("virtual_cam") or {}).get("is_active")),
             "audio_frame_input": bool(media_contract.get("accepts_audio_frames")),
             "router_accepts_audio_frames": True,
+            "media_degraded": self.is_degraded,
+            "degrade_reason": self.degrade_reason,
+            "execution_mode": self.execution_mode,
         }
         if "capabilities" in status and isinstance(status["capabilities"], dict):
             caps.update(status["capabilities"])
@@ -447,6 +541,10 @@ class MediaDriverRouter(BaseMediaDriver):
             "platform_live": None,
             "validation": "pending_external_acceptance",
         }
+        if self.is_degraded:
+            status["media_degraded"] = True
+            status["degrade_reason"] = self.degrade_reason
+            status["state_detail"] = "MEDIA_DEGRADED"
         if self.avatar_orchestrator is not None:
             provider_snapshot = self.avatar_orchestrator.get_snapshot()
         else:
@@ -510,6 +608,9 @@ class MediaDriverRouter(BaseMediaDriver):
         })
 
     def get_latest_jpeg(self) -> bytes:
+        # 商业生产/试点模式下若已触发 MEDIA_DEGRADED，严禁静默回退程序化假唇形向外推流假动作
+        if self.is_degraded and self.execution_mode in ("PRODUCTION", "PILOT"):
+            return b""
         # v3 Provider 首帧就绪后优先；不可用/断帧时依次回退旧 Remote 与本地 shadow。
         avatar_driver = self._selected_avatar_driver()
         if avatar_driver is not None and getattr(avatar_driver, "has_frames", False):

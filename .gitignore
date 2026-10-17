@@ -46,3 +46,6 @@ apps/desktop-ui/resources/python/
 .opencode_test*
 report.md
 
+# Internal development artifacts (not part of commercial deliverable)
+semantic-review/
+精确定位和改造优化方案.md

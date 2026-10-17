@@ -1,7 +1,10 @@
 -- ============================================================================
 -- AI-LiveStream-Agent 全系统完整数据库初始化脚本 (install.sql)
--- 归档版本：v2.0 (与 server/database/models.py ORM 契约 100% 严格一致)
--- 包含 16 张核心业务与审计流水表，以及默认预设数据。
+-- 归档版本：v3.0 (与 server/database/models.py ORM 契约严格一致)
+-- 包含 18 张表：1 张迁移版本审计基础设施表 + 17 张核心业务与审计流水表，
+-- 以及默认预设数据（动作状态机规则与广告法违禁词种子）。
+-- 运行时增量升级请走 server/database/migrations/ 迁移链（0001-0013），
+-- 本文件仅用于全新建库，不再内嵌历史 ALTER 升级语句以避免双份维护。
 -- ============================================================================
 
 PRAGMA foreign_keys = ON;
@@ -129,6 +132,9 @@ CREATE TABLE IF NOT EXISTS anchor_roles (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (default_voice_id) REFERENCES voice_profiles(id) ON DELETE SET NULL
 );
+-- 全局唯一激活角色约束：任一时刻至多一个角色处于激活态 (与运行时 db.py 建库逻辑一致)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_anchor_roles_single_active
+    ON anchor_roles(is_active) WHERE is_active = 1;
 
 -- 10. 电商商品表 (SKU 货盘与逼单话术资产)
 CREATE TABLE IF NOT EXISTS products (
@@ -148,7 +154,29 @@ CREATE TABLE IF NOT EXISTS products (
     is_active INTEGER DEFAULT 1
 );
 
--- 11. 主播违禁词与合规规则表
+-- 11. 电商商品高精预渲染切片表 (动静分离与批播结合资产库)
+CREATE TABLE IF NOT EXISTS ecommerce_sku_slices (
+    id VARCHAR(64) PRIMARY KEY,
+    product_id VARCHAR(64) NOT NULL,
+    slot_code VARCHAR(32) NOT NULL,
+    slice_type VARCHAR(32) DEFAULT 'main_pitch',
+    script_text TEXT NOT NULL,
+    video_path VARCHAR(512) NOT NULL,
+    audio_path VARCHAR(512) NOT NULL,
+    duration_sec FLOAT NOT NULL,
+    coords_path VARCHAR(512) DEFAULT NULL,
+    loudness_lufs FLOAT DEFAULT -16.0,
+    bg_noise_profile TEXT DEFAULT '{}',
+    render_engine VARCHAR(32) DEFAULT 'latentsync_cloud',
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_ecommerce_sku_slices_product_id ON ecommerce_sku_slices(product_id);
+CREATE INDEX IF NOT EXISTS ix_ecommerce_sku_slices_slot_code ON ecommerce_sku_slices(slot_code);
+
+-- 12. 主播违禁词与合规规则表
 CREATE TABLE IF NOT EXISTS prohibited_words (
     id VARCHAR(64) PRIMARY KEY,
     word VARCHAR(128) UNIQUE NOT NULL,
@@ -162,7 +190,7 @@ CREATE TABLE IF NOT EXISTS prohibited_words (
 );
 CREATE INDEX IF NOT EXISTS ix_prohibited_words_platform ON prohibited_words(platform);
 
--- 12. 违禁词触发审计日志表
+-- 13. 违禁词触发审计日志表
 CREATE TABLE IF NOT EXISTS prohibited_word_logs (
     id VARCHAR(64) PRIMARY KEY,
     session_id VARCHAR(64) DEFAULT NULL,
@@ -174,7 +202,7 @@ CREATE TABLE IF NOT EXISTS prohibited_word_logs (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 13. 直播交互与弹幕审计日志表
+-- 14. 直播交互与弹幕审计日志表
 CREATE TABLE IF NOT EXISTS barrage_logs (
     id VARCHAR(64) PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL,
@@ -190,7 +218,7 @@ CREATE TABLE IF NOT EXISTS barrage_logs (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 14. 本地 RAG 知识库文档分块表
+-- 15. 本地 RAG 知识库文档分块表
 CREATE TABLE IF NOT EXISTS knowledge_chunks (
     id VARCHAR(64) PRIMARY KEY,
     doc_name VARCHAR(256) NOT NULL,
@@ -202,7 +230,7 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
 );
 CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_doc_id ON knowledge_chunks(doc_id);
 
--- 15. 直播场次历史记录表
+-- 16. 直播场次历史记录表
 CREATE TABLE IF NOT EXISTS live_session_records (
     session_id VARCHAR(64) PRIMARY KEY,
     platform VARCHAR(32) DEFAULT 'bilibili',
@@ -227,12 +255,16 @@ CREATE TABLE IF NOT EXISTS live_session_records (
     video_size_bytes BIGINT DEFAULT 0,
     oss_upload_status VARCHAR(32) DEFAULT 'none',
     oss_error_msg TEXT DEFAULT '',
+    execution_mode VARCHAR(32) DEFAULT 'PREVIEW',
+    state_detail VARCHAR(64) DEFAULT 'LOCAL_READY',
+    platform_confirmed INTEGER DEFAULT 0,
+    platform_confirmed_at DATETIME DEFAULT NULL,
     FOREIGN KEY (role_id) REFERENCES anchor_roles(id) ON DELETE SET NULL,
     FOREIGN KEY (voice_id) REFERENCES voice_profiles(id) ON DELETE SET NULL,
     FOREIGN KEY (anchor_id) REFERENCES anchors(id) ON DELETE SET NULL
 );
 
--- 16. 直播成交订单表
+-- 17. 直播成交订单表
 CREATE TABLE IF NOT EXISTS orders (
     id VARCHAR(64) PRIMARY KEY,
     external_id VARCHAR(128) UNIQUE NOT NULL,
@@ -248,12 +280,14 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES live_session_records(session_id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+    CONSTRAINT ck_orders_amount_nonnegative CHECK (amount >= 0),
+    CONSTRAINT ck_orders_quantity_positive CHECK (quantity > 0)
 );
 CREATE INDEX IF NOT EXISTS ix_orders_session_id ON orders(session_id);
 CREATE INDEX IF NOT EXISTS ix_orders_external_id ON orders(external_id);
 
--- 17. 库存变动审计流水表
+-- 18. 库存变动审计流水表
 CREATE TABLE IF NOT EXISTS inventory_movements (
     id VARCHAR(64) PRIMARY KEY,
     order_id VARCHAR(64) NOT NULL,
@@ -293,62 +327,10 @@ VALUES
     ('pw_10', '包胜诉', 'expert', 'expert', 'drop', '', 1);
 
 -- ============================================================================
--- 增量数据库结构升级脚本 (旧库执行升级迁移用)
+-- 旧库升级说明
 -- ============================================================================
--- 若从旧版本数据库升级，请依次执行以下语句：
--- ALTER TABLE voice_profiles ADD COLUMN provider_name VARCHAR(64) DEFAULT '';
--- ALTER TABLE voice_profiles ADD COLUMN voice_type VARCHAR(32) DEFAULT 'preset';
--- ALTER TABLE anchors ADD COLUMN anchor_type VARCHAR(32) DEFAULT 'ecommerce';
--- ALTER TABLE anchors ADD COLUMN avatar_asset_dir VARCHAR(512) DEFAULT '';
--- ALTER TABLE anchors ADD COLUMN source_video VARCHAR(512) DEFAULT '';
--- ALTER TABLE barrage_logs ADD COLUMN is_interrupted INTEGER DEFAULT 0;
--- ALTER TABLE live_session_records ADD COLUMN mode VARCHAR(16) DEFAULT 'B';
--- ALTER TABLE live_session_records ADD COLUMN theme VARCHAR(128) DEFAULT '';
--- ALTER TABLE live_session_records ADD COLUMN role_id VARCHAR(64);
--- ALTER TABLE live_session_records ADD COLUMN product_snapshot_json TEXT DEFAULT '[]';
--- CREATE TABLE IF NOT EXISTS avatar_tasks (
---     id VARCHAR(64) PRIMARY KEY,
---     anchor_id VARCHAR(64) DEFAULT NULL,
---     name VARCHAR(128) NOT NULL,
---     status VARCHAR(32) NOT NULL DEFAULT 'pending',
---     progress INTEGER NOT NULL DEFAULT 0,
---     stage_message VARCHAR(256) DEFAULT '',
---     video_path VARCHAR(512) DEFAULT '',
---     output_dir VARCHAR(512) DEFAULT '',
---     error_message TEXT DEFAULT '',
---     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
---     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
---     FOREIGN KEY (anchor_id) REFERENCES anchors(id) ON DELETE SET NULL
--- );
--- CREATE INDEX IF NOT EXISTS ix_avatar_tasks_anchor_id ON avatar_tasks(anchor_id);
--- CREATE INDEX IF NOT EXISTS ix_avatar_tasks_status ON avatar_tasks(status);
--- CREATE TABLE IF NOT EXISTS avatar_actions (
---     id VARCHAR(64) PRIMARY KEY,
---     anchor_id VARCHAR(64) DEFAULT NULL,
---     action_code INTEGER NOT NULL,
---     action_name VARCHAR(128) NOT NULL,
---     video_path VARCHAR(512) DEFAULT '',
---     frames_dir VARCHAR(512) DEFAULT '',
---     trigger_type VARCHAR(32) DEFAULT 'both',
---     trigger_keywords TEXT DEFAULT '',
---     trigger_events VARCHAR(128) DEFAULT '',
---     duration_sec FLOAT DEFAULT 3.5,
---     priority INTEGER DEFAULT 1,
---     mirror_loop INTEGER DEFAULT 1,
---     is_active INTEGER DEFAULT 1,
---     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
---     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
---     FOREIGN KEY (anchor_id) REFERENCES anchors(id) ON DELETE CASCADE
--- );
--- CREATE INDEX IF NOT EXISTS ix_avatar_actions_anchor_id ON avatar_actions(anchor_id);
--- CREATE INDEX IF NOT EXISTS ix_avatar_actions_action_code ON avatar_actions(action_code);
--- ALTER TABLE prohibited_words ADD COLUMN platform VARCHAR(32) DEFAULT 'all';
--- CREATE INDEX IF NOT EXISTS ix_prohibited_words_platform ON prohibited_words(platform);
--- ALTER TABLE live_session_records ADD COLUMN video_path VARCHAR(512) DEFAULT '';
--- ALTER TABLE live_session_records ADD COLUMN oss_url VARCHAR(1024) DEFAULT '';
--- ALTER TABLE live_session_records ADD COLUMN preview_image_url VARCHAR(1024) DEFAULT '';
--- ALTER TABLE live_session_records ADD COLUMN video_duration_sec FLOAT DEFAULT 0.0;
--- ALTER TABLE live_session_records ADD COLUMN video_size_bytes BIGINT DEFAULT 0;
--- ALTER TABLE live_session_records ADD COLUMN oss_upload_status VARCHAR(32) DEFAULT 'none';
--- ALTER TABLE live_session_records ADD COLUMN oss_error_msg TEXT DEFAULT '';
+-- 若从旧版本数据库升级，请执行 `python launcher.py`（服务启动时会自动按序应用
+-- server/database/migrations/ 中的 0001-0013 增量迁移），或使用
+-- `python scripts/backup_data.py` / `python scripts/restore_data.py` 做快照备份与恢复。
+-- 本文件不再内嵌历史 ALTER 脚本，避免与迁移链双份维护而产生结构漂移。
 

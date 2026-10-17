@@ -1,4 +1,3 @@
-import asyncio
 from typing import AsyncGenerator, Dict, Any
 from server.core.roles.base_role import BaseAnchorRole
 from server.core.llm.client import LLMClient
@@ -54,8 +53,9 @@ class DomainExpertRole(BaseAnchorRole):
     ) -> AsyncGenerator[str, None]:
         if event_type == "gift":
             gift_name = payload.get("gift_name", "心意")
-            yield f"非常感谢【{user_name}】朋友对本场咨询探讨的鼓励与支持。大家有问题可以随时在公屏提出，我们共同探讨交流。"
+            yield f"非常感谢【{user_name}】朋友送出的【{gift_name}】，对本场咨询探讨的鼓励与支持。大家有问题可以随时在公屏提出，我们共同探讨交流。"
             return
+
 
         if event_type == "follow":
             yield f"欢迎【{user_name}】加入我们的行业案例研讨直播间，欢迎随时探讨专业问题。"

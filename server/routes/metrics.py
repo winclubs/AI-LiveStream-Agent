@@ -119,6 +119,11 @@ def _collect_live_metrics() -> dict:
     frame_bus_status = _safe_snapshot("frame_publish_bus", global_frame_bus.get_status)
     av_sync = _safe_snapshot("av_sync_controller", global_av_sync.get_status)
 
+    # 媒体质量看门狗 SLI (真实帧/漂移/LLM/RTMP 遥测，纳入 Prometheus 告警)
+    from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+    watchdog_sli = _safe_snapshot("media_quality_watchdog", global_media_watchdog.get_sli_snapshot)
+    sli_metrics = watchdog_sli.get("sli_metrics", {}) if isinstance(watchdog_sli, dict) else {}
+
     # 进程与系统资源
     process = psutil.Process()
     mem_info = process.memory_info()
@@ -188,6 +193,16 @@ def _collect_live_metrics() -> dict:
         "frame_bus_owner": frame_bus_status.get("frame_owner", ""),
         "frame_bus_frames_published": int(frame_bus_status.get("total_published", 0) or 0),
         "frame_bus_frames_suppressed": int(frame_bus_status.get("frames_suppressed_by_owner", 0) or 0),
+        "quality_effective_fps": float(sli_metrics.get("effective_fps", 0.0) or 0.0),
+        "quality_target_fps": float(sli_metrics.get("target_fps", 0.0) or 0.0),
+        "quality_drop_frame_rate": float(sli_metrics.get("drop_frame_rate", 0.0) or 0.0),
+        "quality_frames_rendered_total": int(sli_metrics.get("total_rendered_frames", 0) or 0),
+        "quality_frames_dropped_total": int(sli_metrics.get("total_dropped_frames", 0) or 0),
+        "quality_av_drift_p95_ms": float(sli_metrics.get("av_sync_drift_p95_ms", 0.0) or 0.0),
+        "quality_llm_first_token_p95_ms": float(sli_metrics.get("llm_first_token_p95_ms", 0.0) or 0.0),
+        "quality_tts_first_frame_p95_ms": float(sli_metrics.get("tts_first_frame_p95_ms", 0.0) or 0.0),
+        "rtmp_reconnect_total": int(sli_metrics.get("rtmp_reconnect_count", 0) or 0),
+        "rtmp_disconnect_total": int(sli_metrics.get("rtmp_disconnect_count", 0) or 0),
         "process_mem_rss_mb": mem_rss_mb,
         "process_cpu_percent": cpu_percent,
         "timestamp": time.time(),
@@ -351,6 +366,42 @@ async def prometheus_metrics():
         "# HELP live_agent_av_sync_drift_locked AVSyncController 漂移是否已锁定",
         "# TYPE live_agent_av_sync_drift_locked gauge",
         f"live_agent_av_sync_drift_locked {m['av_sync_drift_locked']}",
+        "",
+        "# HELP live_agent_quality_effective_fps 媒体质量看门狗实测有效帧率",
+        "# TYPE live_agent_quality_effective_fps gauge",
+        f"live_agent_quality_effective_fps {m['quality_effective_fps']}",
+        "",
+        "# HELP live_agent_quality_drop_frame_rate 帧发布总线抑制导致的丢帧率 (0~1)",
+        "# TYPE live_agent_quality_drop_frame_rate gauge",
+        f"live_agent_quality_drop_frame_rate {m['quality_drop_frame_rate']}",
+        "",
+        "# HELP live_agent_quality_frames_rendered_total 看门狗累计观测到的已渲染帧数",
+        "# TYPE live_agent_quality_frames_rendered_total counter",
+        f"live_agent_quality_frames_rendered_total {m['quality_frames_rendered_total']}",
+        "",
+        "# HELP live_agent_quality_frames_dropped_total 看门狗累计观测到的被抑制帧数",
+        "# TYPE live_agent_quality_frames_dropped_total counter",
+        f"live_agent_quality_frames_dropped_total {m['quality_frames_dropped_total']}",
+        "",
+        "# HELP live_agent_quality_av_drift_p95_ms 看门狗观测的音画漂移 P95 (毫秒)",
+        "# TYPE live_agent_quality_av_drift_p95_ms gauge",
+        f"live_agent_quality_av_drift_p95_ms {m['quality_av_drift_p95_ms']}",
+        "",
+        "# HELP live_agent_quality_llm_first_token_p95_ms 大模型首字延迟 P95 (毫秒)",
+        "# TYPE live_agent_quality_llm_first_token_p95_ms gauge",
+        f"live_agent_quality_llm_first_token_p95_ms {m['quality_llm_first_token_p95_ms']}",
+        "",
+        "# HELP live_agent_quality_tts_first_frame_p95_ms TTS 首帧延迟 P95 (毫秒)",
+        "# TYPE live_agent_quality_tts_first_frame_p95_ms gauge",
+        f"live_agent_quality_tts_first_frame_p95_ms {m['quality_tts_first_frame_p95_ms']}",
+        "",
+        "# HELP live_agent_rtmp_disconnect_total RTMP 断线重连看门狗累计触发次数",
+        "# TYPE live_agent_rtmp_disconnect_total counter",
+        f"live_agent_rtmp_disconnect_total {m['rtmp_disconnect_total']}",
+        "",
+        "# HELP live_agent_rtmp_reconnect_total RTMP 断线重连成功次数",
+        "# TYPE live_agent_rtmp_reconnect_total counter",
+        f"live_agent_rtmp_reconnect_total {m['rtmp_reconnect_total']}",
         "",
         "# HELP live_agent_frame_bus_frames_published_total 帧发布总线实际发布帧数",
         "# TYPE live_agent_frame_bus_frames_published_total counter",

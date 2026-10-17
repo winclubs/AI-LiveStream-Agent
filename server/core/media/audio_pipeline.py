@@ -59,10 +59,6 @@ class FramedAudio:
     def duration_ms(self) -> float:
         return self.total_samples * 1000.0 / self.format.sample_rate
 
-    def to_pcm_bytes(self) -> bytes:
-        return b"".join(frame.data for frame in self.frames)
-
-
 class AudioFramePipeline:
     """将完整音频事务转换为受时长和帧数限制的标准 PCM 帧。"""
 
@@ -200,6 +196,18 @@ class AudioFramePipeline:
                 f"单句音频 {len(samples) / decoded_rate:.2f}s 超过上限 "
                 f"{self.max_duration_seconds}s"
             )
+
+        # 阶段二/五声学工程：实时 TTS 对齐 EBU R128 (-16.0 LUFS) 与舒适底噪，与离线切片保持无感一致
+        try:
+            from server.core.avatar.sku_slice_renderer import (
+                generate_comfort_noise,
+                normalize_loudness_lufs,
+            )
+            norm_samples, _ = normalize_loudness_lufs(samples, target_lufs=-16.0)
+            noise = generate_comfort_noise(len(norm_samples), noise_profile={"noise_floor_db": -50.0})
+            samples = norm_samples + noise
+        except Exception as align_err:
+            logger.debug("实时 TTS 响度与底噪对齐略过，保持原始信号: %s", align_err)
 
         normalized = np.clip(samples, -1.0, 1.0)
         pcm = (normalized * 32767.0).astype("<i2", copy=False).tobytes()

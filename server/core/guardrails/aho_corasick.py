@@ -62,11 +62,11 @@ class ProhibitedWordSanitizer:
         # AC 自动机返回的是 (end_index, value)
         raw_matches = []
         for end_idx, (word, action, replacement, category, role_scope, platform) in self.automaton.iter(text):
-            # 角色作用域过滤：如果是特定角色专有或针对所有角色
-            if role_scope != "all" and current_role != "all" and role_scope != current_role:
+            # 角色作用域过滤：通用规则 (role_scope == 'all') 全局生效；特定角色规则仅在当前主播角色匹配时生效
+            if role_scope != "all" and (current_role == "all" or role_scope != current_role):
                 continue
-            # 平台作用域过滤：如果是特定平台专有或针对所有平台 (如通用规则 all)
-            if platform != "all" and current_platform != "all" and platform != current_platform:
+            # 平台作用域过滤：通用规则 (platform == 'all') 全局生效；特定平台规则仅在当前直播平台匹配时生效
+            if platform != "all" and (current_platform == "all" or platform != current_platform):
                 continue
 
             start_idx = end_idx - len(word) + 1

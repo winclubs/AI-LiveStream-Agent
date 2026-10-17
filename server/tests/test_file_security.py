@@ -2,8 +2,6 @@
 """
 文件上传二进制 Magic Bytes 安全核验与防注入测试套件
 """
-import pytest
-from fastapi import HTTPException
 
 from server.core.security.file_validator import (
     validate_file_content,

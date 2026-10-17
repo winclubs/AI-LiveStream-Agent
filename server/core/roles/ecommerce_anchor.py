@@ -1,4 +1,3 @@
-import asyncio
 from typing import AsyncGenerator, Dict, Any, List
 from server.core.roles.base_role import BaseAnchorRole
 from server.core.llm.client import LLMClient
@@ -79,12 +78,25 @@ class EcommerceAnchorRole(BaseAnchorRole):
         return self.current_state
 
     async def _emit_urgency_pitch(self, current_product, live_context):
-        """URGENCY 逼单高潮：下发优惠券倒计时 + 倒计时催单话术"""
-        title = current_product.get("title", "全场好物") if current_product else "全场好物"
-        price = current_product.get("live_price", 99) if current_product else 99
+        """URGENCY 逼单高潮：下发优惠券倒计时 + 倒计时催单话术 (严格依赖事实校验)"""
+        from server.core.commerce.facts_service import global_product_fact_service
+        fact, err = await global_product_fact_service.get_verified_product(current_product)
+        if not fact:
+            # 事实不可用时禁止编造虚假价格促单
+            prompt_input = "现在是全场福利互动时刻！请组织一段25字的宠粉互动催更话术，引导大家点击右下角小黄车查看正在同步的专享福利，禁止捏造具体金额！"
+            async for chunk in LLMClient.generate_stream(
+                self.system_prompt, prompt_input, history=live_context.get("history"), context=live_context, temperature=0.7
+            ):
+                yield chunk
+            self.current_state = EcommerceState.CAROUSEL
+            self.qa_streak = 0
+            return
+
+        title = fact.title
+        price = fact.live_price
         await global_mcp_tools.call(
             "trigger_onscreen_coupon",
-            sku=current_product.get("sku", "") if current_product else "",
+            sku=fact.sku,
             title=title,
             desc=f"{title}限时专享立减",
             seconds=180,
@@ -108,6 +120,8 @@ class EcommerceAnchorRole(BaseAnchorRole):
         payload: Dict[str, Any],
         live_context: Dict[str, Any]
     ) -> AsyncGenerator[str, None]:
+        from server.core.commerce.facts_service import global_product_fact_service
+
         products: List[Dict[str, Any]] = live_context.get("products", [])
         current_product = products[self.carousel_index] if products else None
 
@@ -125,6 +139,14 @@ class EcommerceAnchorRole(BaseAnchorRole):
         if event_type == "idle_filler":
             state = self.transition("idle_filler", {})
             is_urgency = (state == EcommerceState.URGENCY)
+
+            # 结构化事实门禁校验：若商品不可用或事实服务熔断，严格阻断虚假价格生成
+            fact, fact_err = await global_product_fact_service.get_verified_product(current_product)
+            if not fact:
+                yield "欢迎新进直播间的家人们！小黄车商品信息与专享优惠正在实时同步中，有想看的宝贝随时发弹幕告诉艾米哦！"
+                if products:
+                    self.carousel_index = (self.carousel_index + 1) % len(products)
+                return
 
             # P2-1: 商业化预算熔断与节能冷场判定
             from server.core.llm.budget_manager import get_llm_budget_manager
@@ -147,9 +169,9 @@ class EcommerceAnchorRole(BaseAnchorRole):
                     yield chunk
                 return
 
-            # CAROUSEL 轮播介绍当前主推商品
-            prod_name = current_product.get("title", "限时爆款") if current_product else "精选好货"
-            price = current_product.get("live_price", 99) if current_product else 99
+            # CAROUSEL 轮播介绍当前主推商品 (使用已验证的事实)
+            prod_name = fact.title
+            price = fact.live_price
             prompt_input = f"现在进入直播间日常轮播介绍环节。当前主推商品为【{prod_name}】，专享价只要{price}元。请组织一段30字的激情带货叫卖话术，催促观众去右下角小黄车下单！"
             async for chunk in LLMClient.generate_stream(self.system_prompt, prompt_input, history=live_context.get("history"), context=live_context, temperature=0.8):
                 yield chunk
@@ -167,16 +189,19 @@ class EcommerceAnchorRole(BaseAnchorRole):
                 yield chunk
             return
 
-        # MCP 异步工具并行调用：库存实时查询
+        # MCP 异步工具并行调用：库存实时查询 (事实服务裁决)
         if any(kw in text for kw in ["库存", "有货", "现货", "还有吗"]):
             stock_result = await global_mcp_tools.call(
                 "query_stock",
+                sku=current_product.get("sku", "") if current_product else "",
                 title=current_product.get("title", "") if current_product else ""
             )
-            if stock_result.get("found"):
-                tool_hint = f"【MCP工具实时库存】商品《{stock_result['title']}》当前库存 {stock_result['stock']} 件，请在话术中如实播报库存，严禁夸大。"
+            if stock_result.get("ok") and stock_result.get("found"):
+                tool_hint = f"【MCP工具实时库存】商品《{stock_result['title']}》当前官方核实库存 {stock_result['stock']} 件，请在话术中如实播报库存，严禁夸大。"
+            elif stock_result.get("error") == "FACT_SERVICE_UNAVAILABLE":
+                tool_hint = "【MCP工具提示】当前官方库存事实服务正在维护同步中，必须回复观众'实时库存以小黄车详情为准'，严禁编造任何数字！"
             else:
-                tool_hint = "【MCP工具实时库存】商品库中未查询到该商品，请引导观众咨询客服或查看购物车链接。"
+                tool_hint = "【MCP工具实时库存】商品库中未查询到有效库存信息，请引导观众点击右下角小黄车查看真实详情。"
 
         # MCP 异步工具并行调用：优惠券倒计时下发
         if any(kw in text for kw in ["优惠券", "券", "便宜点", "优惠"]):

@@ -57,6 +57,7 @@ class AssetHealth:
     asset_dir: str = ""
     detect_rate: float = 0.0
     max_consecutive_miss: int = 0
+    sample_step: int = 1        # 抽样复检的步长；>=2 时 max_consecutive_miss 为下界
     total_frames: int = 0
     source: str = ""            # meta / sampled_haar / unavailable
     reason: str = ""
@@ -76,9 +77,10 @@ class AssetHealth:
             return f"资产健康：检出率 {self.detect_rate:.1%}"
         if self.status == STATUS_UNKNOWN:
             return f"资产健康：无法判定（{self.reason}）"
+        bound = "（抽样下界，实际可能更长）" if self.sample_step >= 2 and self.source == "sampled_haar" else ""
         return (
             f"资产不健康：检出率 {self.detect_rate:.1%}"
-            f"（{self.total_frames} 帧，最长连续丢失 {self.max_consecutive_miss} 帧）"
+            f"（{self.total_frames} 帧，最长连续丢失 {self.max_consecutive_miss} 帧{bound}）"
         )
 
     def _classify(self, from_meta: bool) -> None:
@@ -104,8 +106,8 @@ class AssetHealth:
         ]
         if not from_meta:
             self.hints.append(
-                "（本结论基于抽样 Haar 复检，非精确统计；"
-                "可用 python scripts/audit_avatar_assets.py 做全量复核）"
+                "（本结论基于抽样 Haar 复检，非精确统计；连续丢失数为抽样下界，"
+                "实际连续丢失可能更长。可用 python scripts/audit_avatar_assets.py 做全量复核）"
             )
 
 
@@ -124,7 +126,6 @@ def _sample_haar(asset_dir: str, sample: int = DEFAULT_SAMPLE) -> Optional[Dict[
     """抽样 Haar 复检 face_imgs。返回 None 表示无法判定。"""
     try:
         import cv2
-        import numpy as np
     except ImportError:
         return None
 
@@ -161,13 +162,21 @@ def _sample_haar(asset_dir: str, sample: int = DEFAULT_SAMPLE) -> Optional[Dict[
             max_run = max(max_run, run)
 
     # 连续丢失按抽样步长折算回原始帧数
-    scale = step
+    #
+    # 【折算口径修正】：此前用 max_run * step 是**上界外推**，会严重高估——
+    # 例如 3000 帧资产抽样 60 帧 (step=50) 时，仅 1 帧抽样丢失被折算成 50 帧，
+    # 直接超过 MAX_CARRY_FRAMES(5) 判为 UNUSABLE，误拦可用资产（最坏高估 step 倍）。
+    #
+    # 抽样只能确认被检出的那些帧本身丢失，帧间未被抽中的帧状态未知。
+    # 因此这里报告**严格下界**：max_run 本身（抽样序列中连续命中的丢失帧数），
+    # 并把抽样步长写入结果，供上层在需要时自行做保守上界估计。
     return {
         "total": len(faces),
         "sampled": len(picked),
         "detected": detected,
         "rate": detected / max(1, len(picked)),
-        "max_run": max_run * scale,
+        "max_run": max_run,
+        "sample_step": step,
         "judged": True,
     }
 
@@ -218,6 +227,7 @@ def check_asset_health(asset_dir: str, sample: int = DEFAULT_SAMPLE,
     result.source = "sampled_haar"
     result.detect_rate = float(sampled["rate"])
     result.max_consecutive_miss = int(sampled["max_run"])
+    result.sample_step = int(sampled.get("sample_step", 1))
     if not result.total_frames:
         result.total_frames = int(sampled["total"])
     result._classify(from_meta=False)

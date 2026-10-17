@@ -5,7 +5,6 @@
 - 说明：这是确定性的声学特征向量（可用于相似度/校验/驱动参数），
   并非 CosyVoice 神经 Speaker Embedding；接入真实引擎时由引擎覆盖 embedding。
 """
-import io
 import wave
 import logging
 from pathlib import Path

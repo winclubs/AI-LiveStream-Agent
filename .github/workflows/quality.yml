@@ -2,7 +2,16 @@ name: quality
 
 on:
   push:
+    branches: ["**"]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -14,51 +23,133 @@ jobs:
     env:
       PYTHONUTF8: "1"
       LIVE_AGENT_DATA_DIR: ${{ runner.temp }}/ai-live-agent-data
+      # 阻断自动依赖权重/ASR 后台下载，保证 CI 离线可复现
+      LIVE_AGENT_DISABLE_AUTO_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: server/requirements-test.txt
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/desktop-ui/package-lock.json
+
       - name: Install exact test dependencies
         run: python -m pip install -r server/requirements-test.txt
+
       - name: Validate desktop lockfile
         run: npm ci --prefix apps/desktop-ui --ignore-scripts
+
       - name: Validate external Python runtime contract
         run: python scripts/runtime_preflight.py
+
       - name: Python syntax and application import
         run: |
-          python -m compileall -q launcher.py scripts server
+          python -m compileall -q launcher.py scripts server gpu_sidecar
           python -c "from server.app import app; assert app is not None"
+
       - name: Lint with Ruff
         run: |
           python -m pip install ruff
-          python -m ruff check launcher.py scripts server
-      - name: Type check with mypy
+          python -m ruff check launcher.py scripts server gpu_sidecar
+
+      - name: Type check core scheduler with mypy (strict)
         run: |
           python -m pip install mypy
           python -m mypy server/core/queue/priority_queue.py server/core/cpu_worker.py
+
+      # 上线诊断 BLOCKER-4：mypy 原先只覆盖 2 个文件（约占全仓 0.5%），
+      # live.py(4928 行) 的类型回归完全无法被拦截。
+      # pyproject 已按模块配好 mypy override；此处扩大到 API 层、适配器层
+      # 与安全/调度核心，13 个模块已实测零告警。
+      - name: Type check API, adapter and security layers with mypy
+        run: |
+          python -m mypy \
+            server/core/security/auth_policy.py \
+            server/core/security/ws_auth.py \
+            server/core/media/retention.py \
+            server/core/queue/priority_queue.py \
+            server/routes/health.py \
+            server/routes/knowledge.py \
+            server/routes/roles.py \
+            server/routes/guardrails.py \
+            server/routes/ws_live.py \
+            server/routes/products.py \
+            server/routes/avatars.py \
+            server/routes/system.py \
+            server/adapters/danmaku/registry.py
+
       - name: JavaScript syntax
+        shell: bash
         run: |
           node --check apps/desktop-ui/main.js
-          node --check server/static/js/console.js
+          node --check apps/desktop-ui/autoupdate.js
+          node --check apps/desktop-ui/preload.js
+          for f in server/static/js/modules/*.js; do node --check "$f"; done
+
       - name: Collect tests
         run: python -m pytest --collect-only -q server/tests
+
       - name: Test with branch coverage
         run: python -m pytest -q server/tests --cov=server --cov-branch --cov-report=term-missing --cov-report=xml
-      # 根 tests/ 与 server/tests/ 的用例此前从未被任何运行器执行（testpaths 只含
+
+      # tests/ 与 server/tests/ 的用例此前从未被任何运行器执行（testpaths 只含
       # server/tests，JS 仅做 node --check 语法校验）。统一入口补齐执行闭环。
       - name: Root pytest suite (tests/)
         run: python -m pytest -q --no-header tests
+
       - name: Frontend assertion tests
         run: python scripts/run_all_tests.py --js-only
+
+      - name: Desktop release contract
+        run: python -m pytest -q server/tests/test_desktop_release.py
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage-${{ matrix.os }}
           path: coverage.xml
+          if-no-files-found: ignore
+
+  # 上线诊断 RISK-3：2.0.1 交付前需要依赖漏洞扫描。
+  # 与 test job 并行：漏洞属于发布阻断项，不应排在测试之后才暴露。
+  security:
+    name: dependency vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Audit pinned Python runtime dependencies
+        run: |
+          python -m pip install --upgrade pip-audit
+          # -r 锁定版本：审计的必须是实际会随包分发的版本集合
+          # --strict：未修复/无法修复的漏洞直接判失败，不静默放行
+          python -m pip_audit -r server/requirements.txt --strict --progress-spinner off
+
+      - name: Audit desktop npm dependencies
+        run: |
+          npm ci --prefix apps/desktop-ui --ignore-scripts
+          npm audit --prefix apps/desktop-ui --audit-level=high
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          python -m pip install cyclonedx-bom
+          python -m cyclonedx_py requirements server/requirements.txt -o sbom-python.json
+        if: always()
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom
+          path: sbom-python.json
           if-no-files-found: ignore

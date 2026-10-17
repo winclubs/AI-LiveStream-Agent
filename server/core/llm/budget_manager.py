@@ -10,7 +10,7 @@ LLM Token 会话预算熔断控制器与冷场本地话术兜底引擎 (LLMBudge
 import logging
 import os
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger("LiveAgent.LLMBudgetManager")
 

@@ -5,10 +5,9 @@ CosyVoice 真实本地克隆推理后端 (Real Zero-Shot Clone Backend)
 当本地依赖未就绪或显存不足时，提供清晰指引与优雅降级策略。
 """
 import os
-import sys
 import logging
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 
 logger = logging.getLogger("CosyVoice.RealBackend")
 
@@ -86,7 +85,6 @@ async def synthesize_audio(
     # 2. 优雅降级保护：当无本地权重或模型异常时，使用 Edge-TTS 高保真流式输出兜底
     logger.info("CosyVoice 真实后端未满足本地模型加载条件，自动采用极速 Edge-TTS 进行高保真语音兜底输出")
     import edge_tts
-    import io
 
     rate_pct = f"{int(round((float(speed or 1.0) - 1.0) * 100)):+d}%"
     vol_pct = f"{int(round((float(volume or 1.0) - 1.0) * 100)):+d}%"

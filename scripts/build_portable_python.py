@@ -99,7 +99,6 @@ def build_venv_copy() -> bool:
         log(f"venv 创建失败: {ret.stderr}")
         return False
 
-    bin_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
     for item in venv_dir.iterdir():
         if item.name in ("pyvenv.cfg",):
             continue

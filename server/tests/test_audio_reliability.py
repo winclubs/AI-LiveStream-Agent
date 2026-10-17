@@ -194,7 +194,7 @@ def test_virtual_audio_idle_stop_closes_stream_and_shutdown_restarts(monkeypatch
 def test_browser_audio_contract_cancels_delayed_stale_audio():
     root = Path(__file__).parents[2]
     js_modules = (root / "server/static/js/modules").glob("*.js")
-    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules)) + (root / "server/static/js/console.js").read_text(encoding="utf-8")
+    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules))
     assert "pendingAudioTimers" in js
     assert "audioPlaybackGeneration" in js
     assert "clearTimeout(timerId)" in js

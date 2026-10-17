@@ -12,6 +12,25 @@ from server.config import APP_VERSION, DATA_DIR
 _CONFIGURED = False
 
 
+class SafeRotatingFileHandler(RotatingFileHandler):
+    """Windows 下被其他进程占用日志文件时，保留写入而不是打印轮转异常。"""
+
+    def doRollover(self) -> None:
+        try:
+            super().doRollover()
+        except PermissionError:
+            # Windows 不能 rename 被其他进程持有的文件。恢复打开当前文件，
+            # 让日志继续写入；下一次达到阈值时再尝试轮转，避免业务线程受影响。
+            if self.stream is None:
+                self.stream = self._open()
+            if not getattr(self, "_rollover_lock_warning_emitted", False):
+                self._rollover_lock_warning_emitted = True
+                logging.getLogger(__name__).warning(
+                    "日志文件当前被其他进程占用，暂时跳过轮转并继续写入: %s",
+                    self.baseFilename,
+                )
+
+
 class JsonLineFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
@@ -41,7 +60,7 @@ def configure_logging() -> None:
     root = logging.getLogger()
     root.setLevel(level)
     formatter = JsonLineFormatter()
-    file_handler = RotatingFileHandler(
+    file_handler = SafeRotatingFileHandler(
         log_dir / "server.log",
         maxBytes=max_bytes,
         backupCount=backup_count,

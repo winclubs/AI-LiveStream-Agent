@@ -307,7 +307,7 @@ async def clone_voice(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    上传 10~20 秒人声音频样本，针对当前选定的 TTS 引擎（CosyVoice/ElevenLabs/GPT-SoVITS/本地）进行声音克隆
+    上传 10~20 秒人声音频样本，针对当前选定的 TTS 引擎（CosyVoice/ElevenLabs/本地声纹）进行声音克隆
     """
     if not audio_file.filename:
         raise HTTPException(status_code=400, detail="未选择音频文件")
@@ -342,6 +342,9 @@ async def clone_voice(
         except Exception as e:
             logger.warning(f"读取数据库 TTS 配置异常: {e}")
 
+    effective_base_url: str = (base_url or "").strip().rstrip("/")
+    effective_api_key: str = (api_key or "").strip()
+
     voice_id = f"clone_{uuid.uuid4().hex[:8]}"
     ext = Path(audio_file.filename).suffix.lower() or ".wav"
     target_path = VOICES_DIR / f"{voice_id}{ext}"
@@ -360,7 +363,7 @@ async def clone_voice(
         # 1. 联动阿里云百炼 DashScope 进行真正的声音复刻：
         #    本地样本 → 百炼临时 OSS（公网 URL）→ voice-enrollment create_voice(url) → 轮询审核 → SSE 合成试听
         #    CosyVoice 复刻只接受公网可访问的 input.url，base64 仅 Qwen-TTS 支持，此处严格按官方契约执行。
-        if ("cosy" in provider or "aliyun" in provider or "dashscope" in (base_url or "").lower()) and api_key:
+        if ("cosy" in provider or "aliyun" in provider or "dashscope" in effective_base_url.lower()) and effective_api_key:
             enroll_model = (target_model or "cosyvoice-v3.5-flash").strip()
             try:
                 from server.core.audio.clone_preview import (
@@ -370,9 +373,9 @@ async def clone_voice(
                     synthesize_dashscope_cosyvoice as _synth,
                     upload_audio_to_dashscope_tmp as _upload_tmp,
                 )
-                oss_url = await _upload_tmp(api_key.strip(), enroll_model, target_path.as_posix())
+                oss_url = await _upload_tmp(effective_api_key, enroll_model, target_path.as_posix())
                 remote_voice_id = await _create_voice(
-                    base_url, api_key.strip(),
+                    effective_base_url, effective_api_key,
                     audio_url=oss_url, target_model=enroll_model, prefix="cloned",
                 )
                 voice_id = remote_voice_id
@@ -382,7 +385,7 @@ async def clone_voice(
                 voice_status = ""
                 for _ in range(5):
                     try:
-                        voice_status = str((await _query_voice(base_url, api_key.strip(), voice_id)).get("status") or "")
+                        voice_status = str((await _query_voice(effective_base_url, effective_api_key, voice_id)).get("status") or "")
                     except _DCError as qe:
                         logger.warning(f"查询百炼复刻状态异常: {qe.detail}")
                         break
@@ -403,7 +406,7 @@ async def clone_voice(
                     synth_err = ""
                     preview_bytes = b""
                     try:
-                        preview_bytes = await _synth(base_url, api_key.strip(), voice_id, welcome, enroll_model)
+                        preview_bytes = await _synth(effective_base_url, effective_api_key, voice_id, welcome, enroll_model)
                     except _DCError as se:
                         synth_err = se.detail
                     if preview_bytes and len(preview_bytes) > 512:
@@ -482,12 +485,11 @@ async def clone_voice(
                 )
                 if cloned_preview_file.exists() and cloned_preview_file.stat().st_size > 512:
                     dash_preview_ready = True
-                    synth_ok = True
                     engine_message = f"🎉 官方 MOSS-TTS-Nano 端侧零样本声音克隆成功！已精确复刻声线并合成专属试听 (Voice ID: {voice_id})"
             except Exception as e:
                 logger.warning(f"主进程原生 MOSS-TTS-Nano 合成尝试: {e}，尝试外部端点...")
                 # 尝试备用 9880 外部端点
-                moss_endpoint = (base_url or "http://127.0.0.1:9880").strip().rstrip("/")
+                moss_endpoint = (effective_base_url or "http://127.0.0.1:9880").strip().rstrip("/")
                 try:
                     async with httpx.AsyncClient(timeout=8.0) as client:
                         clone_payload = {
@@ -502,7 +504,6 @@ async def clone_voice(
                         if synth_resp.status_code == 200 and len(synth_resp.content) > 512:
                             with open(cloned_preview_file, "wb") as pf:
                                 pf.write(synth_resp.content)
-                            synth_ok = True
                             dash_preview_ready = True
                             engine_message = f"🎉 MOSS-TTS-Nano 端侧 48kHz 零样本声音克隆成功！已合成专属台词试听 (Voice ID: {voice_id})"
                 except Exception as ext_e:
@@ -559,8 +560,6 @@ async def clone_voice(
                 "（缺少有效的 API Key/端点），暂不能用原主播声线试听与开播。"
                 "请配置百炼 Key 后重新克隆，或在百炼控制台复刻后使用右侧「登记已有 Voice-ID」。"
             )
-        elif "sovits" in provider:
-            engine_message = "专属声音样本已就绪！已作为少样本基准音频注入 GPT-SoVITS 引擎。"
         else:
             engine_message = f"专属声音样本已成功入库！已建立【{clean_name}】专属声纹特征档案。"
 

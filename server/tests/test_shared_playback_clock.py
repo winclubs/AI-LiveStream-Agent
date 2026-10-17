@@ -138,7 +138,7 @@ def test_alignment_status_reports_shared_clock_semantics():
     status = clock.get_alignment_status()
     assert status["alignment_mode"] == "shared_monotonic_pts"
     assert status["clock_source"] == "shared_monotonic_pts"
-    assert status["clock_precision"] == "sample_aligned"
+    assert status["clock_precision"] == "monotonic_chunk_estimated"
 
 
 def test_thread_safe_concurrent_stamping():
@@ -298,12 +298,9 @@ def test_action_frame_uses_override_coord_for_lip_render():
     """问题 3: 动作帧经 override_coord 实时裁剪人脸，不再与神经唇形互斥"""
     import numpy as np
 
-    renderer_cls = None
-    try:
-        from server.core.avatar.neural_lip_renderer import NeuralLipRenderer
-        renderer_cls = NeuralLipRenderer
-    except Exception:
-        pytest.skip("NeuralLipRenderer 不可导入")
+    # 断言而非跳过：NeuralLipRenderer 是本仓常驻模块，导入失败属于真实缺陷。
+    # 原实现用 pytest.skip，会让一次导入回归永久静默（上线诊断 RISK-7）。
+    from server.core.avatar.neural_lip_renderer import NeuralLipRenderer
 
     # 构造一个绕过 ONNX 会话的测试替身：仅验证裁剪与坐标路径
     renderer = NeuralLipRenderer.__new__(NeuralLipRenderer)

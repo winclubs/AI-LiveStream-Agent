@@ -136,29 +136,3 @@ def encode_audio_frame(request_id: str, frame: AudioFrame) -> bytes:
         len(frame.data),
     ) + header + frame.data
 
-
-def decode_audio_frame(raw: bytes) -> AliyunBridgeEnvelope:
-    """供 bridge 实现和本地协议验证严格解析输入音频 envelope。"""
-    if not isinstance(raw, bytes) or len(raw) < _PREFIX.size:
-        raise ValueError("bridge envelope 太短")
-    magic, kind, header_len, payload_len = _PREFIX.unpack(raw[: _PREFIX.size])
-    if magic != ENVELOPE_MAGIC or kind != KIND_AUDIO:
-        raise ValueError("bridge envelope magic 或 kind 非法")
-    if header_len <= 0 or header_len > MAX_HEADER_BYTES:
-        raise ValueError("bridge header 长度非法")
-    if payload_len <= 0 or payload_len > MAX_AUDIO_BYTES:
-        raise ValueError("bridge payload 长度非法")
-    expected = _PREFIX.size + header_len + payload_len
-    if len(raw) != expected:
-        raise ValueError("bridge envelope 声明长度与实际长度不一致")
-    try:
-        metadata = json.loads(raw[_PREFIX.size : _PREFIX.size + header_len].decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("bridge header JSON 非法") from exc
-    if not isinstance(metadata, dict):
-        raise ValueError("bridge header 必须是 object")
-    return AliyunBridgeEnvelope(
-        kind=kind,
-        metadata=metadata,
-        payload=raw[-payload_len:],
-    )

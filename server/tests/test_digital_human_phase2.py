@@ -11,19 +11,16 @@
 7. 异常防御性测试 (无效格式拦截、非法视频路径拦截、缺失主播 ID 等)。
 """
 import asyncio
-import os
 import pickle
-import wave
 from pathlib import Path
 import cv2
 import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
 
 from server.app import app
 from server.database.db import AsyncSessionLocal
-from server.database.models import Anchor, Avatar, AvatarTask
+from server.database.models import Anchor, AvatarTask
 from server.core.avatar.task_manager import get_avatar_task_manager
 
 

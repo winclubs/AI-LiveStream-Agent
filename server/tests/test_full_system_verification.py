@@ -554,6 +554,7 @@ def test_11_gpu_and_neural_renderer_selection(client):
 # ===========================================================================
 # 模块 12: TTS配置(3) 语音中心与实时试听
 # ===========================================================================
+@pytest.mark.requires_edge_tts_network
 def test_12_tts_voice_center_configuration(client):
     """
     【模块 12 验证】

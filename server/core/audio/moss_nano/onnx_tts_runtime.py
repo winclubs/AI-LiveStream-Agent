@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
 
 import numpy as np
-import sentencepiece as spm
+
+try:
+    import sentencepiece as spm
+except ImportError:
+    spm = None
 
 APP_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -21,11 +25,7 @@ try:
         OrtCpuRuntime,
         _normalize_sample_mode,
         _resolve_stream_decode_frame_budget,
-        EXECUTION_PROVIDER_CPU,
-        EXECUTION_PROVIDER_CUDA,
         EXECUTION_PROVIDER_AUTO,
-        SAMPLE_MODE_FIXED,
-        SAMPLE_MODE_FULL,
         SAMPLE_MODE_GREEDY,
     )
 except (ImportError, ValueError):
@@ -34,11 +34,7 @@ except (ImportError, ValueError):
         OrtCpuRuntime,
         _normalize_sample_mode,
         _resolve_stream_decode_frame_budget,
-        EXECUTION_PROVIDER_CPU,
-        EXECUTION_PROVIDER_CUDA,
         EXECUTION_PROVIDER_AUTO,
-        SAMPLE_MODE_FIXED,
-        SAMPLE_MODE_FULL,
         SAMPLE_MODE_GREEDY,
     )
 
@@ -328,6 +324,10 @@ class OnnxTtsRuntime(OrtCpuRuntime):
         self.output_dir.mkdir(parents=True, exist_ok=True)
         tokenizer_relative_path = str(self.manifest["model_files"].get("tokenizer_model", "tokenizer.model"))
         tokenizer_path = self.resolve_manifest_relative_path(tokenizer_relative_path)
+        if spm is None:
+            raise RuntimeError(
+                "检测到本地 MOSS-TTS 依赖 sentencepiece 缺失，请执行：pip install sentencepiece huggingface_hub"
+            )
         self.sp_model = spm.SentencePieceProcessor(model_file=str(tokenizer_path))
         self._text_normalizer_manager: WeTextProcessingManager | None = None
 

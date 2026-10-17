@@ -16,10 +16,6 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from server.core.media.sidecar_protocol import (
     PROTOCOL_VERSION,
-    ENVELOPE_MAGIC,
-    KIND_AUDIO,
-    KIND_VIDEO,
-    decode_envelope,
     decode_video_frame,
     encode_audio_frame,
     build_auth_message,

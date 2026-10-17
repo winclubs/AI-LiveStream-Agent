@@ -36,7 +36,7 @@ class CircuitBreakerDanmakuFetcher(BaseDanmakuFetcher):
         on_state_change_callback: Optional[Callable[[str, str], Any]] = None,
         failure_threshold: int = 5,
         recovery_timeout_sec: float = 30.0,
-        enable_mock_fallback: bool = True,
+        enable_mock_fallback: bool = False,
     ):
         super().__init__(room_id=room_id, on_event_callback=on_event_callback)
         self.real_fetcher = real_fetcher

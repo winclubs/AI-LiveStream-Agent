@@ -11,7 +11,6 @@ AI-LiveStream-Agent 模型权重一键下载器
 - BGE-small-zh-v1.5 本地向量检索模型
 """
 
-import os
 import sys
 import shutil
 import argparse

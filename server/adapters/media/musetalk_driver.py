@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import os as _os
 import queue
 import threading
@@ -24,7 +23,6 @@ from server.adapters.media.base_driver import BaseMediaDriver
 from server.core.media.audio_frame import validate_audio_frame_batch
 from server.core.media.virtual_cam import global_virtual_cam
 from server.core.media.av_sync import global_av_sync
-from server.core.media.scene_overlay import compose_scene_overlays, global_scene_overlay_state
 from server.core.media.shared_playback_clock import global_shared_playback_clock
 
 if TYPE_CHECKING:
@@ -88,10 +86,6 @@ class ProceduralAvatarDriver(BaseMediaDriver):
         self._active_sentence: Optional[dict] = None  # 旧诊断/测试兼容视图（队首）
         self._latest_pcm_16k: Optional[np.ndarray] = None
         self._latest_pcm_time: float = 0.0
-
-        # 泊松过程眨眼调度器 (规划 §4.4)
-        from server.core.media.procedural_renderer import MicroExpressionState
-        self.micro_expr = MicroExpressionState()
 
         # 肖像底图与面部关键点参考
         self.base_portrait: Optional[np.ndarray] = None
@@ -826,8 +820,38 @@ class ProceduralAvatarDriver(BaseMediaDriver):
             and getattr(self.lip_renderer, "is_ready", False)
             and getattr(self.lip_renderer, "has_anchor_assets", False)
         )
+        session = getattr(self.lip_renderer, "session", None)
+        providers = []
+        if session is not None:
+            try:
+                providers = list(session.get_providers())
+            except Exception:
+                providers = []
+        gpu_verified = any("cuda" in str(provider).lower() for provider in providers)
+        if neural_lip_active and gpu_verified:
+            status = "available"
+            reason_code = None
+            reason = None
+        elif neural_lip_active:
+            status = "degraded"
+            reason_code = "cpu_execution_provider"
+            reason = "神经模型已加载，但当前未验证 CUDAExecutionProvider"
+        else:
+            status = "unavailable"
+            reason_code = "neural_renderer_not_ready"
+            reason = "神经模型或主播切片资产未就绪"
         return {
             "driver": "procedural_avatar",
+            "available": neural_lip_active,
+            "status": status,
+            "reason_code": reason_code,
+            "reason": reason,
+            "model_key": getattr(self.lip_renderer, "model_key", None),
+            "execution_providers": providers,
+            "gpu_verified": gpu_verified,
+            "anchor_assets_ready": bool(getattr(self.lip_renderer, "has_anchor_assets", False)),
+            "target_fps": self.fps,
+            "resolution": f"{self.width}x{self.height}",
             "capabilities": {
                 "self_contained": True,
                 "neural_lipsync": neural_lip_active,  # 恪守 ADR-16：动态如实声明神经推理模型是否真正就绪
@@ -872,86 +896,3 @@ global_musetalk_driver = global_procedural_avatar_driver
 # 别名兼容定义：保持旧代码与测试导入兼容
 MuseTalkMediaDriver = ProceduralAvatarDriver
 Viseme2DMediaDriver = ProceduralAvatarDriver
-
-
-class Live2DDriver(BaseMediaDriver):
-    """Live2D 驱动标准接口（预留后续里程碑接入 Cubism SDK，目前未实现）"""
-    def __init__(self, model_path: str = ""):
-        super().__init__()
-        self.model_path = model_path
-        self.is_running = False
-
-    def get_capabilities(self) -> dict:
-        return {
-            "driver": "live2d_avatar",
-            "available": False,
-            "experimental": True,
-            "status": "unimplemented",
-            "capabilities": {
-                "neural_lipsync": False,
-                "viseme_lipsync": False,
-                "g2p_aligned": False,
-                "alignment_mode": "none",
-                "shared_playback_clock": False,
-                "hardware_dac_clock": False,
-                "clock_source": None,
-                "clock_precision": "none",
-                "expressions": False,
-                "head_motion": False,
-                "remote_rendering": False,
-                "cubism_sdk": False,
-            }
-        }
-
-    async def feed_audio_chunk(self, audio_bytes: bytes, text_snippet: str = "", **kwargs):
-        raise NotImplementedError("Live2D 驱动尚未接入 Cubism SDK，请使用程序化数字人驱动")
-
-    async def interrupt(self, reason: str = "Barge-in"):
-        pass
-
-    async def start(self):
-        raise NotImplementedError("Live2D 驱动尚未接入运行时，无法启动")
-
-    async def stop(self):
-        self.is_running = False
-
-
-class NeuralLipSyncDriver(BaseMediaDriver):
-    """NeuralLipSync 神经口型驱动标准接口（预留独立 GPU 节点 UNet 权重推理，目前未实现）"""
-    def __init__(self, node_url: str = ""):
-        super().__init__()
-        self.node_url = node_url
-        self.is_running = False
-
-    def get_capabilities(self) -> dict:
-        return {
-            "driver": "neural_lipsync_avatar",
-            "available": False,
-            "experimental": True,
-            "status": "unimplemented",
-            "capabilities": {
-                "neural_lipsync": False,
-                "viseme_lipsync": False,
-                "g2p_aligned": False,
-                "alignment_mode": "none",
-                "shared_playback_clock": False,
-                "hardware_dac_clock": False,
-                "clock_source": None,
-                "clock_precision": "none",
-                "expressions": False,
-                "head_motion": False,
-                "remote_rendering": False,
-            }
-        }
-
-    async def feed_audio_chunk(self, audio_bytes: bytes, text_snippet: str = "", **kwargs):
-        raise NotImplementedError("NeuralLipSync 独立神经口型节点尚未接入，请使用程序化数字人驱动")
-
-    async def interrupt(self, reason: str = "Barge-in"):
-        pass
-
-    async def start(self):
-        raise NotImplementedError("NeuralLipSync 节点尚未就绪，无法启动")
-
-    async def stop(self):
-        self.is_running = False

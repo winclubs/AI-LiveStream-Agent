@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Set, Dict, Optional
+from typing import Set, Dict
 
 logger = logging.getLogger("LiveAgent.WebSocketManager")
 router = APIRouter(tags=["WebSocket 实时推流监控"])
@@ -73,6 +73,9 @@ ws_manager = ConnectionManager()
 
 @router.websocket("/ws/live_control")
 async def websocket_live_control(websocket: WebSocket):
+    from server.core.security.ws_auth import verify_websocket_auth
+    if not await verify_websocket_auth(websocket):
+        return
     await ws_manager.connect(websocket)
     try:
         while True:
@@ -80,7 +83,6 @@ async def websocket_live_control(websocket: WebSocket):
             data = await websocket.receive_text()
             msg = json.loads(data)
             event = msg.get("event")
-            payload = msg.get("payload", {})
 
             if event == "PING":
                 await websocket.send_text(json.dumps({"event": "PONG"}))
@@ -94,16 +96,25 @@ async def websocket_live_control(websocket: WebSocket):
 async def websocket_danmaku_ingest(websocket: WebSocket):
     """
     通用弹幕 WebSocket 接入端点：供本地弹幕中继器/浏览器脚本/第三方弹幕姬推送事件。
-    统一走 global_live_controller.ingest_event 归一化处理。
+    统一进行来源鉴权、滑动窗口频控与 global_live_controller.ingest_event 归一化处理。
     """
+    from server.core.security.ws_auth import verify_websocket_auth, WSRateLimiter
+    if not await verify_websocket_auth(websocket):
+        return
+
     await websocket.accept()
+    rate_limiter = WSRateLimiter(max_requests=50, window_seconds=1.0)
     try:
         while True:
             raw = await websocket.receive_text()
+            if not rate_limiter.allow_request():
+                logger.warning("弹幕中继 WebSocket 频率超限，丢弃高频消息")
+                continue
             try:
                 msg = json.loads(raw)
             except Exception:
                 continue
+
             from server.routes.live import global_live_controller
             if not global_live_controller.is_live:
                 continue

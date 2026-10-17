@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger("LiveAgent.GPUCapability")
 
@@ -207,19 +207,6 @@ def probe_local_gpu(force_refresh: bool = False) -> GpuInfo:
 
     _LOCAL_GPU_CACHE.update(ts=now, data=info)
     return info
-
-
-def detect_gpu_capability(force_refresh: bool = False) -> Dict[str, Any]:
-    """快捷返回规范字典形态的 GPU 探测信息，供语音合成与算力调度器直接消费"""
-    gpu = probe_local_gpu(force_refresh=force_refresh)
-    return {
-        "has_cuda": gpu.cuda_available,
-        "device_name": gpu.gpu_name or "CPU",
-        "gpu_name": gpu.gpu_name or "CPU",
-        "vram_total_gb": gpu.vram_total_gb,
-        "vram_used_gb": gpu.vram_used_gb,
-        "is_low_spec": gpu.is_low_spec,
-    }
 
 
 # -----------------------------------------------------------------------------
@@ -774,6 +761,4 @@ async def evaluate_compute(
         user_message=msg,
         recommended_driver="procedural",
     )
-
-
 

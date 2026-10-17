@@ -123,8 +123,6 @@ def _build_wav2lip_model(generator_dict, device="cpu"):
     这里直接 import 官方 Wav2Lip `models.py`，避免在本脚本里重写网络结构
     （重写极易与官方实现漂移，是这类导出脚本最常见的错误来源）。
     """
-    import torch
-    import torch.nn as nn
 
     # 优先使用本地已 clone 的 Wav2Lip 源码
     candidates = [

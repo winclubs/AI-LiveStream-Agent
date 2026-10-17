@@ -23,7 +23,6 @@ import pickle
 import sys
 
 import cv2
-import numpy as np
 
 MIN_DETECT_RATIO = 0.90
 MAX_CARRY_FRAMES = 5

@@ -1,5 +1,6 @@
 import uuid
 import json
+import logging
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field, model_validator
@@ -7,7 +8,7 @@ from typing import List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from server.database.db import get_db
-from server.database.models import Product
+from server.database.models import Product, SkuSlice
 from server.config import DATA_DIR
 from server.core.resource_limits import (
     MAX_IMAGE_BYTES,
@@ -17,6 +18,7 @@ from server.core.resource_limits import (
     validate_image_budget,
 )
 
+logger = logging.getLogger("LiveAgent.Products")
 router = APIRouter(prefix="/products", tags=["商品管理"])
 
 PRODUCT_IMAGES_DIR = DATA_DIR / "product_images"
@@ -261,3 +263,143 @@ async def delete_product(prod_id: str, db: AsyncSession = Depends(get_db)):
     if global_live_controller.is_live:
         await global_live_controller.reload_runtime_config("products")
     return {"code": 0, "message": "商品已删除", "soft_deleted": False}
+
+
+# ----------------------------------------------------------------------
+# 电商商品高精切片管理与离线渲染控制端点 (动静分离与批播结合架构)
+# ----------------------------------------------------------------------
+class GenerateSlicesRequest(BaseModel):
+    anchor_id: str = Field(min_length=1, max_length=64, description="渲染所用主播形象 ID")
+    voice_profile_id: Optional[str] = Field(default=None, max_length=64, description="音色档案 ID (可选)")
+
+
+class GenerateSingleSliceRequest(BaseModel):
+    anchor_id: str = Field(min_length=1, max_length=64, description="渲染所用主播形象 ID")
+    slot_code: str = Field(min_length=1, max_length=32, description="切片插槽代号，如 intro/selling_point_1/coupon/urgency")
+    script_text: str = Field(min_length=1, max_length=1000, description="对应商品台词文案")
+    slice_type: Optional[str] = Field(default="main_pitch", max_length=32, description="切片类型")
+    voice_profile_id: Optional[str] = Field(default=None, max_length=64, description="音色档案 ID (可选)")
+
+
+@router.get("/{prod_id}/slices")
+async def list_product_slices(prod_id: str, db: AsyncSession = Depends(get_db)):
+    """查询指定商品的预渲染高精切片资产清单与就绪状态"""
+    product = await db.get(Product, prod_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="商品不存在")
+
+    res = await db.execute(
+        select(SkuSlice)
+        .where(SkuSlice.product_id == prod_id, SkuSlice.is_active == 1)
+        .order_by(SkuSlice.created_at.asc())
+    )
+    slices = res.scalars().all()
+    return {
+        "code": 0,
+        "product_id": prod_id,
+        "sku_code": product.sku_code,
+        "total": len(slices),
+        "data": [
+            {
+                "id": s.id,
+                "slot_code": s.slot_code,
+                "slice_type": s.slice_type,
+                "script_text": s.script_text,
+                "video_path": s.video_path,
+                "audio_path": s.audio_path,
+                "duration_sec": s.duration_sec,
+                "loudness_lufs": s.loudness_lufs,
+                "render_engine": s.render_engine,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in slices
+        ],
+    }
+
+
+@router.post("/{prod_id}/slices/generate")
+async def generate_product_slices(
+    prod_id: str,
+    req: GenerateSlicesRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """一键触发该 SKU 标准切片全集（intro, selling_point_1, coupon, faq_size, urgency）批量离线渲染"""
+    product = await db.get(Product, prod_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="商品不存在")
+
+    from server.core.avatar.sku_slice_renderer import SkuSliceRenderer
+    renderer = SkuSliceRenderer()
+
+    try:
+        created_slices = await renderer.render_sku_standard_suite(
+            product_id=prod_id,
+            anchor_id=req.anchor_id,
+            voice_profile_id=req.voice_profile_id,
+        )
+        return {
+            "code": 0,
+            "message": f"成功为【{product.title}】生成 {len(created_slices)} 个高精切片",
+            "data": [
+                {
+                    "id": s.id,
+                    "slot_code": s.slot_code,
+                    "duration_sec": s.duration_sec,
+                    "loudness_lufs": s.loudness_lufs,
+                }
+                for s in created_slices
+            ],
+        }
+    except Exception as e:
+        logger.error(f"批量生成商品切片失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"切片批量渲染失败: {str(e)}")
+
+
+@router.post("/{prod_id}/slices/single")
+async def generate_single_product_slice(
+    prod_id: str,
+    req: GenerateSingleSliceRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """生成指定插槽的单个切片"""
+    product = await db.get(Product, prod_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="商品不存在")
+
+    from server.core.avatar.sku_slice_renderer import SkuSliceRenderer
+    renderer = SkuSliceRenderer()
+
+    try:
+        slice_item = await renderer.render_single_slice(
+            product_id=prod_id,
+            slot_code=req.slot_code,
+            script_text=req.script_text,
+            anchor_id=req.anchor_id,
+            voice_profile_id=req.voice_profile_id,
+            slice_type=req.slice_type or "main_pitch",
+        )
+        return {
+            "code": 0,
+            "message": f"插槽【{req.slot_code}】切片生成成功",
+            "data": {
+                "id": slice_item.id,
+                "slot_code": slice_item.slot_code,
+                "duration_sec": slice_item.duration_sec,
+                "loudness_lufs": slice_item.loudness_lufs,
+            },
+        }
+    except Exception as e:
+        logger.error(f"生成单个切片失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"切片渲染失败: {str(e)}")
+
+
+@router.delete("/slices/{slice_id}")
+async def delete_product_slice(slice_id: str, db: AsyncSession = Depends(get_db)):
+    """删除指定的商品切片资产"""
+    slice_item = await db.get(SkuSlice, slice_id)
+    if not slice_item:
+        raise HTTPException(status_code=404, detail="切片不存在")
+
+    await db.delete(slice_item)
+    await db.commit()
+    return {"code": 0, "message": f"切片 {slice_id} 已删除"}

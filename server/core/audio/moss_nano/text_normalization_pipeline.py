@@ -6,9 +6,7 @@ MOSS-TTS 文本规范化轻量适配器
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
-from pathlib import Path
 
 try:
     from .tts_robust_normalizer_single_script import normalize_tts_text

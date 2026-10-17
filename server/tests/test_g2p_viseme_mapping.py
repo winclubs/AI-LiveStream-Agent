@@ -8,7 +8,6 @@ g2p viseme 映射与时长分配自动化验收测试套件 (P0-3)
 - 文本「八百万」中 b 的闭合帧 >= 2 帧且连续
 - 非对称滤波 attack/release 动态响应
 """
-import pytest
 from server.core.media.g2p_viseme import (
     _ALVEOLAR_CONSONANTS,
     _DURATION_WEIGHT,

@@ -2,7 +2,6 @@
 """
 MOSS-TTS-Nano 媒体驱动与端侧零样本语音驱动测试套件
 """
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from server.adapters.media.moss_driver import MossTTSMediaDriver

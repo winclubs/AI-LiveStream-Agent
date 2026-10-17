@@ -3,7 +3,6 @@
 单元测试：OBS 虚拟摄像头输出与云端渲染帧画面接管联调 (任务 1.4)
 """
 import numpy as np
-import pytest
 
 from server.core.media.virtual_cam import VirtualCameraService, letterbox_frame
 

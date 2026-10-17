@@ -31,7 +31,7 @@ def test_console_html_contains_all_tabs_and_components(client):
         assert tab in html, f"控制台页面缺失重要标签页组件标记: {tab}"
 
     # 验证核心 JS 控制器与样式文件已正确引用
-    assert "console.js" in html
+    assert "modules/00_core.js" in html
 
 
 def test_metrics_and_health_summary_endpoints(client):

@@ -1,6 +1,5 @@
 import re
-import math
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict
 
 # 标准 Viseme 参数对照表 (mouth_open: 开合度 0.0~1.0, mouth_form: 唇形 -1.0圆唇 ~ +1.0扁平)
 # 标准 Viseme 参数对照表 (mouth_open: 开合度 0.0~1.0, mouth_form: 唇形 -1.0圆唇 ~ +1.0扁平, protrude: 噘唇/前伸度 0.0~1.0)

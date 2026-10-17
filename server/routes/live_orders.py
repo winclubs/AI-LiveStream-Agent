@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from server.core.commerce.order_transitions import apply_cancel, apply_refund
 from server.database.db import get_db
 from server.database.models import AppSetting, Product
 
@@ -166,25 +167,18 @@ async def list_orders(session_id: Optional[str] = None, db: AsyncSession = Depen
 async def cancel_order(order_id: str, db: AsyncSession = Depends(get_db)):
 
     from server.routes.live import _refresh_order_stats
-    from server.database.models import InventoryMovement, Order
+    from server.database.models import Order
     order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在")
     if order.status != "completed":
         return {"code": 0, "message": "订单已处理", "data": _order_payload(order)}
-    result = await db.execute(
-        update(Order).where(Order.id == order_id, Order.status == "completed").values(status="cancelled")
-    )
-    if getattr(result, "rowcount", 0) != 1:
-        await db.rollback()
+
+    # 状态推进收敛到单一事实来源（上线诊断 BLOCKER-2）：与平台 Webhook 回调
+    # 共用同一状态机，杜绝「回调路径回补两次、REST 路径回补一次」的强度差。
+    outcome = await apply_cancel(db, order, movement_reason="cancel")
+    if outcome == "CONFLICT":
         raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
-    await db.execute(
-        update(Product).where(Product.id == order.product_id).values(current_stock=Product.current_stock + order.quantity)
-    )
-    db.add(InventoryMovement(
-        id=f"mov_{uuid.uuid4().hex[:12]}", order_id=order.id,
-        product_id=order.product_id, quantity_delta=order.quantity, reason="cancel"
-    ))
     await db.commit()
     await db.refresh(order)
     await _refresh_order_stats(db, str(order.session_id))
@@ -195,7 +189,7 @@ async def cancel_order(order_id: str, db: AsyncSession = Depends(get_db)):
 async def refund_order(order_id: str, req: RefundRequest, db: AsyncSession = Depends(get_db)):
 
     from server.routes.live import _refresh_order_stats
-    from server.database.models import InventoryMovement, Order
+    from server.database.models import Order
     order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在")
@@ -204,22 +198,10 @@ async def refund_order(order_id: str, req: RefundRequest, db: AsyncSession = Dep
     refund_amount = req.amount if req.amount is not None else order.amount
     if abs(refund_amount - order.amount) > 0.005:
         raise HTTPException(status_code=400, detail="当前版本仅支持整单退款")
-    result = await db.execute(
-        update(Order)
-        .where(Order.id == order_id, Order.status == "completed")
-        .values(status="refunded", refund_amount=refund_amount)
-        .execution_options(synchronize_session=False)
-    )
-    if getattr(result, "rowcount", 0) != 1:
-        await db.rollback()
+
+    outcome = await apply_refund(db, order, refund_amount=refund_amount, movement_reason="refund")
+    if outcome == "CONFLICT":
         raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
-    await db.execute(
-        update(Product).where(Product.id == order.product_id).values(current_stock=Product.current_stock + order.quantity)
-    )
-    db.add(InventoryMovement(
-        id=f"mov_{uuid.uuid4().hex[:12]}", order_id=order.id,
-        product_id=order.product_id, quantity_delta=order.quantity, reason="refund"
-    ))
     await db.commit()
     await db.refresh(order)
     await _refresh_order_stats(db, str(order.session_id))

@@ -72,7 +72,7 @@ def test_live_status_distinguishes_local_source_from_external_publish():
 def test_console_uses_local_source_wording():
     root = Path(__file__).parents[2]
     js_modules = (root / "server/static/js/modules").glob("*.js")
-    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules)) + (root / "server/static/js/console.js").read_text(encoding="utf-8")
+    js = "".join(f.read_text(encoding="utf-8") for f in sorted(js_modules))
     html = (root / "server/static/index.html").read_text(encoding="utf-8")
     assert "正在直播推流中" not in js
     assert "一键开播推流" not in js

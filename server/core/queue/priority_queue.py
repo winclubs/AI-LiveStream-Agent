@@ -86,6 +86,11 @@ class PriorityBargeInQueue:
         self.dropped_p2_total = 0
         self.dropped_p3_total = 0
         self.event_expired_total = 0
+        self.accepted_total = 0
+        self.rejected_total = 0
+        self.evicted_total = 0
+        self.rejected_by_reason: Dict[str, int] = {}
+        self.accepted_by_priority: Dict[int, int] = {0: 0, 1: 0, 2: 0, 3: 0}
         self.hard_maxsize = self.maxsize + self.p0_maxsize
         self.last_put_result: Optional[QueuePutResult] = None
 
@@ -105,6 +110,7 @@ class PriorityBargeInQueue:
             self.dropped_p3_total += 1
         elif target_priority == 2:
             self.dropped_p2_total += 1
+        self.evicted_total += 1
         return oldest
 
     async def put(
@@ -135,6 +141,13 @@ class PriorityBargeInQueue:
 
         def _ret(res: QueuePutResult):
             self.last_put_result = res
+            if res.accepted:
+                self.accepted_total += 1
+                self.accepted_by_priority[priority] = self.accepted_by_priority.get(priority, 0) + 1
+            else:
+                self.rejected_total += 1
+                reason = res.reason or "unknown"
+                self.rejected_by_reason[reason] = self.rejected_by_reason.get(reason, 0) + 1
             return res if as_result else res.accepted
 
         def _accepted_result(dropped_item: Optional[LiveEventItem] = None) -> QueuePutResult:
@@ -245,11 +258,22 @@ class PriorityBargeInQueue:
         return self._queue.qsize()
 
     def get_stats(self) -> dict:
+        underlying = getattr(self._queue, "_queue", [])
+        depth_by_priority = {priority: 0 for priority in range(4)}
+        for item in underlying:
+            if item.priority in depth_by_priority:
+                depth_by_priority[item.priority] += 1
         return {
             "queue_depth": self._queue.qsize(),
+            "queue_depth_by_priority": depth_by_priority,
             "dropped_p2_total": self.dropped_p2_total,
             "dropped_p3_total": self.dropped_p3_total,
             "event_expired_total": self.event_expired_total,
+            "accepted_total": self.accepted_total,
+            "accepted_by_priority": dict(self.accepted_by_priority),
+            "rejected_total": self.rejected_total,
+            "rejected_by_reason": dict(self.rejected_by_reason),
+            "evicted_total": self.evicted_total,
             "hard_maxsize": self.hard_maxsize,
         }
 

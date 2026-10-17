@@ -12,7 +12,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Callable, Coroutine, Sequence
+from typing import Any, Sequence
 
 from server.adapters.media.avatar_provider import AvatarRenderMode, ProviderRenderResult, RemoteAvatarProvider
 from server.core.media.audio_frame import AudioFrame

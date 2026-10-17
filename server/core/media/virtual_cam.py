@@ -4,10 +4,8 @@
 若未安装 pyvirtualcam 驱动或环境不可用，自动平滑软降级，不阻断主链路
 """
 import logging
-import asyncio
 import threading
 import time
-from typing import Optional, Tuple
 
 try:
     import numpy as np

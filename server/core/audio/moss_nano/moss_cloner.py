@@ -15,12 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import shutil
 import subprocess
 import threading
 from pathlib import Path
-from typing import Optional, Union, Dict, Any, List
+from typing import Optional, Union, Dict, Any
 
 logger = logging.getLogger("LiveAgent.MossNanoCloner")
 
@@ -69,30 +68,6 @@ class MossNanoCloner:
                     raise RuntimeError(f"加载 MOSS-TTS-Nano 官方模型失败: {e}")
 
         return MossNanoCloner._runtime
-
-    def get_builtin_voices(self) -> List[Dict[str, Any]]:
-        """获取官方内置声线清单"""
-        try:
-            runtime = self._get_runtime()
-            manifest = getattr(runtime, "manifest", {}) or {}
-            builtin = manifest.get("builtin_voices", [])
-            results = []
-            for item in builtin:
-                results.append({
-                    "id": item.get("voice"),
-                    "name": item.get("display_name", item.get("voice")),
-                    "gender": item.get("gender", "neutral"),
-                    "group": item.get("group", "Standard")
-                })
-            return results
-        except Exception as e:
-            logger.warning(f"获取 MOSS-TTS 内置音色列表失败: {e}")
-            return [
-                {"id": "Xiaoyu", "name": "官方清亮女主播 (Xiaoyu)", "gender": "female", "group": "Chinese Female"},
-                {"id": "Junhao", "name": "官方阳光男主播 (Junhao)", "gender": "male", "group": "Chinese Male"},
-                {"id": "Yuewen", "name": "官方沉稳女主播 (Yuewen)", "gender": "female", "group": "Chinese Female"},
-                {"id": "Weiguo", "name": "官方磁性男主播 (Weiguo)", "gender": "male", "group": "Chinese Male"},
-            ]
 
     def _apply_audio_effects(
         self,

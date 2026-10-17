@@ -4,7 +4,6 @@
 从国内镜像下载 MOSS-TTS-Nano 官方 ONNX 权重文件
 """
 import os
-import sys
 from pathlib import Path
 
 # 强制使用国内镜像

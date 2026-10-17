@@ -1,9 +1,8 @@
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from server.core.media.g2p_viseme import G2PVisemeTimeline, text_to_viseme_sequence, VISEME_MAP
-from server.adapters.media.musetalk_driver import ProceduralAvatarDriver, Live2DDriver, NeuralLipSyncDriver
+from server.core.media.g2p_viseme import G2PVisemeTimeline, text_to_viseme_sequence
+from server.adapters.media.musetalk_driver import ProceduralAvatarDriver
 from server.routes.live import LiveSessionController, _build_external_publish_status, _stop_live_unlocked
 
 
@@ -39,19 +38,6 @@ def test_avatar_driver_capabilities():
     assert caps["capabilities"]["g2p_aligned"] is False
     assert caps["capabilities"]["alignment_mode"] == "heuristic_uniform"
 
-    live2d = Live2DDriver()
-    l2d_caps = live2d.get_capabilities()
-    assert l2d_caps["driver"] == "live2d_avatar"
-    assert l2d_caps["available"] is False
-    assert l2d_caps["capabilities"]["neural_lipsync"] is False
-
-    neural = NeuralLipSyncDriver()
-    neural_caps = neural.get_capabilities()
-    assert neural_caps["driver"] == "neural_lipsync_avatar"
-    assert neural_caps["available"] is False
-    assert neural_caps["capabilities"]["neural_lipsync"] is False
-
-
 def test_fail_safe_closure_cleanup_and_context():
     """验证 stop() 的闭包 Fail-Safe 清理机制与 products 基础上下文保留"""
     async def _run():
@@ -61,7 +47,7 @@ def test_fail_safe_closure_cleanup_and_context():
         controller.live_context = {"products": [{"id": 1, "name": "测试商品"}]}
 
         # 执行 stop 流程
-        errors = await controller.stop()
+        await controller.stop()
         assert controller.is_live is False
         assert controller.session_id is None
         # 验证 products 字段依然存在，绝不被破坏

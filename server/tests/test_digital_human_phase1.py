@@ -14,14 +14,9 @@ from httpx import AsyncClient, ASGITransport
 
 from server.app import app
 from server.core.avatar import (
-    BaseAvatarDriver,
     AvatarDriverFactory,
-    get_active_avatar_driver,
     set_active_avatar_driver,
-    Procedural2DDriver,
     MockAvatarDriver,
-    LocalLiveTalkingDriver,
-    CloudSidecarDriver,
 )
 
 

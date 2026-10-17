@@ -4,14 +4,13 @@
 """
 import asyncio
 import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select, update
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.core.media.oss_uploader import global_oss_uploader

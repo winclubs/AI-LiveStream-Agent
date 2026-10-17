@@ -3,12 +3,10 @@
 单元测试：发音韵律拟人化微停顿与语气词注入验证 (任务 2.4)
 """
 import random
-import pytest
 
 from server.core.guardrails.humanizer import (
     humanize_text,
     inject_human_pauses,
-    inject_conversational_fillers,
     jitter_speed,
 )
 

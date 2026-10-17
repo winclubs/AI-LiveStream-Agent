@@ -19,6 +19,8 @@ from typing import Any, Dict, Optional, Tuple
 import cv2
 import numpy as np
 
+from server.core.media.dsp import resample_s16le
+
 logger = logging.getLogger("LiveAgent.WebRTCStreamer")
 
 # 依赖安全网软降级机制
@@ -50,26 +52,6 @@ _audio_lock = asyncio.Lock()
 _input_sample_rate: int = 48000
 
 
-def _resample_s16le(pcm_bytes: bytes, from_rate: int, to_rate: int) -> bytes:
-    """线性插值重采样 s16le 单声道 PCM；同速率时原样返回。"""
-    if not pcm_bytes or from_rate <= 0 or to_rate <= 0:
-        return pcm_bytes
-    if from_rate == to_rate:
-        return pcm_bytes
-    try:
-        samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32)
-    except Exception:
-        return pcm_bytes
-    if samples.size == 0:
-        return pcm_bytes
-    # 线性插值：按采样比缩放采样点数，保持时长一致
-    ratio = to_rate / from_rate
-    out_len = max(1, int(round(samples.size * ratio)))
-    indices = np.linspace(0, samples.size - 1, out_len, dtype=np.float32)
-    resampled = np.interp(indices, np.arange(samples.size, dtype=np.float32), samples)
-    return resampled.astype(np.int16).tobytes()
-
-
 def set_latest_avatar_frame(frame: np.ndarray):
     """全局注入最新渲染的数字人画面帧 (BGR 或 RGB)"""
     global _latest_frame, _latest_frame_time
@@ -89,7 +71,7 @@ def push_avatar_audio_pcm(pcm_bytes: bytes, sample_rate: int = 48000):
         if len(_audio_buffer) > 480000:
             _audio_buffer = _audio_buffer[-240000:]
         _input_sample_rate = int(sample_rate) if sample_rate and sample_rate > 0 else 48000
-        resampled = _resample_s16le(pcm_bytes, _input_sample_rate, 48000)
+        resampled = resample_s16le(pcm_bytes, _input_sample_rate, 48000)
         _audio_buffer.extend(resampled)
 
 

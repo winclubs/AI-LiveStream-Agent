@@ -12,7 +12,7 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union, overload
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, overload
 
 import cv2
 import numpy as np
@@ -36,9 +36,24 @@ else:
 
 
 class MelFeatureExtractor:
-    """旧版音频 Mel 频谱提取器 (保留用于回退与 A/B 对比)"""
+    """[已废弃] 旧版音频 Mel 频谱提取器
+
+    生产链路已全面切换到 LatentSyncMelExtractor（Slaney mel 刻度 + 波形预加重 +
+    20*log10 + 官方仿射归一化）。本类保留**仅供历史回归测试与 A/B 归因对比**，
+    其实现（HTK mel 刻度、np.log 幅度、无预加重）与新提取器特征分布完全不同，
+    误用会导致唇形质量退化。生产代码不得引用，新代码请使用 LatentSyncMelExtractor。
+    """
 
     def __init__(self, sample_rate: int = 16000, n_fft: int = 800, hop_length: int = 200, n_mels: int = 80):
+        import warnings
+
+        warnings.warn(
+            "MelFeatureExtractor 已废弃，其特征分布与生产链路的 LatentSyncMelExtractor"
+            " 完全不同（HTK 刻度/无预加重/np.log），误用会导致唇形质量退化。"
+            " 请改用 LatentSyncMelExtractor（别名 Wav2LipMelExtractor）。",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.sample_rate = sample_rate
         self.n_fft = n_fft
         self.hop_length = hop_length
@@ -309,6 +324,20 @@ class NeuralLipRenderer:
         self.has_anchor_assets: bool = False
 
         self._init_session(custom_onnx_path)
+
+    @property
+    def engine_architecture(self) -> str:
+        """反映当前真实的神经唇形模型架构 (诚实透明，区分极速实时 ONNX 与云端扩散 UNet3D)"""
+        if getattr(self, "model_key", "") == "latentsync_diffusion":
+            return "latentsync_unet3d_diffusion"
+        return "wav2lip_256_onnx"
+
+    @property
+    def display_name(self) -> str:
+        """模型展示名称 (用于遥测指标与运维诊断)"""
+        if self.engine_architecture == "latentsync_unet3d_diffusion":
+            return "LatentSync UNet3D 扩散生成模型 (云端 GPU 专属)"
+        return "Wav2Lip-256 高性能神经唇形模型 (实时极速)"
 
     @property
     def supports_temporal(self) -> bool:

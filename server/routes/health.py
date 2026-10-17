@@ -8,7 +8,9 @@ router = APIRouter(tags=["健康探针"])
 
 
 def _response(ok: bool, probe: str, details: dict | None = None) -> JSONResponse:
-    payload = {
+    # 显式标注为 dict[str, object]：初值推断为 dict[str, str | None]，
+    # 后续塞入 details(嵌套 dict) 会被 mypy 判为类型不兼容。
+    payload: dict[str, object] = {
         "status": "ok" if ok else "unavailable",
         "probe": probe,
         "phase": health_state.phase,

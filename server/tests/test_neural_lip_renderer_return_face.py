@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """NeuralLipRenderer.return_face 契约测试"""
 import numpy as np
-import pytest
 
 
 class _FakeSession:

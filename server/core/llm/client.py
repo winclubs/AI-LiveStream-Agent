@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import AsyncGenerator, Optional, Dict, Any
 import httpx
 from sqlalchemy import select
@@ -99,7 +100,7 @@ class LLMClient:
         prompt_caching = bool(extras.get("prompt_caching"))
 
         # P2-1: 会话 Token 预算超额熔断拦截
-        from server.core.llm.budget_manager import get_llm_budget_manager, estimate_tokens
+        from server.core.llm.budget_manager import get_llm_budget_manager
         budget_mgr = get_llm_budget_manager()
         if budget_mgr.is_budget_exceeded():
             logger.warning(
@@ -177,10 +178,13 @@ class LLMClient:
 
                 logger.info(f"正在调用 LLM 大脑流式思考: provider={provider}, model={model}, endpoint={endpoint}")
 
+                started_at = time.monotonic()
+
                 async with httpx.AsyncClient(timeout=15.0) as client:
                     async with client.stream("POST", endpoint, headers=headers, json=payload) as response:
                         if response.status_code == 200:
                             yielded_any = False
+                            first_token_reported = False
                             async for line in response.aiter_lines():
                                 if not line:
                                     continue
@@ -196,6 +200,9 @@ class LLMClient:
                                             content = delta.get("content", "")
                                             if content:
                                                 yielded_any = True
+                                                if not first_token_reported:
+                                                    first_token_reported = True
+                                                    cls._report_llm_first_token(started_at)
                                                 output_parts.append(content)
                                                 yield content
                                     except Exception:
@@ -233,6 +240,18 @@ class LLMClient:
         # 模拟自然流式切分
         for i in range(0, len(fallback_reply), 3):
             yield fallback_reply[i:i+3]
+
+    @staticmethod
+    def _report_llm_first_token(started_at: float) -> None:
+        """把实测首字延迟上报媒体质量看门狗，供 7x24 无人值守的 LLM 链路 SLI 使用。
+
+        任何上报异常都不得影响主生成链路。
+        """
+        try:
+            from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+            global_media_watchdog.record_llm_latency((time.monotonic() - started_at) * 1000.0)
+        except Exception:
+            pass
 
     @staticmethod
     def _record_budget_usage(budget_mgr, prompt_text: str, completion_text: str, user_content: str) -> None:

@@ -13,17 +13,15 @@ import asyncio
 import datetime
 import json
 import logging
-import os
 import pickle
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from server.config import DATA_DIR
 from server.database.db import AsyncSessionLocal
@@ -233,7 +231,6 @@ class AvatarTaskManager:
             raise FileNotFoundError(f"视频文件不存在: {video_path}")
 
         meta = await asyncio.to_thread(self._inspect_video, video_path)
-        fps = meta.get("fps", 25.0)
         total_video_frames = meta.get("total_frames", 0)
         width = meta.get("width", 1280)
         height = meta.get("height", 720)
@@ -315,8 +312,9 @@ class AvatarTaskManager:
             pickle.dump(render_boxes, f)
 
         landmarks_summary["render_boxes_count"] = len(render_boxes)
-        landmarks_summary["has_render_boxes"] = True
-        # 显式声明消费状态，避免后续误判为已生效
+        # 诚实命名：render_boxes.pkl 目前无任何渲染消费端，仅是 MuseTalk 待接入的预留产物。
+        # 严禁使用 has_render_boxes 这种会被误读为「几何口径已统一」的布尔标记。
+        landmarks_summary["render_boxes_pending"] = True
         landmarks_summary["render_boxes_consumed"] = False
         landmarks_json_path = out_path / "landmarks.json"
         landmarks_json_path.write_text(
@@ -410,7 +408,9 @@ class AvatarTaskManager:
             "detection_rate": landmarks_summary.get("detection_rate", 1.0),
             "max_carry_run": landmarks_summary.get("max_carry_run", 0),
             "detection_passed": landmarks_summary.get("detection_passed", True),
-            "has_render_boxes": True,
+            # render_boxes.pkl 当前无渲染消费端 (详见上文注释)，用 pending 而非 has 标记
+            "render_boxes_pending": True,
+            "render_boxes_consumed": False,
             "bbox_shift_supported": True,
         }
         (out_path / "meta.json").write_text(

@@ -3,8 +3,7 @@
 """
 
 import numpy as np
-import pytest
-from server.core.media.rtmp_streamer import RtmpStreamerService, find_ffmpeg_binary, global_rtmp_streamer
+from server.core.media.rtmp_streamer import RtmpStreamerService, find_ffmpeg_binary
 
 
 def test_rtmp_streamer_initial_state():
@@ -212,5 +211,62 @@ def test_resample_s16le_handles_empty_and_garbage():
     assert _resample_s16le(b"", 24000, 48000) == b""
     # 非法采样率原样返回，不抛错
     assert _resample_s16le(b"\x00\x01", 0, 48000) == b"\x00\x01"
+
+
+# ---------------------------------------------------------------------------
+# P0-2 & P2-13: 异步队列反压与无限重连
+# ---------------------------------------------------------------------------
+def test_unlimited_reconnect_flag_and_behavior(monkeypatch):
+    """支持 _max_reconnect_attempts <= 0 时的无限重连模式"""
+    streamer = RtmpStreamerService()
+    streamer._max_reconnect_attempts = 0  # 无限重连
+    status = streamer.get_status()
+    assert status["unlimited_reconnect"] is True
+
+    # 模拟重连 15 次仍然继续
+    monkeypatch.setattr(streamer, "_teardown_process", lambda: None)
+    monkeypatch.setattr(streamer, "_reconnect_base_delay", 0.001)
+    monkeypatch.setattr(streamer, "_reconnect_max_delay", 0.002)
+
+    attempts_seen = []
+
+    def fake_spawn():
+        attempts_seen.append(len(attempts_seen))
+        if len(attempts_seen) >= 12:
+            return True, "success"
+        return False, "fail"
+
+    monkeypatch.setattr(streamer, "_spawn_process", fake_spawn)
+    streamer._reconnect_loop()
+    assert len(attempts_seen) == 12
+    assert streamer.get_status()["reconnect_success_total"] == 1
+
+
+def test_send_video_frame_backpressure_drop(monkeypatch):
+    """当队列满时触发反压丢帧计数，且不阻塞主线程"""
+    streamer = RtmpStreamerService()
+    streamer.state = streamer.STATE_STREAMING
+    streamer._video_pipe = object()  # 模拟管道已就绪
+
+    class DummyProc:
+        def poll(self):
+            return None
+
+    streamer._process = DummyProc()
+
+    # 塞满队列 (容量30)
+    for _ in range(30):
+        ok = streamer.send_video_frame(b"frame_bytes_rgb24")
+        assert ok is True
+
+    status_before = streamer.get_status()
+    assert status_before["dropped_frames_total"] == 0
+
+    # 投递第 31 帧，应触发丢帧计数
+    ok = streamer.send_video_frame(b"new_frame_bytes_rgb24")
+    assert ok is True
+    status_after = streamer.get_status()
+    assert status_after["dropped_frames_total"] >= 1
+
 
 

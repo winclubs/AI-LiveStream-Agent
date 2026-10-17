@@ -1,8 +1,6 @@
 import numpy as np
-import pytest
 from server.core.media.procedural_renderer import (
     audio_samples_to_viseme,
-    audio_rms_to_mouth,
     synth_frame,
     generate_default_portrait
 )

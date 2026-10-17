@@ -8,8 +8,6 @@ import base64
 import io
 import logging
 import time
-from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("LiveAgent.Vision")
 

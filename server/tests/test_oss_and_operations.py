@@ -2,17 +2,15 @@
 """
 阿里云 OSS 存储配置、直播录像复盘与运营工作导航自动化测试套件
 """
-import io
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from server.app import app
 from server.database.db import AsyncSessionLocal
-from server.database.models import LiveSessionRecord, utc_now
+from server.database.models import LiveSessionRecord
 
 
 @pytest.fixture(scope="module")
@@ -143,25 +141,34 @@ async def test_03_live_recordings_and_replay(client, tmp_path):
 
 
 def test_04_operations_tools_presence():
-    """验证前端已成功装配运营工作导航卡片与指定的所有目标外链"""
+    """验证 OSS 配置导航完好，且第三方营销外链页已从商用交付物中移除。
+
+    契约变更（上线诊断 RISK-9）：
+    原用例断言「运营工作」页与 7 个第三方工具外链**必须存在**。该页面是
+    纯静态的竞品/无关 SaaS 导流目录，随付费控制台分发会带来品牌与合规风险，
+    且域名失效后无人察觉。现已从交付物移除。
+
+    本用例改为锁定新契约：
+      - OSS 配置导航必须保留（真实功能）；
+      - 第三方营销外链页必须**不存在**。
+    详见 test_console_no_third_party_links.py 的完整不变量。
+    """
     index_html = Path("server/static/index.html").read_text(encoding="utf-8")
 
-    # 1. 验证左侧菜单导航项
-    assert 'data-tab="operations"' in index_html
-    assert '运营工作' in index_html
+    # 1. OSS 配置导航属于真实功能，必须保留
     assert 'data-tab="oss"' in index_html
     assert 'OSS配置(4)' in index_html
 
-    # 2. 验证用户指定的 7 个实用工具网址全部就绪
-    required_urls = [
-        "https://www.clipto.com/zh-TW/features",  # 视频下载
-        "https://shipindashi.cn/",               # 视频处理
-        "https://www.aconvert.com/",             # 文字/格式处理
-        "https://tinypng.com/",                  # 图片压缩
-        "https://www.linshihaoma.com/",          # 临时短信
-        "https://haoweichi.com/",                # 地址生成
-        "https://tinywow.com/",                  # 综合工具
-    ]
-
-    for url in required_urls:
-        assert url in index_html, f"前端页面中缺失工具导航链接: {url}"
+    # 2. 第三方营销外链页必须已下线
+    assert 'data-tab="operations"' not in index_html, "运营工作页仍在交付物中"
+    assert "17_operations.js" not in index_html
+    for url in (
+        "https://www.clipto.com/zh-TW/features",
+        "https://shipindashi.cn/",
+        "https://www.aconvert.com/",
+        "https://tinypng.com/",
+        "https://www.linshihaoma.com/",
+        "https://haoweichi.com/",
+        "https://tinywow.com/",
+    ):
+        assert url not in index_html, f"第三方营销外链仍随交付物分发: {url}"

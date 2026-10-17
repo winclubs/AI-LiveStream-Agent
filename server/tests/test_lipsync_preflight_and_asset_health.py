@@ -35,7 +35,6 @@ from server.core.avatar.lipsync_preflight import (
     LEVEL_TIGHT,
     LEVEL_UNAVAILABLE,
     LipSyncPreflight,
-    PreflightResult,
 )
 
 
@@ -369,3 +368,84 @@ def test_check_and_enforce_bypassed_via_env(tmp_path, monkeypatch):
     d = _make_asset(tmp_path, 20, meta={"detection_rate": 0.34, "max_carry_run": 66, "frame_count": 20})
     h = check_and_enforce(d)
     assert h.status == STATUS_UNUSABLE
+
+
+def test_sampled_haar_reports_lower_bound_not_extrapolation(tmp_path, monkeypatch):
+    """抽样复检的连续丢失数必须是严格下界，不得 *step 上界外推
+
+    回归 D10：此前 max_run * step 把 1 帧抽样丢失外推成 step 帧，
+    在 3000 帧资产 / step=50 时直接超过 MAX_CARRY_FRAMES(5) 判为 UNUSABLE，
+    误拦可用资产（最坏高估 step 倍）。
+    """
+    import cv2
+
+    from server.core.avatar.asset_health import _sample_haar, MAX_CARRY_FRAMES
+
+    d = _make_asset(tmp_path, 3000)  # 无 meta，强制走抽样
+
+    # 用受控的假检出替代真实 Haar：抽样序列中只有第 20 个采样点丢失 1 次
+    def fake_detect(gray, *args, **kwargs):
+        # gray 形状不足以定位，直接用全局调用计数判定
+        return np.array([[1, 1, 10, 10]]) if fake_detect.calls != 20 else np.array([])
+
+    fake_detect.calls = 0
+
+    def counting_detect(self, gray, *args, **kwargs):
+        fake_detect.calls += 1
+        return fake_detect(gray)
+
+    monkeypatch.setattr(cv2.CascadeClassifier, "detectMultiScale", counting_detect)
+
+    res = _sample_haar(str(d), sample=60)
+    assert res["judged"] is True
+    step = res["sample_step"]
+    assert step == 50, f"3000 帧抽样 60 帧时步长应为 50，实际 {step}"
+    # 下界口径：1 次抽样丢失只计 1，不得外推成 50
+    assert res["max_run"] == 1, (
+        f"单帧抽样丢失被外推成 {res['max_run']} 帧，超过 MAX_CARRY_FRAMES({MAX_CARRY_FRAMES})，"
+        "会误判 UNUSABLE 并误拦可用资产"
+    )
+    assert res["detected"] == 59
+    assert res["rate"] >= 0.98
+
+
+def test_sampled_haar_persistent_loss_still_flagged(tmp_path, monkeypatch):
+    """下界口径不会放过真正的长连续丢失：抽样序列连续丢失 > MAX_CARRY_FRAMES 仍应被记录"""
+    import cv2
+
+    from server.core.avatar.asset_health import _sample_haar, MAX_CARRY_FRAMES
+
+    d = _make_asset(tmp_path, 3000)
+    call_state = {"i": 0}
+
+    def counting_detect(self, gray, *args, **kwargs):
+        call_state["i"] += 1
+        # 前 10 个采样点全部丢失（真实连续丢失远超 MAX_CARRY_FRAMES）
+        return np.array([]) if call_state["i"] <= 10 else np.array([[1, 1, 10, 10]])
+
+    monkeypatch.setattr(cv2.CascadeClassifier, "detectMultiScale", counting_detect)
+
+    res = _sample_haar(str(d), sample=60)
+    assert res["judged"] is True
+    # 下界 = 抽样实际连续命中 10 次，仍 > MAX_CARRY_FRAMES(5)，真正损坏资产照拦不误
+    assert res["max_run"] == 10
+    assert res["max_run"] > MAX_CARRY_FRAMES
+
+
+def test_sampled_haar_carries_step_into_health(tmp_path, monkeypatch):
+    """check_asset_health 的抽样路径应把 sample_step 与下界口径透传到结论"""
+    import cv2
+
+    from server.core.avatar.asset_health import check_asset_health, STATUS_OK
+
+    d = _make_asset(tmp_path, 240)  # 无 meta，强制走抽样复检
+
+    monkeypatch.setattr(
+        cv2.CascadeClassifier, "detectMultiScale",
+        lambda self, gray, *a, **k: np.array([[1, 1, 10, 10]]),
+    )
+    h = check_asset_health(d)
+    assert h.source == "sampled_haar"
+    assert h.status == STATUS_OK
+    assert h.sample_step == 4  # 240 帧 / 60 抽样 = step 4
+    assert h.max_consecutive_miss == 0  # 全部有脸，下界为 0

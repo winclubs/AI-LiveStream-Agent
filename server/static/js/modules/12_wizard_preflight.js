@@ -330,7 +330,10 @@ async function refreshWizardSuggestions() {
                 </ul>
             </div>
         `;
-        document.getElementById("wizard-constraint").value = d.constraint_prompt;
+        const constraintEl = document.getElementById("wizard-constraint");
+        if (constraintEl && d.constraint_prompt) {
+            constraintEl.value = d.constraint_prompt;
+        }
 
         const themeInput = document.getElementById("wizard-theme");
         if (themeInput) {
@@ -350,8 +353,10 @@ async function completeWizard() {
         alert("直播进行中，禁止修改直播模式与角色配置！请先停止直播。");
         return;
     }
-    const constraint = document.getElementById("wizard-constraint").value.trim();
     try {
+        const constraintEl = document.getElementById("wizard-constraint");
+        const constraint = constraintEl ? constraintEl.value.trim() : "";
+
         // 1. 保存直播模式
         const modeRes = await fetch(`${API_BASE}/settings/live-mode`, {
             method: "POST",

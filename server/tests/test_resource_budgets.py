@@ -1,9 +1,7 @@
 import io
 import wave
-from pathlib import Path
 
 import pytest
-from fastapi import UploadFile
 from fastapi.testclient import TestClient
 from PIL import Image
 

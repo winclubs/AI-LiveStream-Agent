@@ -15,7 +15,6 @@ import time
 import wave
 from typing import Any, Callable, Dict, List, Optional
 
-import numpy as np
 
 from server.core.audio.asr_engine import is_voice_active, transcribe_audio_bytes
 from server.core.avatar import get_active_avatar_driver

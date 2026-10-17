@@ -3,7 +3,6 @@
 ASR 与 VAD 语音识别引擎单元测试
 验证 VAD 能量端点检测、ASR 接口空值保护与异常容错。
 """
-import pytest
 import numpy as np
 from server.core.audio.asr_engine import is_voice_active, transcribe_audio_bytes
 

@@ -1,14 +1,3 @@
-// FAQ 问答卡片下拉展开/收起切换
-function toggleFaqAnswer(id, btn) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const isHidden = (el.style.display === "none" || !el.style.display);
-    el.style.display = isHidden ? "flex" : "none";
-    if (btn) {
-        btn.innerText = isHidden ? "收起说明 ▴" : "查看说明 ▾";
-    }
-}
-
 let _loadingAnchorsPromise = null;
 
 async function loadAnchors() {
@@ -1155,7 +1144,7 @@ async function loadAvatarGpuRuntimeStatus() {
             hardware_name: hwName,
             hardware_detail: hwDetail,
             badge_title: badgeTitle,
-            engine_name: isCloud ? "LatentSync 官方扩散模型 (云端高精)" : (hasLocalCuda ? "LatentSync ONNX 神经引擎" : "RealAvatarLite 算法引擎")
+            engine_name: isCloud ? "LatentSync 官方扩散模型 (云端高精)" : (hasLocalCuda ? "Wav2Lip-256 ONNX 神经引擎" : "未就绪 (需配置算力/权重)")
         };
     } catch (e) {
         console.warn("读取 GPU 算力通道状态失败，回退云端预设:", e);
@@ -1844,6 +1833,14 @@ async function loadLiveStats() {
         set("stat-gift", `¥${(d.gift_income_yuan || 0).toFixed(2)} <span style="font-size:12px;color:var(--text-muted);">(${d.gift_count}单)</span>`);
         set("stat-gmv", `¥${(d.gmv_yuan || 0).toFixed(2)} <span style="font-size:12px;color:var(--text-muted);">(${d.orders_count}单)</span>`);
         set("stat-volume", `${d.danmaku_count} / <span style="color: var(--accent-danger);">${d.guardrail_hits}</span>`);
+        if (d.stitcher_badge) {
+            let badgeHtml = `<span style="color: var(--accent-cyan, #00f2fe); font-weight: 600;">${escapeHtml(d.stitcher_badge)}</span>`;
+            if (d.active_slice_info && d.active_slice_info.product_id) {
+                const info = d.active_slice_info;
+                badgeHtml += ` <span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">[热推SKU: <b>${escapeHtml(info.product_id)}</b> | 插槽: ${escapeHtml(info.slot_code)} | 帧: ${info.current_frame_idx || 0} | ${info.loudness_target || ''}]</span>`;
+            }
+            set("stat-stitcher", badgeHtml);
+        }
 
         // 轮询数字人渲染与虚拟摄像头遥测指标
         try {

@@ -6,11 +6,8 @@ ASR (自动语音识别) 与 VAD (语音活动检测) 核心引擎
 """
 import io
 import os
-import time
 import logging
 import threading
-from pathlib import Path
-from typing import Optional, Tuple, Union
 
 import numpy as np
 

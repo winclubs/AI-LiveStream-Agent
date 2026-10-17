@@ -2,11 +2,10 @@ import asyncio
 import json
 import struct
 import zlib
-import pytest
 from server.adapters.danmaku.bilibili_fetcher import BilibiliDanmakuFetcher
 from server.adapters.danmaku.circuit_breaker import CircuitBreakerDanmakuFetcher
 from server.adapters.danmaku.mock_fetcher import MockDanmakuFetcher
-from server.adapters.danmaku.proto_reader import iter_fields, read_varint
+from server.adapters.danmaku.proto_reader import iter_fields
 
 
 def _make_bilibili_packet(protover: int, optype: int, body_bytes: bytes) -> bytes:
@@ -106,6 +105,7 @@ def test_circuit_breaker_automatic_fallback_and_recovery():
             on_state_change_callback=on_state_change,
             failure_threshold=3,
             recovery_timeout_sec=0.5,
+            enable_mock_fallback=True,  # 该用例显式验证演示环境的 Mock 兜底
         )
 
         # 1. 启动

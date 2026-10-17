@@ -154,7 +154,7 @@ async function loadOssRecords(page = 1) {
             html += `
                 <tr>
                     <td style="padding: 14px 18px;">
-                        <div style="font-weight: 600; color: #f1f5f9; font-size: 13.5px; margin-bottom: 2px;">
+                        <div style="font-weight: 600; color: var(--text-primary); font-size: 13.5px; margin-bottom: 2px;">
                             ${escapeHtml(item.theme || "日常直播")}
                         </div>
                         <div style="font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono);">

@@ -34,9 +34,9 @@ MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
     },
     "latentsync_onnx": {
-        "name": "ByteDance LatentSync 神经唇形模型 (ONNX 加速)",
+        "name": "Wav2Lip-256 ONNX (兼容键名 latentsync_onnx)",
         "file_name": "onnx_lipsync.onnx",
-        "description": "LatentSync 256x256 标准 ONNX 格式，支持 GPU/DirectML/CUDA 实时极速推理",
+        "description": "Wav2Lip 256x256 标准 ONNX 唇形同步模型 (历史兼容别名，对应权重 onnx_lipsync.onnx)，支持 CPU/GPU/DirectML 极速推理，0 显存依赖",
         "size_mb": 205,
         "sha256": "",
         "download_sources": [
@@ -45,9 +45,9 @@ MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
     },
     "onnx_lipsync": {
-        "name": "ONNX 神经唇形模型 (LatentSync-256, 通用加速)",
+        "name": "Wav2Lip-256 ONNX (高兼容唇形同步模型)",
         "file_name": "onnx_lipsync.onnx",
-        "description": "LatentSync 256x256 标准 ONNX 导出 (mel[1,1,80,16] + face[1,6,256,256] → [1,3,256,256])，支持 GPU/DirectML 快速推理，0 显存依赖",
+        "description": "Wav2Lip 256x256 标准 ONNX 导出 (mel[1,1,80,16] + face[1,6,256,256] → [1,3,256,256])，支持 CPU/GPU/DirectML 快速推理，0 显存依赖",
         "size_mb": 205,
         "sha256": "",
         "download_sources": [

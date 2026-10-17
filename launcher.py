@@ -15,7 +15,6 @@ import os
 import sys
 import time
 import json
-import shutil
 import argparse
 import platform
 import threading
@@ -548,6 +547,20 @@ def ensure_port_clean(host: str, port: int, force: bool = False, restart: bool =
             return False
 
 
+def probe_port_readonly(host: str, port: int) -> None:
+    """只读端口体检：仅探测端口归属与版本信息，绝不回收任何进程。"""
+    if not is_tcp_port_open(host, port):
+        print(f"✅ 端口 {port} 空闲，无历史服务进程占用。")
+        return
+    meta = query_running_version(host, port)
+    if meta.get("service") == SERVICE_NAME:
+        status = "就绪" if query_readiness(host, port) else "初始化中"
+        print(f"ℹ️ 端口 {port} 正在运行本系统服务 v{meta.get('version')} (状态: {status})。")
+        print("[*] --check-only 为只读体检模式，不会回收任何进程；如需重启请附加 --restart 参数。")
+    else:
+        print(f"⚠️ 端口 {port} 被外部未知进程占用！如需强制覆盖启动，请附加 --restart 或 --force 参数。")
+
+
 def wait_and_open_browser(host: str, port: int, open_browser_flag: bool = True):
     """后台监控轮询：待新服务完全就绪并返回匹配版本后，呼起默认浏览器"""
     if not open_browser_flag:
@@ -594,11 +607,14 @@ def main():
         sys.exit(1)
 
     # 3. 深度端口归属校验与版本回收
-    can_start = ensure_port_clean(args.host, args.port, force=args.force, restart=args.restart)
-
+    # --check-only 为只读体检：只探测端口归属与版本信息，绝不触发任何进程回收，
+    # 因此必须在 ensure_port_clean() 之前分流退出。
     if args.check_only:
+        probe_port_readonly(args.host, args.port)
         print("[*] 商用环境自检已完成 (--check-only)，退出。")
         sys.exit(0)
+
+    can_start = ensure_port_clean(args.host, args.port, force=args.force, restart=args.restart)
 
     if not can_start:
         sys.exit(0)

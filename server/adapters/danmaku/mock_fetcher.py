@@ -1,5 +1,4 @@
 import asyncio
-import time
 from typing import Callable, Dict, Any, Optional
 from server.adapters.danmaku.base_fetcher import BaseDanmakuFetcher
 

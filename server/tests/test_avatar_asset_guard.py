@@ -9,9 +9,8 @@
 5. meta.json 完整落盘 face_detected_frames, detection_rate, max_carry_run, detection_passed 等指标；
 6. crop_face_256 与整脸 coord_box 几何裁剪逐像素严格一致。
 """
-import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import cv2
 import numpy as np

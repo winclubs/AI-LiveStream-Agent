@@ -1,5 +1,6 @@
 import datetime
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, CheckConstraint, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, CheckConstraint, BigInteger, Boolean
+
 from sqlalchemy.orm import declarative_base
 
 def utc_now():
@@ -73,7 +74,7 @@ class AvatarTask(Base):
     id = Column(String(64), primary_key=True)
     anchor_id = Column(String(64), ForeignKey("anchors.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(128), nullable=False)
-    status = Column(String(32), default="pending", nullable=False)  # pending / processing / completed / failed
+    status = Column(String(32), default="pending", nullable=False, index=True)  # pending / processing / completed / failed
     progress = Column(Integer, default=0, nullable=False)           # 0 ~ 100
     stage_message = Column(String(256), default="")
     video_path = Column(String(512), default="")
@@ -87,8 +88,8 @@ class AvatarAction(Base):
     __tablename__ = "avatar_actions"
 
     id = Column(String(64), primary_key=True)
-    anchor_id = Column(String(64), ForeignKey("anchors.id", ondelete="CASCADE"), nullable=True)
-    action_code = Column(Integer, nullable=False)          # 0:待机, 1:欢迎, 2:点赞, 3:购物车, 4:致谢, 5+:自定义
+    anchor_id = Column(String(64), ForeignKey("anchors.id", ondelete="CASCADE"), nullable=True, index=True)
+    action_code = Column(Integer, nullable=False, index=True)  # 0:待机, 1:欢迎, 2:点赞, 3:购物车, 4:致谢, 5+:自定义
     action_name = Column(String(128), nullable=False)
     video_path = Column(String(512), default="")
     frames_dir = Column(String(512), default="")
@@ -128,6 +129,26 @@ class Product(Base):
     description = Column(Text, default="")       # 商品详细描述
     images = Column(Text, default="[]")          # 商品图片路径列表 (JSON)
     is_active = Column(Integer, default=1)
+
+class SkuSlice(Base):
+    """电商商品高精预渲染切片表 (动静分离资产库)"""
+    __tablename__ = "ecommerce_sku_slices"
+
+    id = Column(String(64), primary_key=True)
+    product_id = Column(String(64), ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    slot_code = Column(String(32), nullable=False, index=True)  # intro / selling_point_1 / coupon / faq_size / urgency
+    slice_type = Column(String(32), default="main_pitch")  # main_pitch / faq / coupon_burst
+    script_text = Column(Text, nullable=False)
+    video_path = Column(String(512), nullable=False)
+    audio_path = Column(String(512), nullable=False)
+    duration_sec = Column(Float, nullable=False)
+    coords_path = Column(String(512), nullable=True)  # 面部裁切坐标缓存 (.npy/.json)
+    loudness_lufs = Column(Float, default=-16.0)  # 渲染期抽取的响度基线
+    bg_noise_profile = Column(Text, default="{}")  # 底噪特征 (能量/频谱)，用于弹幕插播混音
+    render_engine = Column(String(32), default="latentsync_cloud")  # latentsync_cloud / latentsync_local_torch / wav2lip_fallback
+    is_active = Column(Integer, default=1)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 class ProhibitedWord(Base):
     """主播违禁词与合规规则表"""
@@ -260,7 +281,11 @@ class LiveSessionRecord(Base):
     oss_url = Column(String(1024), default="")
     preview_image_url = Column(String(1024), default="")
     video_duration_sec = Column(Float, default=0.0)
-    video_size_bytes = Column(Integer, default=0)
+    video_size_bytes = Column(BigInteger, default=0)
     oss_upload_status = Column(String(32), default="none")  # none | recording | uploading | uploaded | failed
     oss_error_msg = Column(Text, default="")
+    execution_mode = Column(String(32), default="PREVIEW")  # DEMO / PREVIEW / PILOT / PRODUCTION
+    state_detail = Column(String(64), default="LOCAL_READY")  # PRECHECKING / LOCAL_READY / OBS_STREAMING / PLATFORM_CONFIRMED / AI_RUNNING 等
+    platform_confirmed = Column(Boolean, default=False)
+    platform_confirmed_at = Column(DateTime, nullable=True)
 

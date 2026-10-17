@@ -26,7 +26,7 @@ class PriceAuditor:
         :param all_products: 当前直播间所有上架商品
         :return: (修正后的文本, 是否触发了价格幻觉修正, 审计详情)
         """
-        if not sentence or not (current_product or all_products):
+        if not sentence or not sentence.strip():
             return sentence, False, None
 
         # 确定底价基准 (优先当前主推品，否则取所有商品中的最低价)
@@ -40,11 +40,8 @@ class PriceAuditor:
             if valid_prices:
                 ref_price = min(valid_prices)
 
-        if ref_price <= 0:
-            return sentence, False, None
-
         # 允许的最低安全底线 (例如允许直播券微减，但不能低于标价的 85%)
-        floor_price = round(ref_price * 0.85, 2)
+        floor_price = round(ref_price * 0.85, 2) if ref_price > 0 else 0.0
 
         modified_sentence = sentence
         triggered = False
@@ -62,7 +59,27 @@ class PriceAuditor:
                 if spoken_price < 2.0:
                     continue
 
-                # 发现大模型幻觉虚报过低价格 (低于底价 85%)
+                # 场景 1: 无有效商品事实/未通过事实校验，却口播了具体价格 (严重事实捏造)
+                if ref_price <= 0:
+                    triggered = True
+                    old_matched_text = match.group(0)
+                    new_matched_text = "详情以小黄车为准"
+                    modified_sentence = modified_sentence.replace(old_matched_text, new_matched_text, 1)
+                    audit_detail = {
+                        "product": "无有效事实商品",
+                        "spoken_price": spoken_price,
+                        "floor_price": 0.0,
+                        "official_price": 0.0,
+                        "original_snippet": old_matched_text,
+                        "corrected_snippet": new_matched_text,
+                        "reason": "MISSING_PRICE_FACT",
+                    }
+                    logger.warning(
+                        f"【无事实价格拦截】检测到无有效事实价格时口播了金额 {spoken_price}元，已强制阻断并替换为安全表述"
+                    )
+                    break
+
+                # 场景 2: 发现大模型幻觉虚报过低价格 (低于底价 85%)
                 if spoken_price < floor_price:
                     triggered = True
                     correct_price_str = f"{ref_price:.1f}".rstrip("0").rstrip(".")
@@ -77,7 +94,8 @@ class PriceAuditor:
                         "floor_price": floor_price,
                         "official_price": ref_price,
                         "original_snippet": old_matched_text,
-                        "corrected_snippet": new_matched_text
+                        "corrected_snippet": new_matched_text,
+                        "reason": "BELOW_FLOOR_PRICE",
                     }
                     logger.warning(
                         f"【价格防幻觉审计拦截】检测到口播低价幻觉 ({spoken_price}元 < 底价{floor_price}元)，"

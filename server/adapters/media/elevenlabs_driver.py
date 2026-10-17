@@ -10,7 +10,7 @@ ElevenLabs 云端 TTS 驱动 (规划 §9.2 cloud_elevenlabs)
   (voice_id) 或克隆音色档案的 remote_voice_id 配置；无凭据时健康检查返回 False
 """
 import logging
-from typing import Optional, AsyncGenerator
+from typing import AsyncGenerator
 from server.adapters.media.base_driver import BaseMediaDriver
 
 logger = logging.getLogger("LiveAgent.ElevenLabsTTS")

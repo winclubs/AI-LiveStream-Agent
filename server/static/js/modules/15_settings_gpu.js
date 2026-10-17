@@ -808,14 +808,14 @@ function renderGpuConfigDetailPanel(modeId) {
                         ${isLocalAllQualified ? `
                             <div style="font-weight: 700; color: #34d399; margin-bottom: 4px;">🟢 综合评估：本机硬件完全满足写实真人本地渲染要求！</div>
                             <div style="font-size: 12px; color: #cbd5e1; line-height: 1.6;">
-                                本机配备达标的高性能独立显卡（>= 8.0GB 显存）与充足 CPU/内存（>=4核/16GB），单机即可直接渲染 1080P 超写实真人主播，零租赁成本，无需配置网络，开箱即播。
+                                本机配备达标的高性能独立显卡（>= 8.0GB 显存）与充足 CPU/内存（>=4核/16GB），单机即可直接渲染 720P 高清写实真人主播，零租赁成本，无需配置网络，开箱即播。
                             </div>
                         ` : `
-                            <div style="font-weight: 700; color: #fbbf24; margin-bottom: 4px;">⚠️ 综合评估：当前电脑硬件未达到超写实真人渲染的商业运营门槛！</div>
+                            <div style="font-weight: 700; color: #fbbf24; margin-bottom: 4px;">⚠️ 综合评估：当前电脑硬件未达到写实真人渲染的商业运营门槛！</div>
                             <div style="font-size: 12px; color: #cbd5e1; line-height: 1.65;">
                                 检测到本地配置尚未完全达到（CPU>=4核，显存>=8.0GB，内存>=16GB）的商业运营底线，若在本地强行跑深度学习写实真人会导致严重丢帧甚至显存溢出 (OOM) 崩溃。<br>
                                 🛡️ <strong>系统保底机制</strong>：若您启用当前选项，系统将自动使用<strong>免显卡的本地程序化形象（卡通/微动态）</strong>作为推流画面，保障流畅不黑屏；<br>
-                                🚀 <strong>若您需要 1080P 写实真人主播</strong>：请点击上方【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，将渲染外包至云端（约 1.2 元/小时），低配电脑亦能完美开播！
+                                🚀 <strong>若您需要 720P 高清写实真人主播</strong>：请点击上方【<strong>选项 2 · 本地硬件 + 租赁云端GPU</strong>】，将渲染外包至云端（约 1.2 元/小时），低配电脑亦能完美开播！
                             </div>
                         `}
                     </div>
@@ -1633,24 +1633,25 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
     const localCheck = isLocalHardwareFullyQualified(hw);
     const isLocalAllQualified = localCheck.isQualified;
 
-    // 选项 1：本机完全满足 (本地运行) - 若硬件不达标则强制标记不可选
+    // 选项 1：本机完全满足 (本地运行) - 若硬件不达标则标记不可选
     const card1Selected = (!isCloudActive) && isLocalAllQualified;
     const card1Border = !isLocalAllQualified
-        ? "1.5px dashed rgba(239, 68, 68, 0.35)"
-        : (card1Selected ? "2px solid #10B981" : "1.5px solid rgba(148, 163, 184, 0.2)");
-    const card1Bg = !isLocalAllQualified
-        ? "rgba(15, 23, 42, 0.35)"
-        : (card1Selected ? "rgba(15, 23, 42, 0.75)" : "rgba(15, 23, 42, 0.45)");
+        ? "1.5px dashed #fca5a5"
+        : (card1Selected ? "2px solid #10e7b7" : "1px solid rgba(0, 242, 254, 0.2)");
+    const card1Bg = "rgba(8, 22, 36, 0.88)";
+    const card1Shadow = card1Selected
+        ? "0 4px 20px rgba(16, 231, 183, 0.2)"
+        : "0 2px 10px rgba(0, 0, 0, 0.4)";
     const card1Badge = !isLocalAllQualified
-        ? `<span class="brand-badge red" style="font-weight: 700;">🚫 硬件不足 · 不可选</span>`
+        ? `<span class="brand-badge red" style="background: rgba(244, 63, 94, 0.12); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.35); font-weight: 700;">🚫 硬件不足 · 不可选</span>`
         : (card1Selected
-            ? `<span class="brand-badge green" style="font-weight: 700;">🟢 当前生效模式</span>`
-            : `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25);">未启用 (备选)</span>`);
+            ? `<span class="brand-badge green" style="background: rgba(16, 231, 183, 0.12); color: #10e7b7; border: 1px solid #10e7b7; font-weight: 700;">🟢 当前生效模式</span>`
+            : `<span class="brand-badge" style="background: rgba(0, 242, 254, 0.08); color: #7ea2bd; border: 1px solid rgba(0, 242, 254, 0.2);">未启用 (备选)</span>`);
     const card1Action = !isLocalAllQualified
-        ? `<div style="margin-top: 10px; font-size: 11.5px; color: #f87171;">⚠️ 本地硬件不满足运营要求，不可选用此模式</div>`
+        ? `<div style="font-size: 12px; color: #f43f5e; font-weight: 600;">⚠️ 本地硬件不满足运营要求，不可选用此模式</div>`
         : (card1Selected
-            ? `<div style="font-size: 12px; color: #34d399; margin-top: 10px; display: flex; align-items: center; gap: 6px;">✓ 0 租赁成本 · 本地闭环，断网亦可流畅直播</div>`
-            : `<div style="margin-top: 10px;"><button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #34d399; border: 1px solid rgba(16,185,129,0.3);">前往「GPU配置(2)」启用此模式 ↗</button></div>`);
+            ? `<div style="font-size: 12px; color: #10e7b7; font-weight: 600; display: flex; align-items: center; gap: 6px;">✓ 0 租赁成本 · 本地闭环，断网亦可流畅直播</div>`
+            : `<div style="margin-top: 6px;"><button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #10e7b7; border: 1px solid rgba(16, 231, 183, 0.4); background: rgba(16, 231, 183, 0.1); border-radius: 4px;">前往「GPU配置(2)」启用此模式 ↗</button></div>`);
 
     let card1SubText = "";
     if (localVram >= 8) {
@@ -1664,44 +1665,52 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
     // 选项 2：本地硬件 + 租赁云端GPU
     const card2Selected = isCloudActive;
     const card2Border = card2Selected
-        ? ((lastPing && !lastPing.success) ? "2px solid #ef4444" : "2px solid #38bdf8")
-        : "1.5px solid rgba(148, 163, 184, 0.2)";
-    const card2Bg = card2Selected
-        ? ((lastPing && !lastPing.success) ? "rgba(35, 18, 22, 0.75)" : "rgba(15, 23, 42, 0.75)")
-        : "rgba(15, 23, 42, 0.45)";
+        ? ((lastPing && !lastPing.success) ? "2px solid #f43f5e" : "2px solid #10e7b7")
+        : "1px solid rgba(0, 242, 254, 0.2)";
+    const card2Bg = "rgba(8, 22, 36, 0.88)";
+    const card2Shadow = card2Selected
+        ? ((lastPing && !lastPing.success) ? "0 4px 20px rgba(244, 63, 94, 0.25)" : "0 4px 20px rgba(16, 231, 183, 0.25)")
+        : "0 2px 10px rgba(0, 0, 0, 0.4)";
     const card2Badge = card2Selected
         ? ((lastPing && !lastPing.success)
-            ? `<span class="brand-badge red" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); font-weight: 700;">⚠️ 当前生效 · 云端未连通</span>`
-            : `<span class="brand-badge sky" style="font-weight: 700;">⚡ 当前生效模式</span>`)
-        : `<span class="brand-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25);">未启用 (备选)</span>`;
+            ? `<span class="brand-badge red" style="background: rgba(244, 63, 94, 0.12); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.35); font-weight: 700;">⚠️ 当前生效 · 云端未连通</span>`
+            : `<span class="brand-badge green" style="background: rgba(16, 231, 183, 0.12); color: #10e7b7; border: 1px solid #10e7b7; font-weight: 700;">⚡ 当前生效模式</span>`)
+        : `<span class="brand-badge" style="background: rgba(0, 242, 254, 0.08); color: #7ea2bd; border: 1px solid rgba(0, 242, 254, 0.2);">未启用 (备选)</span>`;
 
     let card2StatusBody = "";
     if (card2Selected) {
         if (isWizardGpuProbing) {
             card2StatusBody = `
-                <div style="font-size: 12px; color: #38bdf8; margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                <div style="font-size: 12px; color: #00f2fe; margin-top: 10px; display: flex; align-items: center; gap: 8px; background: rgba(0, 242, 254, 0.08); border: 1px solid rgba(0, 242, 254, 0.3); padding: 8px 12px; border-radius: 6px;">
                     正在发起端云协同握手测试，核验云端 GPU 是否开机...
                 </div>
             `;
         } else if (lastPing && lastPing.success) {
             card2StatusBody = `
-                <div style="font-size: 12px; color: #34d399; margin-top: 10px; line-height: 1.6;">
-                    🟢 <b>端云协同就绪！</b> 延迟: <strong>${lastPing.latency_ms}ms</strong>
-                    ${lastPing.device ? ` · 远端显卡: <b style="color:#38bdf8;">${escapeHtml(lastPing.device)}</b>` : ""}，本地 0 显存畅跑 1080P！
-                    <button type="button" class="btn btn-xs btn-ghost" onclick="renderWizardGpuStatusCard(true)" style="margin-left: 8px; font-size: 11px; padding: 1px 6px; color: #38bdf8;">🔄 重新测速</button>
+                <div style="font-size: 12.5px; color: #ffffff; margin-top: 10px; line-height: 1.6; background: rgba(16, 231, 183, 0.08); border: 1px solid rgba(16, 231, 183, 0.3); border-radius: 6px; padding: 10px 12px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+                        <div>
+                            <span style="color: #10e7b7; font-weight: 700;">🟢 端云协同就绪！</span>
+                            延迟: <strong style="color: #10e7b7;">${lastPing.latency_ms}ms</strong>
+                            ${lastPing.device ? ` · 远端显卡: <strong style="color: #00f2fe;">${escapeHtml(lastPing.device)}</strong>` : ""}
+                        </div>
+                        <button type="button" class="btn btn-xs btn-ghost" onclick="renderWizardGpuStatusCard(true)" style="font-size: 11px; padding: 2px 8px; color: #00f2fe; background: rgba(0, 242, 254, 0.1); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 4px;">🔄 重新测速</button>
+                    </div>
+                    <div style="font-size: 11.5px; color: #7ea2bd; margin-top: 4px;">
+                        本地 0 显存负担，畅跑 720P 高清写实真人！
+                    </div>
                 </div>
             `;
         } else {
             const err = (lastPing && lastPing.error) ? lastPing.error : "云端算力节点未响应握手 (已关机或断开)";
             card2StatusBody = `
-                <div style="margin-top: 10px; padding: 8px 10px; background: rgba(239, 68, 68, 0.15); border-radius: 6px; font-size: 11.5px; color: #fca5a5;">
-                    <div>${escapeHtml(err)}</div>
-                    
-                    <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; align-items: center;margin-top:6px;">
+                <div style="margin-top: 10px; padding: 10px 12px; background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.35); border-radius: 6px; font-size: 12px; color: #f43f5e;">
+                    <div style="font-weight: 600;">${escapeHtml(err)}</div>
+                    <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; align-items: center;">
                         <button type="button" class="btn btn-xs btn-secondary" onclick="renderWizardGpuStatusCard(true)" style="font-size: 11px; padding: 2px 8px;">
                             🔄 重新检测
                         </button>
-                        <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11px; color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px;">
+                        <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11px; color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3); background: rgba(0, 242, 254, 0.1); padding: 2px 8px; border-radius: 4px;">
                             跳转到 GPU配置(2) ↗
                         </button>
                     </div>
@@ -1711,16 +1720,16 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
     } else {
         if (!targetCloud || !targetCloud.base_url) {
             card2StatusBody = `
-                <div style="margin-top: 10px; font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;">
+                <div style="margin-top: 10px; font-size: 12px; color: #7ea2bd; display: flex; justify-content: space-between; align-items: center; background: rgba(0, 242, 254, 0.06); border: 1px solid rgba(0, 242, 254, 0.2); padding: 8px 12px; border-radius: 6px;">
                     <span>💡 尚未配置云端 GPU 渲染节点</span>
-                    <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">前往「GPU配置(2)」录入 ↗</button>
+                    <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3); background: rgba(0, 242, 254, 0.1); border-radius: 4px;">前往「GPU配置(2)」录入 ↗</button>
                 </div>
             `;
         } else {
             card2StatusBody = `
-                <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 12px; color: #cbd5e1;">已保存节点: <code style="color:#38bdf8;">${escapeHtml(targetCloud.base_url)}</code></span>
-                    <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">前往「GPU配置(2)」启用此模式 ↗</button>
+                <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center; background: rgba(0, 242, 254, 0.06); border: 1px solid rgba(0, 242, 254, 0.2); padding: 8px 12px; border-radius: 6px;">
+                    <span style="font-size: 12px; color: #7ea2bd;">已保存节点: <code style="color:#00f2fe; background:rgba(0, 242, 254, 0.1); padding:2px 6px; border-radius:4px;">${escapeHtml(targetCloud.base_url)}</code></span>
+                    <button type="button" class="btn btn-xs btn-ghost" onclick="goToGpuSettingsTab()" style="font-size: 11.5px; color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3); background: rgba(0, 242, 254, 0.1); border-radius: 4px;">前往「GPU配置(2)」启用此模式 ↗</button>
                 </div>
             `;
         }
@@ -1732,27 +1741,27 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
             <!-- 选项 1：本机完全满足 (本地运行) -->
             <div class="wizard-gpu-mode-card ${card1Selected ? 'active-mode' : 'inactive-mode'}"
-                 style="background: ${card1Bg}; border: ${card1Border}; border-radius: 10px; padding: 18px; position: relative; cursor: default; transition: all 0.2s ease;">
+                 style="background: ${card1Bg}; border: ${card1Border}; border-radius: 10px; padding: 18px; position: relative; cursor: default; transition: all 0.2s ease; box-shadow: ${card1Shadow};">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center;">
-                            <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #10B981; fill: none; stroke-width: 2;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(16, 231, 183, 0.12); display: flex; align-items: center; justify-content: center;">
+                            <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #10e7b7; fill: none; stroke-width: 2;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                         </div>
                         <div>
-                            <div style="font-size: 14.5px; font-weight: 700; color: #f8fafc;">选项 1 · 本机运行 (本地闭环)</div>
-                            <div style="font-size: 12px; color: #34d399; margin-top: 2px; font-weight: 500;">
+                            <div style="font-size: 15px; font-weight: 700; color: #ffffff;">选项 1 · 本机运行 (本地闭环)</div>
+                            <div style="font-size: 12px; color: ${!isLocalAllQualified ? '#f59e0b' : '#10e7b7'}; margin-top: 2px; font-weight: 600;">
                                 ${card1SubText}
                             </div>
                         </div>
                     </div>
                     ${card1Badge}
                 </div>
-                <div style="font-size: 12.5px; color: #94a3b8; line-height: 1.6; margin-top: 8px;">
-                    全链路在当前电脑单机闭环运行。本地独显直跑或选用系统免显卡程序化形象，0 算力支出，断网亦可推流。
+                <div style="font-size: 12.5px; color: #7ea2bd; line-height: 1.65; margin-top: 8px;">
+                    全链路在当前电脑单机闭环运行。适合拥有达标独立显卡直跑或选用系统免显卡程序化形象，0 算力支出，断网亦可推流。
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; flex-wrap: wrap; gap: 8px;">
                     ${card1Action}
-                    <span class="brand-badge ${isLocalAllQualified ? 'green' : 'amber'}" style="font-size: 11px;">
+                    <span class="brand-badge ${isLocalAllQualified ? 'green' : 'amber'}" style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; background: ${isLocalAllQualified ? 'rgba(16, 231, 183, 0.12)' : 'rgba(245, 158, 11, 0.12)'}; color: ${isLocalAllQualified ? '#10e7b7' : '#f59e0b'}; border: 1px solid ${isLocalAllQualified ? 'rgba(16, 231, 183, 0.35)' : 'rgba(245, 158, 11, 0.35)'};">
                         ${isLocalAllQualified ? '✓ 满足运营要求 (全单机达标)' : '⚠️ 未达单机运营要求 (要求GPU>=8G)'}
                     </span>
                 </div>
@@ -1760,27 +1769,27 @@ async function renderWizardGpuStatusCard(forceProbe = false) {
 
             <!-- 选项 2：本地硬件 + 租赁云端GPU -->
             <div class="wizard-gpu-mode-card ${card2Selected ? 'active-mode' : 'inactive-mode'}"
-                 style="background: ${card2Bg}; border: ${card2Border}; border-radius: 10px; padding: 18px; position: relative; cursor: default; transition: all 0.2s ease;">
+                 style="background: ${card2Bg}; border: ${card2Border}; border-radius: 10px; padding: 18px; position: relative; cursor: default; transition: all 0.2s ease; box-shadow: ${card2Shadow};">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); display: flex; align-items: center; justify-content: center;">
-                            <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #38bdf8; fill: none; stroke-width: 2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+                        <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(0, 242, 254, 0.15); display: flex; align-items: center; justify-content: center;">
+                            <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
                         </div>
                         <div>
-                            <div style="font-size: 14.5px; font-weight: 700; color: #f8fafc;">选项 2 · 本地硬件 + 租赁云端GPU</div>
-                            <div style="font-size: 12px; color: #38bdf8; margin-top: 2px; font-weight: 500;">
-                                本地 CPU ${cpuCores}核，本地GPU ${localVram}G+云端${cloudVram}G
+                            <div style="font-size: 15px; font-weight: 700; color: #ffffff;">选项 2 · 本地硬件 + 租赁云端GPU</div>
+                            <div style="font-size: 12px; color: #00f2fe; margin-top: 2px; font-weight: 600;">
+                                本地 CPU ${cpuCores}核，本地GPU ${localVram}G + 云端 ${cloudVram}G
                             </div>
                         </div>
                     </div>
                     ${card2Badge}
                 </div>
-                <div style="font-size: 12.5px; color: #94a3b8; line-height: 1.6; margin-top: 8px;">
-                    本地仅负责交互调度，数字人 1080P 超写实真人渲染外包给云端 GPU，本地 0 显存开销。
+                <div style="font-size: 12.5px; color: #7ea2bd; line-height: 1.65; margin-top: 8px;">
+                    本地仅负责交互调度，数字人 720P 高清写实真人渲染外包给云端 GPU，本地 0 显存开销。
                 </div>
                 ${card2StatusBody}
-                <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-                    <span class="brand-badge ${isCloudOperational ? 'green' : 'sky'}" style="font-size: 11px;">
+                <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
+                    <span class="brand-badge ${isCloudOperational ? 'green' : 'sky'}" style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; background: ${isCloudOperational ? 'rgba(16, 231, 183, 0.12)' : 'rgba(0, 242, 254, 0.1)'}; color: ${isCloudOperational ? '#10e7b7' : '#00f2fe'}; border: 1px solid ${isCloudOperational ? 'rgba(16, 231, 183, 0.35)' : 'rgba(0, 242, 254, 0.3)'};">
                         ${isCloudOperational ? '✓ 满足运营要求 (端云协同达标)' : '☁️ 运营待就绪 (需接入云端GPU>=8G)'}
                     </span>
                 </div>

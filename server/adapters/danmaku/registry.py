@@ -4,7 +4,7 @@
 - 未注册的平台统一回退到外部中继 (webhook / WS ingest) 或仿真注入器
 """
 import logging
-from typing import Callable, Dict, Optional, Any
+from typing import Callable, Dict, Optional
 
 from server.adapters.danmaku.base_fetcher import BaseDanmakuFetcher
 

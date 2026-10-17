@@ -8,7 +8,7 @@ import os
 import re
 import stat
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from gpu_sidecar.contracts import AvatarAsset, AvatarManifest, LicenseManifest
 

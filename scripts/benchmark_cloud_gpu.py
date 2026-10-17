@@ -13,7 +13,6 @@ import json
 import sqlite3
 import sys
 import time
-from typing import Any, Dict, List
 import numpy as np
 import websockets
 
@@ -24,7 +23,6 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from server.config import decrypt_secret
 from server.core.media.sidecar_protocol import (
-    ENVELOPE_MAGIC,
     KIND_AUDIO,
     KIND_VIDEO,
     decode_envelope,
@@ -78,7 +76,7 @@ async def run_benchmark():
             for i in range(20):
                 t0 = time.time()
                 await ws.send(json.dumps({"event": "ping", "request_id": f"p_{i}", "timestamp": t0}))
-                resp = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                await asyncio.wait_for(ws.recv(), timeout=5.0)
                 dur = (time.time() - t0) * 1000.0
                 rtt_list.append(dur)
                 await asyncio.sleep(0.01)
@@ -190,7 +188,7 @@ async def run_benchmark():
             for i in range(100):
                 t_s = time.time()
                 await ws.send(json.dumps({"event": "ping", "seq": i, "timestamp": t_s}))
-                resp = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                await asyncio.wait_for(ws.recv(), timeout=5.0)
                 dur = (time.time() - t_s) * 1000.0
                 stress_times.append(dur)
                 stress_success += 1

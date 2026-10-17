@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from pathlib import Path
 from typing import Optional, AsyncGenerator
 from server.adapters.media.base_driver import BaseMediaDriver
 

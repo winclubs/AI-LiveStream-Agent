@@ -2,7 +2,6 @@
 """试播台词驱动编排服务测试"""
 import asyncio
 import time
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -1452,7 +1451,6 @@ async def test_speech_drive_preview_latentsync_hardware_gate(fake_asset):
 @pytest.mark.anyio
 async def test_speech_drive_preview_latentsync_success(monkeypatch, fake_asset):
     """latentsync 模式在云端批处理端点返回有效帧时，能正确解码、融合并产出高精结果"""
-    import base64
     import cv2
     import numpy as np
     from server.core.avatar.speech_drive_preview import (
@@ -1474,7 +1472,6 @@ async def test_speech_drive_preview_latentsync_success(monkeypatch, fake_asset):
     # 构造一张测试 256x256 人脸图片并转为 base64
     face = np.full((256, 256, 3), 128, dtype=np.uint8)
     _, buf = cv2.imencode(".jpg", face)
-    b64_frame = base64.b64encode(buf.tobytes()).decode("ascii")
 
     # 模拟 _render_cloud_batch_latentsync 返回合成结果
     outcome = RenderOutcome(

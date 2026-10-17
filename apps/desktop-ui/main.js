@@ -2,11 +2,13 @@
  * Electron 桌面控制台：校验外部 Python、托管本地后端，并将持久数据写入 userData。
  * 安装包不内置 Python；当前验收范围为 64 位 CPython 3.12/3.13 与精确核心依赖。
  */
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, shell, ipcMain } = require("electron");
 const { spawn, spawnSync, execSync } = require("child_process");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
+
+const { initAutoUpdater, checkForUpdatesInteractive } = require("./autoupdate");
 
 const packageJson = require("./package.json");
 const EXPECTED_VERSION = packageJson.version;
@@ -48,6 +50,12 @@ function samePath(left, right) {
   if (!left || !right) return false;
   const normalize = (value) => path.resolve(value).replace(/[\\/]+$/, "").toLowerCase();
   return normalize(left) === normalize(right);
+}
+
+/** 外部链接一律交给系统浏览器，绝不在应用窗口内加载。 */
+function shellOpenExternal(url) {
+  if (!/^https?:\/\//i.test(url)) return;
+  shell.openExternal(url).catch(() => {});
 }
 
 function queryBackendVersion(timeout = 1000) {
@@ -252,8 +260,44 @@ function createWindow() {
     minHeight: 720,
     title: `AI-LiveStream-Agent 专业版 v${EXPECTED_VERSION}`,
     backgroundColor: "#0f172a",
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, "preload.js"),
+    },
   });
+
+  // 安全加固：控制台只应停留在本机引擎页面。
+  // 此前未做任何导航约束，一旦渲染层出现外链跳转或被注入，
+  // 整个桌面壳（含 file:// 权限与后端控制能力）会被带到任意站点。
+  const allowedOrigins = new Set([runtime.origin]);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // 外链一律交给系统浏览器，绝不在应用窗口内打开
+    if (/^https?:/i.test(url)) shellOpenExternal(url);
+    return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    let target;
+    try {
+      target = new URL(url);
+    } catch (error) {
+      event.preventDefault();
+      return;
+    }
+    if (target.protocol !== "http:" && target.protocol !== "https:") {
+      event.preventDefault();
+      return;
+    }
+    if (!allowedOrigins.has(target.origin)) {
+      event.preventDefault();
+      shellOpenExternal(url);
+    }
+  });
+  mainWindow.webContents.on("will-attach-webview", (event) => {
+    event.preventDefault();
+  });
+
   mainWindow.loadURL(runtime.engineUrl);
   mainWindow.webContents.on("did-fail-load", async () => {
     if (!(await ensureBackend()) && !(await showEngineDownDialog())) app.quit();
@@ -296,10 +340,32 @@ async function shutdownOwnedBackend() {
 
 app.whenReady().then(async () => {
   runtime = buildRuntimeConfig();
+  // 自动更新初始化失败绝不阻断启动：直播节点必须能离线开播
+  try {
+    initAutoUpdater();
+  } catch (error) {
+    console.warn("[auto-updater] 初始化异常 (已忽略，不影响开播):", error?.message || error);
+  }
   await startDesktop();
 });
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+
+// 渲染层「检查更新」按钮的 IPC 入口（contextIsolation 下唯一可控通道）
+ipcMain.handle("app:check-for-updates", async () => {
+  try {
+    return await checkForUpdatesInteractive(mainWindow);
+  } catch (error) {
+    return { checked: false, reason: "error", error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle("app:get-version", () => ({
+  version: EXPECTED_VERSION,
+  electron: process.versions.electron,
+  node: process.versions.node,
+  chrome: process.versions.chrome,
+}));
 app.on("activate", async () => {
   if (BrowserWindow.getAllWindows().length === 0) await startDesktop();
 });

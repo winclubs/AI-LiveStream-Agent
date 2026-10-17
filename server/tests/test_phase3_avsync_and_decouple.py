@@ -4,7 +4,7 @@
 """
 import time
 import pytest
-from server.core.avatar import AvatarDriverFactory, LocalLiveTalkingDriver, CloudSidecarDriver
+from server.core.avatar import AvatarDriverFactory, LocalLiveTalkingDriver
 from server.core.media.av_sync import global_av_sync
 
 

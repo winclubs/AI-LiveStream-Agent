@@ -6,7 +6,6 @@
 """
 
 import re
-import time
 import asyncio
 import logging
 from typing import Callable, Dict, Any, Optional
@@ -23,7 +22,8 @@ except ImportError:  # pragma: no cover
 
 class KuaishouDanmakuFetcher(BaseDanmakuFetcher):
     """
-    快手直播间实时弹幕抓取适配器
+    快手直播间实时弹幕抓取适配器 [实验性协议 / Experimental]
+    注：基于公开网页端轻量轮询，无官方开放平台强鉴权，生产高并发或频发滑块环境建议搭配专有代理使用。
     支持事件：
       - chat: 观众发言（含电商促单意图升级 P1）
       - gift: 礼物打赏（大额礼物如穿云箭/火箭 >= 50000 币升级 P0 强打断）
@@ -31,6 +31,7 @@ class KuaishouDanmakuFetcher(BaseDanmakuFetcher):
       - member: 进场欢迎 (P2)
     """
     platform_name = "kuaishou"
+    is_experimental = True
 
     # 促单高意图关键词
     INTENT_KEYWORDS = ["多少钱", "怎么买", "发货", "优惠", "包邮", "领券", "几号链接", "库存", "正品", "拍了", "保修"]

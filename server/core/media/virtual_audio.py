@@ -35,7 +35,7 @@ MAX_PENDING_AUDIO_BYTES = 64 * 1024 * 1024
 def _resolve_clock_precision(shared_clock: bool) -> str:
     """
     统一时钟精度口径：查询 SharedPlaybackClock 是否已建立采样锚点。
-    - 已锚定: "sample_aligned" (与 SharedPlaybackClock.get_alignment_status 同语义)
+    - 已锚定: "monotonic_chunk_estimated" (与 SharedPlaybackClock.get_alignment_status 同语义)
     - 未锚定但本地声卡可用: "estimated" (portaudio 延迟估计)
     - 完全不可用: "none"
     """
@@ -46,7 +46,7 @@ def _resolve_clock_precision(shared_clock: bool) -> str:
 
         status = global_shared_playback_clock.get_alignment_status()
         anchored = bool(status.get("audio_anchored"))
-        return "sample_aligned" if anchored else "estimated"
+        return "monotonic_chunk_estimated" if anchored else "estimated"
     except Exception:
         return "estimated"
 
@@ -397,7 +397,6 @@ class VirtualAudioService:
             self._reject_cursor(candidate_frames[0].audio_id, "invalid_progressive_frame_batch")
             return False
 
-        first = frame_list[0]
         accepted = True
         for index, frame in enumerate(frame_list):
             accepted = self.play_chunk(
@@ -635,7 +634,7 @@ class VirtualAudioService:
                                     c = self._cursors.get(audio_id)
                                     if c:
                                         c["is_interrupted"] = True
-                                    c["status"] = "interrupted"
+                                        c["status"] = "interrupted"
                             break
                         piece = samples[start:start + self.WRITE_SLICE_SAMPLES]
                         stream.write(piece.reshape(-1, 1))

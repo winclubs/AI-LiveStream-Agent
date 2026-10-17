@@ -11,12 +11,12 @@
 5. 时长衰减机制 (指定秒数后平滑复位回待机态 0)；
 6. 数据库 avatar_actions 配置热重载与多主播隔离。
 """
-import asyncio
 import logging
+import os
 import pickle
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -185,9 +185,9 @@ class ActionStateMachine:
         self.keyword_rules: List[Dict[str, Any]] = []
         self.event_rules: Dict[str, Dict[str, Any]] = {}
 
-        # 动作切换平滑过渡帧进度 (0.0:刚切换, 1.0:完全进入新动作)
+        # 动作切换平滑过渡帧进度 (0.0:刚切换, 1.0:完全进入新动作；支持环境变量配置更长步数)
         self.blend_step: int = 0
-        self.blend_total_steps: int = 4
+        self.blend_total_steps: int = int(os.getenv("LIVE_AGENT_ACTION_BLEND_STEPS", "4"))
 
         # 初始化默认 5 大基础动作槽位
         self._init_default_actions()
@@ -340,6 +340,9 @@ class ActionStateMachine:
     def evaluate_text(self, speak_text: str) -> Optional[int]:
         """
         根据口播话术智能研判动作代码
+
+        关键词规则按优先级降序匹配；若某高优规则命中但被优先级抢占拒绝执行，
+        则继续尝试下一条低优规则，而非直接放弃（避免「高优抢不到、低优不让进」的死局）。
         """
         if not speak_text:
             return None
@@ -354,7 +357,10 @@ class ActionStateMachine:
                         duration=rule["duration"],
                         priority=rule["priority"],
                     )
-                    return action_code if switched else None
+                    if switched:
+                        return action_code
+                    # 高优动作被抢占拒绝，继续尝试低优先级规则
+                    break
         return None
 
     def evaluate_event(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> Optional[int]:
@@ -424,7 +430,9 @@ class ActionStateMachine:
             prev_img = prev_clip.get_frame(frame_idx) if prev_clip and prev_clip.total_frames > 0 else base_frame
             self.blend_step += 1
             if prev_img is not None and curr_img is not None and prev_img.shape == curr_img.shape:
-                alpha = self.blend_step / float(self.blend_total_steps)
+                t = max(0.0, min(1.0, self.blend_step / float(self.blend_total_steps)))
+                # S-Curve 缓动函数 (Smoothstep: 3t^2 - 2t^3)，抑制换动作时的双脸/残影重叠闪烁
+                alpha = t * t * (3.0 - 2.0 * t)
                 return cv2.addWeighted(curr_img, alpha, prev_img, 1.0 - alpha, 0)
 
         return curr_img
@@ -474,16 +482,6 @@ class ActionStateMachine:
 
         # 统一输出 RGB 色彩空间供数字人合成引擎消费
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    def preload_all_clips(self) -> int:
-        """一键将全部动作切片载入内存，彻底消除实时磁盘 I/O"""
-        loaded = 0
-        for clip in self.clips.values():
-            clip.preload_memory = True
-            cnt = clip.load_frames()
-            if cnt > 0:
-                loaded += 1
-        return loaded
 
     def get_current_coords(self, frame_idx: int) -> Optional[Any]:
         """获取当前动作切片对应的人脸对齐包围盒坐标 (支持动作自适应与待机兜底)"""

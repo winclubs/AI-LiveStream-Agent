@@ -95,7 +95,6 @@ class PipelineVerifier:
             has_feed = 'id="viewport-feed"' in content
             has_stream = 'id="render-stream"' in content
             has_idle = 'id="idle-layer"' in content
-            has_sop = "伴侣捕获SOP" in content
 
             if resp.status_code == 200 and has_green and has_feed and has_stream and has_idle:
                 self.record(

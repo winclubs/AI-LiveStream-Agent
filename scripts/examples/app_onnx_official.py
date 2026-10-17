@@ -4,7 +4,6 @@ import argparse
 import logging
 import os
 import queue
-import re
 import threading
 import time
 from contextlib import contextmanager

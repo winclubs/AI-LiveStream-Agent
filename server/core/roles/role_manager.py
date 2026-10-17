@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List, Any
+from typing import Dict, List, Any
 from server.core.roles.base_role import BaseAnchorRole
 from server.core.roles.ecommerce_anchor import EcommerceAnchorRole
 from server.core.roles.entertainment_host import EntertainmentHostRole
@@ -24,9 +24,6 @@ class RoleManager:
         for role_cls in ROLE_CLASS_MAP.values():
             inst = role_cls()
             self._roles[inst.role_id] = inst
-
-    def register_role(self, role: BaseAnchorRole):
-        self._roles[role.role_id] = role
 
     def register_or_update_from_db(self, role_db, *, activate: bool = False) -> BaseAnchorRole:
         """从数据库 ORM 模型构建主播实例；保存配置默认不改变当前角色。"""
@@ -85,11 +82,13 @@ class RoleManager:
         return False
 
     def list_roles(self) -> List[Dict[str, Any]]:
+        """序列化全部运行态角色供 /roles/list 复用；字段以数据库主键 id 为准，与前端消费口径一致。"""
         return [
             {
                 "id": r.role_id,
                 "name": r.role_name,
                 "role_type": r.role_type,
+                "system_prompt": r.system_prompt,
                 "speech_speed": r.speech_speed,
                 "pitch_shift": r.pitch_shift,
                 "is_active": (r.role_id == self._active_role_id)

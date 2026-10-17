@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import AsyncGenerator, Dict, Any
 
 class BaseAnchorRole(ABC):
     """主播角色人设抽象基类"""

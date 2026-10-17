@@ -4,16 +4,14 @@ import logging
 import uuid
 import asyncio
 import httpx
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from server.database.db import get_db, AsyncSessionLocal
-from server.database.models import ApiProviderConfig, AppSetting, VoiceProfile
-from server.config import DATA_DIR, encrypt_secret, decrypt_secret, mask_api_key
+from server.database.db import get_db
+from server.database.models import ApiProviderConfig, AppSetting
+from server.config import encrypt_secret, decrypt_secret, mask_api_key
 from server.adapters.media.avatar_provider_config import (
     avatar_provider_policy_to_dict,
     find_sensitive_paths,
@@ -368,13 +366,6 @@ class FetchModelsRequest(BaseModel):
     base_url: Optional[str] = Field(default=None, max_length=512)
     api_key: Optional[str] = Field(default=None, max_length=16_384)
 
-class TestConnectionRequest(BaseModel):
-    config_group: str = Field(min_length=1, max_length=32)
-    provider_name: str = Field(min_length=1, max_length=64)
-    base_url: Optional[str] = Field(default=None, max_length=512)
-    api_key: Optional[str] = Field(default=None, max_length=16_384)
-
-
 @router.post("/llm/models")
 async def fetch_llm_models(req: FetchModelsRequest, db: AsyncSession = Depends(get_db)):
     """
@@ -383,7 +374,6 @@ async def fetch_llm_models(req: FetchModelsRequest, db: AsyncSession = Depends(g
     """
     raw_api_key = req.api_key or ""
     base_url = (req.base_url or "").strip().rstrip("/")
-    provider = (req.provider_name or "custom").lower()
 
     # 若未传 key 但传了已存在的 config_id，从数据库安全解密已有 Key
     if req.config_id and not raw_api_key:
@@ -953,6 +943,60 @@ class PingRequest(BaseModel):
     base_url: Optional[str] = Field(default=None, max_length=512)
     api_key: Optional[str] = Field(default=None, max_length=16_384)
 
+
+_EDGE_TTS_PROBE_TEXT = "ok"
+_EDGE_TTS_PROBE_VOICE = "zh-CN-XiaoxiaoNeural"
+_EDGE_TTS_PROBE_TIMEOUT_SEC = 12.0
+_edge_tts_probe_cache: Optional[Tuple[bool, str]] = None
+
+
+async def _probe_edge_tts_reachability() -> dict:
+    """真实合成探测 Edge-TTS 可用性，取代任何未经实测的乐观上报。
+
+    架构诚实 (ADR-16)：Edge-TTS 免费端点随时可能因上游策略变更而拒绝服务
+    (已知 403 Invalid response status)，若此处继续硬编码 success=True，
+    体检绿灯会把一个已经失效的 TTS 引擎放行到商用开播现场。
+    结果在进程内缓存，避免体检轮询反复打扰上游。
+    """
+    global _edge_tts_probe_cache
+    start_time = time.time()
+    if _edge_tts_probe_cache is None:
+        try:
+            import edge_tts
+
+            communicator = edge_tts.Communicate(_EDGE_TTS_PROBE_TEXT, _EDGE_TTS_PROBE_VOICE)
+            stream = communicator.stream()
+
+            async def _pull_first_audio() -> bool:
+                try:
+                    async for chunk in stream:
+                        if chunk.get("type") == "audio" and chunk.get("data"):
+                            return True
+                    return False
+                finally:
+                    aclose = getattr(stream, "aclose", None)
+                    if aclose is not None:
+                        await aclose()
+
+            got_audio = await asyncio.wait_for(_pull_first_audio(), timeout=_EDGE_TTS_PROBE_TIMEOUT_SEC)
+            if got_audio:
+                _edge_tts_probe_cache = (True, "Edge-TTS 实测合成成功")
+            else:
+                _edge_tts_probe_cache = (False, "Edge-TTS 上游未返回任何音频数据")
+        except asyncio.TimeoutError:
+            _edge_tts_probe_cache = (False, f"Edge-TTS 合成探测超时 (>{int(_EDGE_TTS_PROBE_TIMEOUT_SEC)}s)，请检查网络出口")
+        except Exception as exc:  # 上游协议/鉴权变更等一律如实上报根因
+            _edge_tts_probe_cache = (False, f"Edge-TTS 实测失败: {type(exc).__name__}: {exc}"[:300])
+
+    reachable, detail = _edge_tts_probe_cache
+    latency_ms = int((time.time() - start_time) * 1000)
+    return {
+        "code": 0 if reachable else 1,
+        "success": reachable,
+        "latency_ms": latency_ms,
+        "message": f"{detail}（微软免费语音，无需 Base URL；本结论为实测合成结果）",
+    }
+
 @router.post("/ping")
 @router.post("/test-connection")
 async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
@@ -994,12 +1038,7 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
 
     if not target_url:
         if "edge" in provider_name.lower():
-            return {
-                "code": 0,
-                "success": True,
-                "latency_ms": 0,
-                "message": "Edge-TTS 为内置微软免费语音，无需 Base URL；实际连通性将在开播首次合成时自动验证"
-            }
+            return await _probe_edge_tts_reachability()
         return {"code": 1, "success": False, "latency_ms": 0, "message": "未配置有效的 Base URL"}
 
     # 针对数字人渲染节点 (Sidecar v3)，智能支持将 http/https 提升为 wss/ws 探测真实渲染端点
@@ -1028,7 +1067,6 @@ async def ping_service(req: PingRequest, db: AsyncSession = Depends(get_db)):
                 # （nvidia-smi 有 Tesla T4，但 onnxruntime 静默回退 CPUExecutionProvider）。
                 # 新版节点会如实下发 renderer_available / render_backends[].available。
                 ack_gpu_runtime_verified = None
-                ack_runtime_providers: list[str] = []
 
                 # 智能循环接收握手阶段消息 (处理 handshake_ack、auth_ok 及硬件信息提取)
                 loop_start = time.time()
@@ -1571,6 +1609,4 @@ async def import_neural_model(req: ImportNeuralModelRequest):
         "message": "模型导入成功，已就绪",
         "data": global_neural_model_manager.get_model_status_matrix(),
     }
-
-
 

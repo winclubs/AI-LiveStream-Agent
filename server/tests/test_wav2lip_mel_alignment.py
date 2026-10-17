@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from server.core.avatar.neural_lip_renderer import MelFeatureExtractor, Wav2LipMelExtractor
+from server.core.avatar.neural_lip_renderer import Wav2LipMelExtractor
 
 GOLDEN_PATH = Path(__file__).parent / "data" / "mel_golden.json"
 
@@ -317,8 +317,10 @@ def test_embedded_sidecar_mel_extractor_in_sync(doc):
 
     root = Path(__file__).resolve().parents[2]
     path = root / doc
-    if not path.exists():
-        pytest.skip(f"未找到 {doc}")
+    # 断言而非跳过：被断言的源码文件就在本仓内，不存在使其缺失的正当理由。
+    # 原实现用 pytest.skip，一旦文件被重命名/移动，这些用例会永久静默失效
+    # —— 正是「skip 掩盖回归」的典型形态（上线诊断 RISK-7）。
+    assert path.is_file(), f"待校验源码文件不存在: {path}"
     text = path.read_text(encoding="utf-8")
 
     match = re.search(r"class LatentSyncMelExtractor:", text)
@@ -354,8 +356,8 @@ def test_embedded_sidecar_source_parses(doc):
 
     root = _P(__file__).resolve().parents[2]
     path = root / doc
-    if not path.exists():
-        pytest.skip(f"未找到 {doc}")
+    # 同上：仓内源码缺失属于缺陷，必须暴露而不是静默跳过
+    assert path.is_file(), f"待校验源码文件不存在: {path}"
     text = path.read_text(encoding="utf-8")
     match = re.search(r"sidecar_server_code\s*=\s*'''(.*?)'''", text, re.S)
     assert match, f"{doc} 中未找到 sidecar_server_code"

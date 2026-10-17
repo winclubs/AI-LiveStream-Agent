@@ -1,14 +1,12 @@
 import os
-import json
 import uuid
-import struct
 import tempfile
 from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select, update, event, text
-from server.config import BASE_DIR, DATABASE_URL as _PROD_DATABASE_URL
+from server.config import DATABASE_URL as _PROD_DATABASE_URL
 from server.database.models import (
-    Base, AnchorRole, ProhibitedWord, ApiProviderConfig, Avatar, VoiceProfile, KnowledgeChunk,
+    Base, AnchorRole, ProhibitedWord, Avatar, VoiceProfile, KnowledgeChunk,
     LiveSessionRecord, utc_now
 )
 
@@ -48,10 +46,6 @@ def enable_test_isolation(prefix: str = "liveagent_test_db_") -> Path:
     _install_connection_pragmas(engine)
     AsyncSessionLocal = _build_session_factory(engine)
     return _TEST_DB_PATH
-
-
-def is_test_isolation_enabled() -> bool:
-    return _TEST_DB_PATH is not None
 
 
 def _install_connection_pragmas(async_engine) -> None:

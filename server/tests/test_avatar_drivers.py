@@ -5,13 +5,11 @@
 说话状态与超时回落、瞬间打断 (flush_talk) 以及动作状态机 (set_custom_state)。
 """
 import pytest
-import time
 from server.core.avatar import (
     AvatarDriverFactory,
     LocalLiveTalkingDriver,
     CloudSidecarDriver,
     Procedural2DDriver,
-    MockAvatarDriver,
 )
 
 

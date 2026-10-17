@@ -6,7 +6,6 @@ SQLite 轻量级版本化迁移框架
 import logging
 import re
 from sqlalchemy import text
-from server.database.models import Base
 
 logger = logging.getLogger("LiveAgent.Migrations")
 
@@ -307,7 +306,46 @@ MIGRATIONS = [
             "ALTER TABLE live_session_records ADD COLUMN oss_error_msg TEXT DEFAULT ''",
         ],
     ),
+    (
+        "0013_create_ecommerce_sku_slices",
+        "创建电商商品高精预渲染切片表 (ecommerce_sku_slices)",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS ecommerce_sku_slices (
+                id VARCHAR(64) PRIMARY KEY,
+                product_id VARCHAR(64) NOT NULL,
+                slot_code VARCHAR(32) NOT NULL,
+                slice_type VARCHAR(32) DEFAULT 'main_pitch',
+                script_text TEXT NOT NULL,
+                video_path VARCHAR(512) NOT NULL,
+                audio_path VARCHAR(512) NOT NULL,
+                duration_sec FLOAT NOT NULL,
+                coords_path VARCHAR(512),
+                loudness_lufs FLOAT DEFAULT -16.0,
+                bg_noise_profile TEXT DEFAULT '{}',
+                render_engine VARCHAR(32) DEFAULT 'latentsync_cloud',
+                is_active INTEGER DEFAULT 1,
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_ecommerce_sku_slices_product_id ON ecommerce_sku_slices(product_id)",
+            "CREATE INDEX IF NOT EXISTS ix_ecommerce_sku_slices_slot_code ON ecommerce_sku_slices(slot_code)",
+        ],
+    ),
+    (
+        "0014_commercial_session_modes_and_states",
+        "直播历史记录表补充商业化运行档位、状态细节与平台确认列",
+        [
+            "ALTER TABLE live_session_records ADD COLUMN execution_mode VARCHAR(32) DEFAULT 'PREVIEW'",
+            "ALTER TABLE live_session_records ADD COLUMN state_detail VARCHAR(64) DEFAULT 'LOCAL_READY'",
+            "ALTER TABLE live_session_records ADD COLUMN platform_confirmed INTEGER DEFAULT 0",
+            "ALTER TABLE live_session_records ADD COLUMN platform_confirmed_at DATETIME",
+        ],
+    ),
 ]
+
 
 
 _ALTER_ADD_COLUMN_RE = re.compile(

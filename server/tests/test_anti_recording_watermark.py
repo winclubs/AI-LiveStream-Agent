@@ -4,7 +4,6 @@
 """
 import hashlib
 import numpy as np
-import pytest
 
 from server.core.media.scene_overlay import (
     apply_anti_recording_watermark,

@@ -34,7 +34,12 @@ function initWebSocket() {
     }
 }
 
-// 浏览器端流式音频播放引擎 (支持毫秒级打断与自动连贯播放)
+// ============================================================================
+// 🔊 现代 Web Audio API 高精度流式音频播放引擎 (P0-4 消除爆音 / 精准时间戳)
+// ============================================================================
+let _sharedAudioContext = null;
+let _nextAudioStartTime = 0;
+const _activeAudioNodes = []; // { source, gainNode, generation }
 let currentAudioElement = null;
 let currentAudioUrl = null;
 const audioQueue = [];
@@ -42,13 +47,41 @@ const pendingAudioTimers = new Set();
 let isPlayingAudio = false;
 let audioPlaybackGeneration = 0;
 
+function getAudioContext() {
+    if (typeof window === "undefined") return null;
+    if (!_sharedAudioContext) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+            _sharedAudioContext = new AudioContextClass();
+        }
+    }
+    if (_sharedAudioContext && _sharedAudioContext.state === "suspended") {
+        _sharedAudioContext.resume().catch(() => {});
+    }
+    return _sharedAudioContext;
+}
+
+// 页面任意交互激活音频上下文
+if (typeof window !== "undefined") {
+    const unlockAudio = () => {
+        const ctx = getAudioContext();
+        if (ctx && ctx.state === "suspended") {
+            ctx.resume().catch(() => {});
+        }
+        window.removeEventListener("pointerdown", unlockAudio);
+        window.removeEventListener("keydown", unlockAudio);
+    };
+    window.addEventListener("pointerdown", unlockAudio, { passive: true });
+    window.addEventListener("keydown", unlockAudio, { passive: true });
+}
+
 function playAudioChunk(base64Audio, mimeType, generation) {
     if (generation !== audioPlaybackGeneration) return;
     audioQueue.push({ base64Audio, mimeType, generation });
     if (!isPlayingAudio) processAudioQueue();
 }
 
-function processAudioQueue() {
+async function processAudioQueue() {
     if (audioQueue.length === 0) {
         isPlayingAudio = false;
         return;
@@ -59,6 +92,67 @@ function processAudioQueue() {
         return;
     }
     isPlayingAudio = true;
+    updateSpeakingWave(true);
+
+    try {
+        const byteCharacters = atob(item.base64Audio);
+        const byteNumbers = new Uint8Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+
+        const ctx = getAudioContext();
+        if (ctx) {
+            // Web Audio API 解码
+            const buffer = await ctx.decodeAudioData(byteNumbers.buffer.slice(0));
+            if (item.generation !== audioPlaybackGeneration) {
+                processAudioQueue();
+                return;
+            }
+
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
+
+            // 5ms 平滑淡入淡出 Envelope，消除 chunk 切片拼接处的直流偏置和爆音 (P0-4)
+            const gainNode = ctx.createGain();
+            const now = ctx.currentTime;
+            const startTime = Math.max(now + 0.005, _nextAudioStartTime);
+            const duration = buffer.duration;
+            const fadeTime = Math.min(0.005, duration * 0.1);
+
+            gainNode.gain.setValueAtTime(0.0001, startTime);
+            gainNode.gain.exponentialRampToValueAtTime(1.0, startTime + fadeTime);
+            gainNode.gain.setValueAtTime(1.0, startTime + Math.max(fadeTime, duration - fadeTime));
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+            source.connect(gainNode);
+            gainNode.connect(ctx.destination);
+
+            _nextAudioStartTime = startTime + duration;
+            const nodeRecord = { source, gainNode, generation: item.generation };
+            _activeAudioNodes.push(nodeRecord);
+
+            source.onended = () => {
+                const idx = _activeAudioNodes.indexOf(nodeRecord);
+                if (idx !== -1) _activeAudioNodes.splice(idx, 1);
+                if (_activeAudioNodes.length === 0 && audioQueue.length === 0) {
+                    isPlayingAudio = false;
+                    updateSpeakingWave(false);
+                }
+            };
+
+            source.start(startTime);
+            // 异步连续排队预备下一个切片，保持无缝时钟推进
+            if (audioQueue.length > 0) {
+                processAudioQueue();
+            }
+            return;
+        }
+    } catch (err) {
+        console.warn("Web Audio 解码或排队异常，尝试回退 HTML5 Audio:", err);
+    }
+
+    // 优雅回退到 HTML5 Audio (针对不支持的极端环境或特殊编码)
     try {
         const byteCharacters = atob(item.base64Audio);
         const byteNumbers = new Array(byteCharacters.length);
@@ -85,7 +179,7 @@ function processAudioQueue() {
             finish();
         });
     } catch (err) {
-        console.error("音频解码失败", err);
+        console.error("音频回退解码亦失败", err);
         processAudioQueue();
     }
 }
@@ -97,6 +191,25 @@ function stopAllAudioPlayback(nextGeneration = null) {
     pendingAudioTimers.forEach(timerId => clearTimeout(timerId));
     pendingAudioTimers.clear();
     audioQueue.length = 0;
+
+    // 瞬时平滑中断所有正在播放的 Web Audio 切片 (10ms 快速微淡出防破音)
+    const ctx = _sharedAudioContext;
+    while (_activeAudioNodes.length > 0) {
+        const item = _activeAudioNodes.pop();
+        try {
+            if (ctx && item.gainNode) {
+                const t = ctx.currentTime;
+                item.gainNode.gain.cancelScheduledValues(t);
+                item.gainNode.gain.setValueAtTime(item.gainNode.gain.value, t);
+                item.gainNode.gain.linearRampToValueAtTime(0.0001, t + 0.01);
+                item.source.stop(t + 0.01);
+            } else {
+                item.source.stop();
+            }
+        } catch (e) {}
+    }
+    _nextAudioStartTime = 0;
+
     if (currentAudioElement) {
         try { currentAudioElement.pause(); } catch(e) {}
         currentAudioElement = null;
@@ -108,6 +221,16 @@ function stopAllAudioPlayback(nextGeneration = null) {
     isPlayingAudio = false;
     updateSpeakingWave(false);
 }
+
+function getAudioPlaybackTimestamp() {
+    const ctx = _sharedAudioContext;
+    if (!ctx) return { contextTime: 0, performanceTime: performance.now() };
+    if (typeof ctx.getOutputTimestamp === "function") {
+        return ctx.getOutputTimestamp();
+    }
+    return { contextTime: ctx.currentTime, performanceTime: performance.now() };
+}
+window.getAudioPlaybackTimestamp = getAudioPlaybackTimestamp;
 
 let couponOverlayTimer = null;
 let sceneOverlayTimer = null;
@@ -286,6 +409,13 @@ function handleWsPacket(packet) {
                 }
             });
         }
+    } else if (type === "TRANSITION_FILLER") {
+        logDanmaku(
+            `${svg("theater", "icon-sm")} 切片防查过场`,
+            `主播过渡语: “${escapeHtml(data.filler_text || '')}” [${escapeHtml(data.old_slot_code || '')} ➔ ${escapeHtml(data.next_slot_code || '')}]`,
+            false,
+            true
+        );
     } else if (type === "speaking_state") {
         updateSpeakingWave(Boolean(data.is_speaking));
         const spkText = document.getElementById("speaking-wave-text");

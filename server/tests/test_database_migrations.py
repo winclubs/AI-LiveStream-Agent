@@ -1,6 +1,5 @@
 import asyncio
 import uuid
-import pytest
 from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
@@ -81,6 +80,13 @@ def test_database_migrations_full_lifecycle(tmp_path: Path):
             assert "description" in product_cols
             assert "images" in product_cols
             assert "size_chart" in product_cols
+
+            col_res3 = await conn.execute(text("PRAGMA table_info('ecommerce_sku_slices')"))
+            slice_cols = {r[1] for r in col_res3.fetchall()}
+            assert "slot_code" in slice_cols
+            assert "video_path" in slice_cols
+            assert "loudness_lufs" in slice_cols
+            assert "render_engine" in slice_cols
 
             # 5. 再次执行迁移，验证强幂等性 (应当直接跳过，执行计数为 0)
             executed_again = await run_migrations(conn)

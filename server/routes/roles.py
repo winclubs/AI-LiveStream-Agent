@@ -1,7 +1,7 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from server.database.db import get_db
@@ -112,32 +112,19 @@ async def get_role_suggestions(role_type: str = "ecommerce", mode: Optional[str]
             "default_theme": base.get("default_theme", ""),
             "theme_placeholder": base.get("theme_placeholder", ""),
             "constraint_prompt": base["constraint_prompt"],
-            "tips": base["tips"] + ([mode_tip] if mode_tip else [])
+            # 显式转 list：ROLE_SUGGESTIONS 的 tips 推断为 Sequence[str]，
+            # 直接与 list 相加会在有人把某项改成元组时抛 TypeError(500)。
+            "tips": list(base["tips"]) + ([mode_tip] if mode_tip else [])
         }
     }
 
 @router.get("/list")
-async def list_roles(db: AsyncSession = Depends(get_db)):
+async def list_roles():
     """获取所有可用主播角色人设"""
-    result = await db.execute(select(AnchorRole))
-    roles = result.scalars().all()
-    active_role = global_role_manager.get_active_role()
-
     return {
         "code": 0,
-        "active_role_id": active_role.role_id,
-        "data": [
-            {
-                "id": r.id,
-                "name": r.role_name,
-                "role_type": r.role_type,
-                "system_prompt": r.system_prompt,
-                "speech_speed": r.speech_speed,
-                "pitch_shift": r.pitch_shift,
-                "is_active": (r.id == active_role.role_id)
-            }
-            for r in roles
-        ]
+        "active_role_id": global_role_manager.get_active_role().role_id,
+        "data": global_role_manager.list_roles(),
     }
 
 @router.post("/switch")

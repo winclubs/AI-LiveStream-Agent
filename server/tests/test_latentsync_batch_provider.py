@@ -2,17 +2,16 @@
 
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from server.adapters.media.avatar_provider import AvatarRenderMode, ProviderRenderResult
 from server.adapters.media.avatar_provider_registry import (
     create_avatar_provider,
     get_avatar_provider_descriptor,
-    list_avatar_provider_descriptors,
 )
 from server.adapters.media.avatar_provider import ProviderVerification
 from server.adapters.media.latentsync_batch_provider import LatentSyncBatchAvatarProvider
-from server.core.avatar.slice_prefetcher import PrefetchedSlice, SlicePrefetcher, SliceState
+from server.core.avatar.slice_prefetcher import SlicePrefetcher, SliceState
 from server.core.media.audio_frame import AudioFormat, AudioFrame
 
 

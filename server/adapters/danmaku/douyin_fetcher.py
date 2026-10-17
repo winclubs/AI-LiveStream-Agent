@@ -21,7 +21,6 @@
 """
 import re
 import gzip
-import time
 import asyncio
 import logging
 import random

@@ -1,10 +1,10 @@
 <div class="tab-content" id="tab-gpu">
   <!-- 1. 标题与顶栏指引 -->
-  <div class="panel-card" style="margin-bottom: 18px;">
-    <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span class="panel-title" style="color: #10B981; display: flex; align-items: center; gap: 8px;">
-          <svg class="icon" viewBox="0 0 24 24" style="stroke: #10B981; fill: none; stroke-width: 2;">
+  <div class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
             <rect x="4" y="4" width="16" height="16" rx="2" />
             <rect x="9" y="9" width="6" height="6" />
             <line x1="9" y1="1" x2="9" y2="4" />
@@ -16,9 +16,11 @@
             <line x1="1" y1="9" x2="4" y2="9" />
             <line x1="1" y1="14" x2="4" y2="14" />
           </svg>
+        </span>
+        <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700;">
           GPU配置(2) · 算力调度与数字人渲染
         </span>
-        <span class="brand-badge green">核心算力枢纽</span>
+        <span class="cyber-badge-glow green" style="font-size: 11px;">核心算力枢纽</span>
       </div>
       <div id="gpu-header-active-status" style="font-size: 12px; color: var(--text-muted);">
         正在探测算力调度状态...
@@ -30,104 +32,117 @@
   </div>
 
   <!-- 2. 当前电脑硬件实况与系统硬件要求对照看板 -->
-  <div class="panel-card" style="margin-bottom: 20px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-      <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: inline-flex; align-items: center; gap: 8px;">
-        <svg class="icon-sm" viewBox="0 0 24 24" style="stroke:#38bdf8;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+  <div class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+      <span style="font-size: 14.5px; font-weight: 700; color: #ffffff; display: inline-flex; align-items: center; gap: 8px;">
+        <span class="cyber-chip-tag" style="border-color: rgba(0, 242, 254, 0.35);">
+          <svg viewBox="0 0 24 24" class="icon-chip"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          实机遥测
+        </span>
         当前电脑硬件实况 vs 运行本系统硬件要求
       </span>
-      <button type="button" class="btn btn-xs btn-ghost" onclick="refreshGpuHardwareOverview(true)" style="font-size: 11.5px; color: #38bdf8; display: inline-flex; align-items: center; gap: 4px;">
+      <button type="button" class="btn btn-xs btn-ghost" onclick="refreshGpuHardwareOverview(true)" style="font-size: 11.5px; color: #00f2fe; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 6px; padding: 3px 10px;">
         <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2;"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         重新探测硬件
       </button>
     </div>
 
-    <!-- 本机三大硬件核心指标实时卡片 -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 14px;">
+    <!-- 本机三大硬件核心指标实时卡片 (赛博矩阵卡片) -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px;">
       <!-- 显卡 GPU -->
-      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; position: relative;">
+      <div class="cyber-matrix-card">
         <div>
-          <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span>🎮 独立显卡 / GPU 算力</span>
+          <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span class="cyber-chip-tag">
+              <svg viewBox="0 0 24 24" class="icon-chip"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h10v10H7z"/></svg>
+              独立显卡 / GPU
+            </span>
             <div style="display: flex; align-items: center; gap: 5px;">
-              <span id="gpu-hw-card-cloud-badge" class="brand-badge sky" style="display: none; font-size: 11px;">⚡ 云端GPU已对接</span>
-              <span id="gpu-hw-card-cuda-badge" class="brand-badge amber">探测中</span>
+              <span id="gpu-hw-card-cloud-badge" class="cyber-badge-glow green" style="display: none; font-size: 10.5px;">⚡ 云端GPU已对接</span>
+              <span id="gpu-hw-card-cuda-badge" class="cyber-stat-pill green" style="font-size: 10.5px;">探测中</span>
             </div>
           </div>
-          <div id="gpu-hw-card-name" style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 4px; word-break: break-all;">
+          <div id="gpu-hw-card-name" style="font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 6px; word-break: break-all;">
             正在获取物理显卡...
           </div>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 8px; gap: 6px; flex-wrap: wrap;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px; gap: 6px; flex-wrap: wrap; border-top: 1px dashed rgba(148, 163, 184, 0.15); padding-top: 8px;">
           <div id="gpu-hw-card-vram-container" style="display: flex; flex-direction: column; gap: 4px;">
-            <div id="gpu-hw-card-vram" style="font-size: 12px; color: #94a3b8;">
+            <div id="gpu-hw-card-vram" style="font-size: 12px; color: #7ea2bd; font-family: var(--font-mono);">
               显存负载：— / — GB
             </div>
             <!-- 当检测到系统对接了云端GPU时在此显示 -->
-            <div id="gpu-hw-card-cloud-vram" style="display: none; font-size: 12px; align-items: center; gap: 6px; flex-wrap: wrap;">
-              <!-- 动态注入云端GPU信息 -->
-            </div>
+            <div id="gpu-hw-card-cloud-vram" style="display: none; font-size: 12px; align-items: center; gap: 6px; flex-wrap: wrap;"></div>
           </div>
           <div id="gpu-hw-card-gpu-requirement" style="font-size: 11px; margin-left: auto;">
-            <span class="brand-badge amber" style="font-size: 11px;">运营核验中...</span>
+            <span class="cyber-stat-pill red" style="font-size: 11px;">运营核验中...</span>
           </div>
         </div>
       </div>
 
       <!-- 处理器 CPU -->
-      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; position: relative;">
+      <div class="cyber-matrix-card">
         <div>
-          <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span>⚡ 处理器 / CPU</span>
-            <span id="gpu-hw-card-cpu-cores" class="brand-badge sky">— 核心</span>
+          <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span class="cyber-chip-tag">
+              <svg viewBox="0 0 24 24" class="icon-chip"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>
+              处理器 / CPU
+            </span>
+            <span id="gpu-hw-card-cpu-cores" class="cyber-stat-pill green" style="font-size: 10.5px;">— 核心</span>
           </div>
-          <div id="gpu-hw-card-cpu-name" style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 4px; word-break: break-all;">
+          <div id="gpu-hw-card-cpu-name" style="font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 6px; word-break: break-all;">
             正在获取 CPU 信息...
           </div>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 8px; gap: 6px; flex-wrap: wrap;">
-          <div id="gpu-hw-card-cpu-usage" style="font-size: 12px; color: #94a3b8;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px; gap: 6px; flex-wrap: wrap; border-top: 1px dashed rgba(148, 163, 184, 0.15); padding-top: 8px;">
+          <div id="gpu-hw-card-cpu-usage" style="font-size: 12px; color: #7ea2bd; font-family: var(--font-mono);">
             实时利用率：—%
           </div>
           <div id="gpu-hw-card-cpu-requirement" style="font-size: 11px; margin-left: auto;">
-            <span class="brand-badge sky" style="font-size: 11px;">运营核验中...</span>
+            <span class="cyber-stat-pill green" style="font-size: 11px;">运营核验中...</span>
           </div>
         </div>
       </div>
 
       <!-- 内存 RAM -->
-      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; position: relative;">
+      <div class="cyber-matrix-card">
         <div>
-          <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span>💾 系统内存 / RAM</span>
-            <span id="gpu-hw-card-ram-percent" class="brand-badge green">—% 占用</span>
+          <div style="font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span class="cyber-chip-tag">
+              <svg viewBox="0 0 24 24" class="icon-chip"><rect x="2" y="7" width="20" height="9" rx="1.5"/></svg>
+              系统内存 / RAM
+            </span>
+            <span id="gpu-hw-card-ram-percent" class="cyber-stat-pill green" style="font-size: 10.5px;">—% 占用</span>
           </div>
-          <div id="gpu-hw-card-ram-total" style="font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-bottom: 4px;">
+          <div id="gpu-hw-card-ram-total" style="font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 6px; font-family: var(--font-mono);">
             — / — GB
           </div>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 8px; gap: 6px; flex-wrap: wrap;">
-          <div id="gpu-hw-card-ram-status" style="font-size: 12px; color: #94a3b8;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px; gap: 6px; flex-wrap: wrap; border-top: 1px dashed rgba(148, 163, 184, 0.15); padding-top: 8px;">
+          <div id="gpu-hw-card-ram-status" style="font-size: 12px; color: #7ea2bd;">
             系统可用运存充足
           </div>
           <div id="gpu-hw-card-ram-requirement" style="font-size: 11px; margin-left: auto;">
-            <span class="brand-badge green" style="font-size: 11px;">运营核验中...</span>
+            <span class="cyber-stat-pill green" style="font-size: 11px;">运营核验中...</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 硬件评估与文字提示告警栏（若显存<2G或配置不足时显式醒目提示） -->
-    <div id="gpu-hw-eval-banner" style="display: none; padding: 12px 15px; border-radius: 8px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.7;">
+    <!-- 硬件评估与文字提示告警栏 -->
+    <div id="gpu-hw-eval-banner" style="display: none; padding: 12px 15px; border-radius: 8px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.7; background: rgba(4, 14, 24, 0.9); border: 1px dashed rgba(148, 163, 184, 0.2);">
       <!-- 动态注入提示内容 -->
     </div>
   </div>
 
   <!-- 3. 双核心运行模式选择卡片（仅 2 个选项，等宽对比） -->
-  <div class="panel-card" style="margin-bottom: 20px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-      <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: inline-flex; align-items: center; gap: 8px;">
-        <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+  <div class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+      <span style="font-size: 14.5px; font-weight: 700; color: #ffffff; display: inline-flex; align-items: center; gap: 8px;">
+        <span class="cyber-chip-tag">
+          <svg viewBox="0 0 24 24" class="icon-chip"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          模式决策
+        </span>
         选择您的数字人渲染与算力运行模式（二选一）：
       </span>
       <span style="font-size: 12px; color: var(--text-muted);">点击卡片切换，下方配置栏即刻同步就绪</span>
@@ -136,72 +151,68 @@
     <!-- 2 列等宽黄金卡片网格 -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
       <!-- 选项 1：本机完全满足 (本地运行) -->
-      <div id="gpu-mode-card-local" class="gpu-mode-card selected" onclick="selectGpuMode('local_procedural')"
-           style="background: rgba(15, 23, 42, 0.7); border: 2px solid #10B981; border-radius: 10px; padding: 18px; cursor: pointer; transition: all 0.2s ease; position: relative;">
+      <div id="gpu-mode-card-local" class="gpu-mode-card selected cyber-matrix-card" onclick="selectGpuMode('local_procedural')"
+           style="cursor: pointer; position: relative;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center;">
-              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; stroke: #10B981; fill: none; stroke-width: 2;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <div class="cyber-hud-icon" style="background: rgba(16, 231, 183, 0.15); border-color: rgba(16, 231, 183, 0.4);">
+              <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #10e7b7; fill: none; stroke-width: 2;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
             </div>
             <div>
-              <div style="font-size: 15px; font-weight: 700; color: #f8fafc;">选项 1 · 本机完全满足 (本地运行)</div>
-              <div style="font-size: 12px; color: #34d399; margin-top: 2px;">0 租赁成本 · 免网络配置 · 开箱即用</div>
+              <div style="font-size: 15px; font-weight: 700; color: #ffffff;">选项 1 · 本机完全满足 (本地运行)</div>
+              <div style="font-size: 12px; color: #10e7b7; margin-top: 2px; font-weight: 600;">0 租赁成本 · 免网络配置 · 开箱即用</div>
             </div>
           </div>
           <div style="text-align: right;">
-            <span id="gpu-mode-badge-local" class="brand-badge sky">核验中...</span>
+            <span id="gpu-mode-badge-local" class="cyber-badge-glow green" style="font-size: 11px;">核验中...</span>
           </div>
         </div>
-        <p style="font-size: 12.5px; color: #cbd5e1; line-height: 1.65; margin: 0 0 8px 0;">
+        <p style="font-size: 12.5px; color: #7ea2bd; line-height: 1.65; margin: 0 0 8px 0;">
           全链路在当前电脑单机闭环运行。适合<strong>本地拥有达标独立显卡 (RTX 3060 8GB+)</strong> 直接渲染超写实真人，或<strong>选用系统免显卡程序化形象</strong>开箱即播。完全不花一分钱云端算力费，断网亦可正常推流。
         </p>
-        <div id="gpu-compliance-summary-local" style="font-size: 12px; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); color: #cbd5e1;">
+        <div id="gpu-compliance-summary-local" style="font-size: 12px; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(0, 242, 254, 0.08); border: 1px dashed rgba(148, 163, 184, 0.2); color: #ffffff;">
           正在核验当前电脑物理配置是否达到本地真人渲染要求...
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">全离线私密</span>
-            <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">免外网带宽</span>
-            <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">零租金支出</span>
+            <span class="cyber-chip-tag" style="border-color: rgba(16, 231, 183, 0.35); color: #10e7b7;">全离线私密</span>
+            <span class="cyber-chip-tag" style="border-color: rgba(16, 231, 183, 0.35); color: #10e7b7;">免外网带宽</span>
+            <span class="cyber-chip-tag" style="border-color: rgba(16, 231, 183, 0.35); color: #10e7b7;">零租金支出</span>
           </div>
-          <div id="gpu-mode-requirement-local" style="font-size: 11px; margin-left: auto;">
-            <!-- 动态注入右下角：是否满足运营要求 -->
-          </div>
+          <div id="gpu-mode-requirement-local" style="font-size: 11px; margin-left: auto;"></div>
         </div>
       </div>
 
       <!-- 选项 2：本地硬件 + 租赁云端GPU -->
-      <div id="gpu-mode-card-cloud" class="gpu-mode-card" onclick="selectGpuMode('sidecar_v3')"
-           style="background: rgba(15, 23, 42, 0.7); border: 2px solid rgba(148, 163, 184, 0.2); border-radius: 10px; padding: 18px; cursor: pointer; transition: all 0.2s ease; position: relative;">
+      <div id="gpu-mode-card-cloud" class="gpu-mode-card cyber-matrix-card" onclick="selectGpuMode('sidecar_v3')"
+           style="cursor: pointer; position: relative;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); display: flex; align-items: center; justify-content: center;">
-              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; stroke: #38bdf8; fill: none; stroke-width: 2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            <div class="cyber-hud-icon">
+              <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
             </div>
             <div>
-              <div style="font-size: 15px; font-weight: 700; color: #f8fafc;">选项 2 · 本地硬件 + 租赁云端GPU</div>
-              <div style="font-size: 12px; color: #38bdf8; margin-top: 2px;">低配电脑救星 · 约1.2元/小时 · 1080P写实真人</div>
+              <div style="font-size: 15px; font-weight: 700; color: #ffffff;">选项 2 · 本地硬件 + 租赁云端GPU</div>
+              <div style="font-size: 12px; color: #00f2fe; margin-top: 2px; font-weight: 600;">低配电脑救星 · 约1.2元/小时 · 720P高清写实真人</div>
             </div>
           </div>
           <div style="text-align: right;">
-            <span id="gpu-mode-badge-cloud" class="brand-badge sky">端云协同</span>
+            <span id="gpu-mode-badge-cloud" class="cyber-badge-glow green" style="font-size: 11px;">端云协同</span>
           </div>
         </div>
-        <p style="font-size: 12.5px; color: #cbd5e1; line-height: 1.65; margin: 0 0 8px 0;">
+        <p style="font-size: 12.5px; color: #7ea2bd; line-height: 1.65; margin: 0 0 8px 0;">
           当本地显卡配置不足（如核显、轻薄本或老显卡 GT 710）时，将最耗显卡的数字人画面实时渲染<strong>外包给弹性云端 GPU (如各类算力云/私有算力节点 RTX 4090，按需计费)</strong>。本地仅负责互动推流，0 显存负担畅享电影级真人！
         </p>
-        <div id="gpu-compliance-summary-cloud" style="font-size: 12px; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.15); color: #cbd5e1;">
+        <div id="gpu-compliance-summary-cloud" style="font-size: 12px; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; background: rgba(0, 242, 254, 0.08); border: 1px dashed rgba(148, 163, 184, 0.2); color: #ffffff;">
           正在核验本地推流环境与云端 GPU 配合协同状态...
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">超写实 1080P</span>
-            <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">本地 0 显存开销</span>
-            <span class="badge-pill" style="font-size: 11px; padding: 2px 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">按需租用随关随停</span>
+            <span class="cyber-chip-tag">高清写实 720P</span>
+            <span class="cyber-chip-tag">本地 0 显存开销</span>
+            <span class="cyber-chip-tag">按需租用随关随停</span>
           </div>
-          <div id="gpu-mode-requirement-cloud" style="font-size: 11px; margin-left: auto;">
-            <!-- 动态注入右下角：是否满足运营要求 -->
-          </div>
+          <div id="gpu-mode-requirement-cloud" style="font-size: 11px; margin-left: auto;"></div>
         </div>
       </div>
     </div>
@@ -209,13 +220,18 @@
 
   <!-- 4. 选定模式的配置与生效操作面板 -->
   <input type="hidden" id="gpu-avatar-config-id" value="">
-  <div id="gpu-mode-config-panel" class="panel-card" style="border: 1.5px solid rgba(16, 185, 129, 0.4); box-shadow: 0 4px 20px rgba(0,0,0,0.25);">
-    <div class="panel-header" style="border-bottom: 1px solid rgba(148, 163, 184, 0.15); padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+  <div id="gpu-mode-config-panel" class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="font-size: 15px; font-weight: 700; color: #f8fafc;" id="gpu-config-panel-title">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #10e7b7; fill: none; stroke-width: 2.2;">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        </span>
+        <span style="font-size: 16px; font-weight: 700; color: #ffffff;" id="gpu-config-panel-title">
           模式配置详情
         </span>
-        <span id="gpu-config-panel-badge" class="brand-badge green">已就绪</span>
+        <span id="gpu-config-panel-badge" class="cyber-badge-glow green" style="font-size: 11px;">已就绪</span>
       </div>
       <div id="gpu-config-panel-link-box"></div>
     </div>
@@ -226,13 +242,13 @@
     </div>
 
     <!-- 底部统一操作按钮栏 -->
-    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed rgba(148, 163, 184, 0.15); flex-wrap: wrap;">
+    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(148, 163, 184, 0.2); flex-wrap: wrap;">
       <button id="gpu-avatar-test-btn" type="button" class="btn btn-sm btn-secondary" onclick="testCurrentGpuAvatarConnection()" style="display: none; font-weight: 500; padding: 6px 14px; align-items: center; gap: 6px;">
         <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
         测试通信连接
       </button>
 
-      <button id="gpu-avatar-save-btn" type="button" class="btn btn-sm btn-primary" onclick="handleSaveGpuAvatarConfig()" style="background: #10B981; border-color: #10B981; font-weight: 600; padding: 6px 20px; display: inline-flex; align-items: center; gap: 6px;">
+      <button id="gpu-avatar-save-btn" type="button" class="btn btn-sm btn-primary" onclick="handleSaveGpuAvatarConfig()" style="font-weight: 600; padding: 6px 20px; display: inline-flex; align-items: center; gap: 6px;">
         <svg class="icon-sm" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         保存并启用此算力模式
       </button>

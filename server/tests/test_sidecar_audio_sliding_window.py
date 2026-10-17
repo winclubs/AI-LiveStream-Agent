@@ -12,7 +12,6 @@ from server.core.avatar.neural_lip_renderer import MelFeatureExtractor
 
 def test_legacy_cloud_slice_produces_zero_mel():
     """验证旧切片逻辑确实会产生 std=0 的全零纯静音 Mel"""
-    PTS_STEP_SAMPLES = 640
     MEL_CONTEXT_SAMPLES = 3200
     extractor = MelFeatureExtractor()
 

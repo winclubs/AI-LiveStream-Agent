@@ -4,14 +4,11 @@ server/tests/test_resource_watchdog.py
 低配机 CPU/内存自适应降频看门狗与音频保活机制单元测试 (任务 4 契约保障)
 """
 
-import time
 import asyncio
 import pytest
-from unittest.mock import patch, MagicMock
 
 from server.core.monitoring.system_resource_watchdog import (
     SystemResourceWatchdog,
-    global_resource_watchdog,
 )
 from server.adapters.media.musetalk_driver import global_procedural_avatar_driver
 from server.adapters.media.media_router import global_media_router

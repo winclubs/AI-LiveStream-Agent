@@ -9,7 +9,6 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "websockets>=13.0.0",
     "pydantic>=2.9.0",
-    "pydantic-settings>=2.5.0",
     "sqlalchemy>=2.0.30",
     "aiosqlite>=0.20.0",
     "cryptography>=43.0.0",
@@ -22,6 +21,7 @@ dependencies = [
     "numpy>=2.0.0",
     "Brotli>=1.1.0",
     "pypinyin>=0.50.0",
+    "paramiko>=4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -82,7 +82,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]
-ignore = ["E501", "E402", "F401", "F841"]
+# 不豁免 F401(未使用导入)/F841(未使用变量)：死代码必须当场拦截，而非长期沉淀。
+ignore = ["E501", "E402"]
 
 [tool.mypy]
 python_version = "3.12"

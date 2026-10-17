@@ -6,7 +6,6 @@ AI-LiveStream-Agent 本地运行环境诊断与体检工具
 """
 
 import sys
-import os
 import socket
 import platform
 

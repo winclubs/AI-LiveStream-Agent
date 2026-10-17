@@ -2,86 +2,88 @@
   <!-- ========================================================== -->
   <!-- 核心指引：数字人主播素材准备与 3 步极速开播全景指南 -->
   <!-- ========================================================== -->
-  <div class="panel-card"
-    style="margin-bottom: 20px; border: 1px solid rgba(56, 189, 248, 0.35); background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.8) 100%); border-radius: 12px; padding: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);">
-    <div
-      style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; flex-wrap: wrap; gap: 10px;">
-      <div>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span
-            style="font-size: 16px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-            💡 数字人主播素材准备与极简开播指南
+  <div class="panel-card cyber-panel-hw" style="margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;">
+          <span class="cyber-hud-icon">
+            <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
           </span>
-          <span
-            style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 20px; padding: 2px 10px; font-weight: 600;">
-            新手必看 · 告别概念困惑
-          </span>
-        </div>
-        <div style="font-size: 13px; color: #94a3b8; margin-top: 5px; line-height: 1.8;">
-          系统采用 <strong>ByteDance LatentSync 工业级扩散模型</strong>。只需 <strong>1 段 30秒~1分钟 的出镜视频</strong>，即可生成影视级高清口播数字人：
-        </div>
+          数字人主播素材准备与极简开播指南
+        </span>
+        <span class="cyber-badge-glow green">新手必看 · 告别概念困惑</span>
       </div>
       <div style="display: flex; gap: 8px;">
         <button class="btn btn-sm" onclick="openShootingGuideModal()"
-          style="border-color: rgba(52, 211, 153, 0.4); color: #34d399;" title="绿幕 3 段式视频录制实战 SOP 指南">
+          style="border: 1px solid rgba(16, 231, 183, 0.45); color: #10e7b7; background: rgba(16, 231, 183, 0.12); box-shadow: 0 0 12px rgba(16, 231, 183, 0.15);" title="绿幕 3 段式视频录制实战 SOP 指南">
           🎬 查看详细实拍 SOP
         </button>
       </div>
     </div>
 
-    <!-- ByteDance LatentSync 官方源素材 4 大核心指标速查卡片 (根据官方手册与实战标准定制) -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px;">
+    <p class="page-intro" style="margin-bottom: 16px;">
+      系统采用 <strong>ByteDance LatentSync 工业级扩散模型</strong>。只需 <strong>1 段 30秒~1分钟 的出镜视频</strong>，即可生成影视级高清口播数字人：
+    </p>
+
+    <!-- ByteDance LatentSync 官方源素材 4 大核心指标速查卡片 (未来赛博矩阵卡片) -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-bottom: 18px;">
       <!-- 指标 1：视频时长 -->
-      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 12px 14px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-          <span style="font-size: 13px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
-            <span>⏱️</span> 视频时长要求
+      <div class="cyber-matrix-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <span class="cyber-chip-tag">
+            <svg viewBox="0 0 24 24" class="icon-chip"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            视频时长
           </span>
-          <span style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 1px 6px; border-radius: 4px;">建议 30s~1min</span>
+          <span class="cyber-stat-pill green"><span class="stat-num">建议 30s~1min</span></span>
         </div>
-        <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.6;">
+        <div style="font-size: 12.5px; color: #7ea2bd; line-height: 1.65;">
           • <strong>最佳时长：30秒 ~ 1分钟</strong>（最长支持2分钟）。<br>
           • 官方按 5~10 秒微段对齐特征；30秒即可形成自然呼吸微动闭环，避免超长视频增加传输与切片开销。
         </div>
       </div>
 
       <!-- 指标 2：镜头远近与景别 -->
-      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(52, 211, 153, 0.3); border-radius: 8px; padding: 12px 14px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-          <span style="font-size: 13px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 6px;">
-            <span>📐</span> 镜头远近与景别
+      <div class="cyber-matrix-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <span class="cyber-chip-tag" style="border-color: rgba(16, 231, 183, 0.35); color: #10e7b7;">
+            <svg viewBox="0 0 24 24" class="icon-chip"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            镜头与景别
           </span>
-          <span style="font-size: 11px; background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 1px 6px; border-radius: 4px;">胸部以上半身</span>
+          <span class="cyber-stat-pill green"><span class="stat-num">胸部以上半身</span></span>
         </div>
-        <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.6;">
+        <div style="font-size: 12.5px; color: #7ea2bd; line-height: 1.65;">
           • <strong>标准景别：胸部以上半身中景</strong>，正对镜头。<br>
           • 人脸在画幅中高度占比建议 <strong>25% ~ 40%</strong>（面部不低于 256px）；严禁全身远景（脸小模糊）或特写出画。
         </div>
       </div>
 
       <!-- 指标 3：是否需要绿幕 -->
-      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px; padding: 12px 14px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-          <span style="font-size: 13px; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
-            <span>🟩</span> 是否需要绿幕？
+      <div class="cyber-matrix-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <span class="cyber-chip-tag" style="border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">
+            <svg viewBox="0 0 24 24" class="icon-chip"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+            背景幕布
           </span>
-          <span style="font-size: 11px; background: rgba(251, 191, 36, 0.15); color: #fbbf24; padding: 1px 6px; border-radius: 4px;">实战强推绿幕</span>
+          <span class="cyber-stat-pill red"><span class="stat-num">实战强推绿幕</span></span>
         </div>
-        <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.6;">
+        <div style="font-size: 12.5px; color: #7ea2bd; line-height: 1.65;">
           • <strong>算法层面</strong>：实景/绿幕均可直接重绘嘴唇。<br>
           • <strong>带货实战</strong>：强烈建议<strong>平整纯绿幕</strong>，便于 OBS / 抖音伴侣一键抠像并自由贴合商品展台与促销挂件。
         </div>
       </div>
 
       <!-- 指标 4：是否需要真人说话 -->
-      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(248, 113, 113, 0.3); border-radius: 8px; padding: 12px 14px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-          <span style="font-size: 13px; font-weight: 700; color: #f87171; display: flex; align-items: center; gap: 6px;">
-            <span>🤐</span> 是否需要真人说话？
+      <div class="cyber-matrix-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <span class="cyber-chip-tag" style="border-color: rgba(244, 63, 94, 0.4); color: #f43f5e;">
+            <svg viewBox="0 0 24 24" class="icon-chip"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+            真人说话要求
           </span>
-          <span style="font-size: 11px; background: rgba(248, 113, 113, 0.15); color: #f87171; padding: 1px 6px; border-radius: 4px; font-weight:700;">严禁开口说话</span>
+          <span class="cyber-stat-pill red"><span class="stat-num">全程闭口静默</span></span>
         </div>
-        <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.6;">
+        <div style="font-size: 12.5px; color: #7ea2bd; line-height: 1.65;">
           • <strong>【黄金铁律】：全程闭口、自然微笑！</strong><br>
           • 系统仅由 AI 局部重绘口型。若录制时说话张嘴，原视频下巴拉长与 AI 新语音打架，会导致<strong>双重嘴唇叠影翻车</strong>！
         </div>
@@ -89,147 +91,37 @@
     </div>
 
     <!-- 官方工业规格注脚条 -->
-    <div style="background: rgba(0, 0, 0, 0.25); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 8px 14px; margin-bottom: 16px; font-size: 12px; color: #94a3b8; display: flex; flex-wrap: wrap; gap: 16px;">
-      <span>📌 <strong>官方标准规格：</strong></span>
-      <span>• 画面帧率：<strong>恒定 25 FPS (强制必须)</strong></span>
-      <span>• 推荐分辨率：<strong>1080P (1080×1920 竖屏 或 1920×1080 横屏)</strong></span>
-      <span>• 音频采样率：<strong>16,000 Hz 单声道</strong></span>
-      <span>• 面部视角：<strong>水平正对镜头 (仰俯/侧脸偏差 &le; 20&deg;)</strong></span>
-    </div>
-
-    <!-- 三大高频困惑 FAQ 白话解答卡片 (默认折叠答案，点击展开) -->
-    <div
-      style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 18px;">
-      <!-- 疑问 1：绿布视频怎么拍？纯动作还是带声音？ -->
-      <div
-        style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(52, 211, 153, 0.25); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: flex-start; transition: all 0.2s ease;">
-        <div
-          style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 8px; user-select: none;"
-          onclick="toggleFaqAnswer('faq-ans-shooting', this.querySelector('.faq-toggle-btn'))" title="点击展开/收起说明">
-          <div
-            style="font-size: 13.5px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 6px;">
-            <span>🎥</span> 1. 绿布视频怎么拍？纯动作还是带声音？
-          </div>
-          <button type="button" class="faq-toggle-btn btn btn-sm"
-            onclick="event.stopPropagation(); toggleFaqAnswer('faq-ans-shooting', this);"
-            style="font-size: 12px; padding: 2px 9px; color: #34d399; background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.35); border-radius: 4px; flex-shrink: 0; cursor: pointer;">
-            查看说明 ▾
-          </button>
-        </div>
-        <div id="faq-ans-shooting"
-          style="display: none; margin-top: 12px; border-top: 1px dashed rgba(52, 211, 153, 0.25); padding-top: 10px; font-size: 13px; color: #cbd5e1; line-height: 1.85; flex-direction: column; gap: 8px;">
-          <div style="border-bottom: 1px dashed rgba(52, 211, 153, 0.25); padding-bottom: 8px;">
-            • <strong>黄金铁律：全程嘴唇自然微合，绝对不说话、不张嘴！</strong>
-          </div>
-          <div style="border-bottom: 1px dashed rgba(52, 211, 153, 0.25); padding-bottom: 8px;">
-            • <strong>为什么千万不要说话？</strong> 本系统采用工业级<strong>局部神经唇形重绘</strong>（身体发丝用原视频，仅嘴部由 AI 实时生成）。若录像时你在说话张嘴，开播时 AI
-            新口型就会与原视频嘴巴打架，导致“双重嘴唇叠影、嘴唇抽搐翻车”！
-          </div>
-          <div style="border-bottom: 1px dashed rgba(52, 211, 153, 0.25); padding-bottom: 8px;">
-            • <strong>录制方式：纯动作录制</strong>。面带微笑、眼神自然看镜头、身体保持轻微自然的呼吸起伏，录制 <strong>30秒~1分钟（最长支持2分钟）</strong> 即可；
-          </div>
-          <div style="border-bottom: 1px dashed rgba(52, 211, 153, 0.25); padding-bottom: 8px;">
-            • <strong>背景与环境</strong>：必须平整纯绿布（人距幕布1.5米防止绿光返照），切忌大幅晃动或伸手遮挡脸部。
-          </div>
-          <div>
-            • <strong>在哪里上传？</strong> 录好后，在下方主播列表找到目标主播，直接点击操作列的 <span
-              style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 600;">🎬
-              制作数字人</span>（或 <span
-              style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 600;">🔄
-              重新制作</span>）按钮，系统将自动带入主播并定位到上传表单！
-          </div>
-        </div>
-      </div>
-
-      <!-- 疑问 2：是否需要上传照片？ -->
-      <div
-        style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: flex-start; transition: all 0.2s ease;">
-        <div
-          style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 8px; user-select: none;"
-          onclick="toggleFaqAnswer('faq-ans-photo', this.querySelector('.faq-toggle-btn'))" title="点击展开/收起说明">
-          <div
-            style="font-size: 13.5px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
-            <span>🖼️</span> 2. 是否需要上传形象照 / 照片？
-          </div>
-          <button type="button" class="faq-toggle-btn btn btn-sm"
-            onclick="event.stopPropagation(); toggleFaqAnswer('faq-ans-photo', this);"
-            style="font-size: 12px; padding: 2px 9px; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 4px; flex-shrink: 0; cursor: pointer;">
-            查看说明 ▾
-          </button>
-        </div>
-        <div id="faq-ans-photo"
-          style="display: none; margin-top: 12px; border-top: 1px dashed rgba(56, 189, 248, 0.25); padding-top: 10px; font-size: 13px; color: #cbd5e1; line-height: 1.85; flex-direction: column; gap: 8px;">
-          <div style="border-bottom: 1px dashed rgba(56, 189, 248, 0.25); padding-bottom: 8px;">
-            • <strong>【一般不需要上传！】</strong>
-          </div>
-          <div style="border-bottom: 1px dashed rgba(56, 189, 248, 0.25); padding-bottom: 8px;">
-            • 只要你在下方上传了绿幕视频，系统在制作数字人时会<strong>自动截取最清晰的一帧正面头像</strong>作为主播形象照，省去拍照修图的麻烦；
-          </div>
-          <div>
-            • <strong>什么时候才需要传？</strong> 仅当你暂时没有录好视频，只想先建立一个主播文字档案占位时，才可选填上传一张照片。
-          </div>
-        </div>
-      </div>
-
-      <!-- 疑问 3：什么是动作切片？ -->
-      <div
-        style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(251, 191, 36, 0.25); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; justify-content: flex-start; transition: all 0.2s ease;">
-        <div
-          style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 8px; user-select: none;"
-          onclick="toggleFaqAnswer('faq-ans-slices', this.querySelector('.faq-toggle-btn'))" title="点击展开/收起说明">
-          <div
-            style="font-size: 13.5px; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
-            <span>✂️</span> 3. 什么是“动作切片”？
-          </div>
-          <button type="button" class="faq-toggle-btn btn btn-sm"
-            onclick="event.stopPropagation(); toggleFaqAnswer('faq-ans-slices', this);"
-            style="font-size: 12px; padding: 2px 9px; color: #fbbf24; background: rgba(251, 191, 36, 0.12); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 4px; flex-shrink: 0; cursor: pointer;">
-            查看说明 ▾
-          </button>
-        </div>
-        <div id="faq-ans-slices"
-          style="display: none; margin-top: 12px; border-top: 1px dashed rgba(251, 191, 36, 0.25); padding-top: 10px; font-size: 13px; color: #cbd5e1; line-height: 1.85; flex-direction: column; gap: 8px;">
-          <div style="border-bottom: 1px dashed rgba(251, 191, 36, 0.25); padding-bottom: 8px;">
-            • 数字人说话不是循环播放死板视频，而是把视频拆成每秒 25 张画面底模（即<strong>切片</strong>）；
-          </div>
-          <div style="border-bottom: 1px dashed rgba(251, 191, 36, 0.25); padding-bottom: 8px;">
-            • <strong>① 基础底模（必配）</strong>：就是主播平时的日常呼吸与待机微动，AI 实时在脸上替换嘴型；
-          </div>
-          <div>
-            • <strong>② 互动动作切片（选配）</strong>：比如“指购物车/双手点赞/弯腰致谢”等短动作，当观众下单或你说到促销词时智能插播，播完自动平滑回待机。
-          </div>
-        </div>
-      </div>
+    <div style="background: rgba(4, 14, 24, 0.85); border: 1px dashed rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; font-size: 12px; color: #7ea2bd; display: flex; flex-wrap: wrap; gap: 16px; align-items: center;">
+      <span style="color: #00f2fe; font-weight: 700;">📌 官方标准规格：</span>
+      <span>• 画面帧率：<strong style="color: #ffffff;">恒定 25 FPS (强制必须)</strong></span>
+      <span>• 推荐分辨率：<strong style="color: #ffffff;">1080P (1080×1920 竖屏 或 1920×1080 横屏)</strong></span>
+      <span>• 音频采样率：<strong style="color: #ffffff;">16,000 Hz 单声道</strong></span>
+      <span>• 面部视角：<strong style="color: #ffffff;">水平正对镜头 (仰俯/侧脸偏差 &le; 20&deg;)</strong></span>
     </div>
 
     <!-- 极简 3 步配置路线图 -->
-    <div
-      style="background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 16px;">
-      <div
-        style="font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-        <span>🧭</span> 新手极简 3 步开播指引
+    <div style="background: rgba(4, 14, 24, 0.9); border: 1px dashed rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 14px 18px;">
+      <div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+        <span class="cyber-chip-tag" style="border-color: rgba(0, 242, 254, 0.35);">🧭 流程</span>
+        新手极简 3 步开播指引
       </div>
-      <div
-        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; font-size: 13px; color: #cbd5e1; line-height: 1.85;">
-        <div style="display: flex; gap: 8px;">
-          <span
-            style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">1</span>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; font-size: 12.5px; color: #7ea2bd; line-height: 1.75;">
+        <div style="display: flex; gap: 10px;">
+          <span style="background: rgba(0, 242, 254, 0.15); color: #00f2fe; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--font-mono); border: 1px solid rgba(0, 242, 254, 0.35);">1</span>
           <div>
             <strong style="color: #fff;">建立主播档案 (必做)</strong><br>
             在下方填写主播姓名、风格定位，必须绑定一个主播音色，可以不用上传形象照，提交保存。
           </div>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <span
-            style="background: rgba(52, 211, 153, 0.2); color: #34d399; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">2</span>
+        <div style="display: flex; gap: 10px;">
+          <span style="background: rgba(16, 231, 183, 0.15); color: #10e7b7; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--font-mono); border: 1px solid rgba(16, 231, 183, 0.35);">2</span>
           <div>
             <strong style="color: #fff;">上传绿幕视频生成数字人 (必做)</strong><br>
-            点击主播行右侧 <span style="color:#34d399; font-weight:600;">【🎬 制作数字人】或【🔄 重新制作】</span> 按钮，上传 30秒~1分钟 绿幕出镜视频。
+            点击主播行右侧 <span style="color:#10e7b7; font-weight:600;">【🎬 制作数字人】或【🔄 重新制作】</span> 按钮，上传 30秒~1分钟 绿幕出镜视频。
           </div>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <span
-            style="background: rgba(251, 191, 36, 0.2); color: #fbbf24; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">3</span>
+        <div style="display: flex; gap: 10px;">
+          <span style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--font-mono); border: 1px solid rgba(245, 158, 11, 0.35);">3</span>
           <div>
             <strong style="color: #fff;">绑定互动特定动作 (进阶可选)</strong><br>
             想让直播更生动才需要上传额外特定动作（如逼单、感谢），新手可直接跳过！开播后总结领悟，然后补充。
@@ -242,85 +134,67 @@
   <!-- ========================================================== -->
   <!-- 软硬件体检：数字人系统软硬件要求与实机体检报告 (独立置顶) -->
   <!-- ========================================================== -->
-  <div class="panel-card" id="hardware-requirements-card"
-    style="margin-bottom: 20px; border: 1px solid rgba(56, 189, 248, 0.35); background: rgba(15, 23, 42, 0.65); border-radius: 12px; padding: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);">
-    <div
-      style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; flex-wrap:wrap; gap:10px;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span
-          style="font-size:16px; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
-          🖥️ 数字人系统软硬件要求与实机体检报告
+  <div class="panel-card cyber-panel-hw" id="hardware-requirements-card" style="margin-bottom: 22px;">
+    <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px dashed rgba(148, 163, 184, 0.2); padding-bottom:12px; flex-wrap:wrap; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
         </span>
-        <span class="badge-recommend"
-          style="font-size:11px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">
-          系统实时感知
+        <span class="panel-title" style="font-size:16px; font-weight:700; color:#ffffff;">
+          数字人系统软硬件要求与实机体检报告
         </span>
+        <span class="cyber-badge-glow green" style="font-size: 11px;">系统实时感知</span>
       </div>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span id="hw-cloud-status-badge"
-          style="font-size: 12px; padding:3px 12px; border-radius:20px; font-weight:600; display:inline-flex; align-items:center; gap:6px; background:rgba(239, 68, 68, 0.12); color:#f87171; border:1px solid rgba(239, 68, 68, 0.3);">
-          <span id="hw-cloud-status-dot"
-            style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#ef4444;"></span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span id="hw-cloud-status-badge" class="cyber-badge-glow green" style="background: rgba(244, 63, 94, 0.12); color: #f87171; border: 1px solid rgba(244, 63, 94, 0.35);">
+          <span id="hw-cloud-status-dot" style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#f43f5e;"></span>
           <span id="hw-cloud-status-text">云端 GPU 算力：检测中...</span>
         </span>
         <button class="btn btn-sm" onclick="loadDigitalHumanHardwareRequirements(true)" title="重新探查算力状态"
-          style="padding:3px 10px; font-size:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); color:var(--text-muted); border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
+          style="padding:3px 10px; font-size:12px; background: rgba(0, 242, 254, 0.08); border: 1px solid rgba(0, 242, 254, 0.3); color: #00f2fe; border-radius: 6px; display:inline-flex; align-items:center; gap:4px;">
           🔄 刷新检测
         </button>
       </div>
     </div>
 
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:18px;">
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px;">
       <!-- 阶段一体检卡片 -->
-      <div
-        style="background:rgba(16, 185, 129, 0.05); border:1px solid rgba(16, 185, 129, 0.35); border-radius:10px; padding:16px 18px;">
-        <div
-          style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(16, 185, 129, 0.15); padding-bottom:8px;">
+      <div class="cyber-matrix-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px dashed rgba(148, 163, 184, 0.2); padding-bottom:8px;">
           <strong style="font-size:14px; font-weight:700; color:#34d399; display:flex; align-items:center; gap:6px;">
             <span>⚡</span> 阶段一：数字人切片与资产制作 (离线工场)
           </strong>
-          <span id="hw-badge-slicing" class="badge-recommend"
-            style="font-size: 13px; font-weight:600; padding:3px 10px; background:rgba(16, 185, 129, 0.2); color:#34d399; border:1px solid rgba(16, 185, 129, 0.4); border-radius:6px;">
+          <span id="hw-badge-slicing" class="cyber-stat-pill green">
             🟢 完全达标 (纯CPU极速运行)
           </span>
         </div>
-        <div style="font-size:13.5px; color:#e2e8f0; line-height: 1.85;">
-          <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">核心算法：</strong>OpenCV 图像检测 + FFmpeg 抽帧 +
-            平滑滤波 (<span style="color:#38bdf8; font-weight:600;">纯 CPU 流水线</span>)</div>
-          <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">硬件要求：</strong>CPU &gt;= 4核，内存 &gt;=
-            4GB，<span style="color:#34d399; font-weight:700;">无需独立显卡 (0 显存要求)</span></div>
-          <div style="margin-bottom:8px;">• <strong style="color:#94a3b8;">实机状态：</strong><span id="hw-slicing-current"
-              style="color:#ffffff; font-weight:600;">本机 12核高性能 CPU + 32GB 内存 (大幅达标)</span></div>
-          <div
-            style="margin-top:10px; font-size: 13px; line-height: 1.85; color:#a7f3d0; background:rgba(16, 185, 129, 0.08); border:1px solid rgba(16, 185, 129, 0.22); padding:8px 12px; border-radius:6px;">
+        <div style="font-size:13px; color: #ffffff; line-height: 1.85;">
+          <div style="margin-bottom:6px;">• <strong style="color:#7ea2bd;">核心算法：</strong>OpenCV 图像检测 + FFmpeg 抽帧 + 平滑滤波 (<span style="color:#38bdf8; font-weight:600;">纯 CPU 流水线</span>)</div>
+          <div style="margin-bottom:6px;">• <strong style="color:#7ea2bd;">硬件要求：</strong>CPU &gt;= 4核，内存 &gt;= 4GB，<span style="color:#34d399; font-weight:700;">无需独立显卡 (0 显存要求)</span></div>
+          <div style="margin-bottom:8px;">• <strong style="color:#7ea2bd;">实机状态：</strong><span id="hw-slicing-current" style="color:#ffffff; font-weight:600;">本机 12核高性能 CPU + 32GB 内存 (大幅达标)</span></div>
+          <div style="margin-top:10px; font-size: 12.5px; line-height: 1.75; color:#a7f3d0; background:rgba(16, 231, 183, 0.08); border:1px solid rgba(16, 231, 183, 0.25); padding:8px 12px; border-radius:6px;">
             💡 <strong>为何 2G 显卡能生成：</strong>切片任务是纯 CPU 图像与音轨提取，完全不消耗 GPU 显存，数十秒内即可极速完成！
           </div>
         </div>
       </div>
 
       <!-- 阶段二体检卡片 -->
-      <div
-        style="background:rgba(245, 158, 11, 0.05); border:1px solid rgba(245, 158, 11, 0.35); border-radius:10px; padding:16px 18px;">
-        <div
-          style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(245, 158, 11, 0.15); padding-bottom:8px;">
+      <div class="cyber-matrix-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px dashed rgba(148, 163, 184, 0.2); padding-bottom:8px;">
           <strong style="font-size:14px; font-weight:700; color:#fbbf24; display:flex; align-items:center; gap:6px;">
             <span>🔴</span> 阶段二：数字人开播与实时唇形驱动 (在线推流)
           </strong>
-          <span id="hw-badge-streaming" class="badge-recommend"
-            style="font-size: 13px; font-weight:600; padding:3px 10px; background:rgba(245, 158, 11, 0.18); color:#fbbf24; border:1px solid rgba(245, 158, 11, 0.4); border-radius:6px;">
+          <span id="hw-badge-streaming" class="cyber-stat-pill red">
             ⚠️ 开播前需启动云端GPU
           </span>
         </div>
-        <div style="font-size:13.5px; color:#e2e8f0; line-height: 1.85;">
-          <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">核心算法：</strong>PyTorch CUDA 深度学习神经网络
-            (ByteDance LatentSync / 扩散重绘 25 FPS)</div>
-          <div style="margin-bottom:6px;">• <strong style="color:#94a3b8;">硬件要求：</strong>NVIDIA 显卡显存 &gt;= 4GB/6GB (支持
-            CUDA) 或 <span style="color:#38bdf8; font-weight:600;">远端租赁 GPU</span></div>
-          <div style="margin-bottom:8px;">• <strong style="color:#94a3b8;">实机状态：</strong><span id="hw-streaming-current"
-              style="color:#ffffff; font-weight:600;">本地 GT 710 (2.0GB，无深度学习算力)；云端:
-              未开机</span></div>
-          <div
-            style="margin-top:10px; font-size: 13px; line-height: 1.85; color:#fde68a; background:rgba(245, 158, 11, 0.08); border:1px solid rgba(245, 158, 11, 0.22); padding:8px 12px; border-radius:6px;">
+        <div style="font-size:13px; color: #ffffff; line-height: 1.85;">
+          <div style="margin-bottom:6px;">• <strong style="color:#7ea2bd;">核心算法：</strong>PyTorch CUDA 深度学习神经网络 (ByteDance LatentSync / 扩散重绘 25 FPS)</div>
+          <div style="margin-bottom:6px;">• <strong style="color:#7ea2bd;">硬件要求：</strong>NVIDIA 显卡显存 &gt;= 4GB/6GB (支持 CUDA) 或 <span style="color:#38bdf8; font-weight:600;">远端租赁 GPU</span></div>
+          <div style="margin-bottom:8px;">• <strong style="color:#7ea2bd;">实机状态：</strong><span id="hw-streaming-current" style="color: #ffffff; font-weight:600;">本地 GT 710 (2.0GB，无深度学习算力)；云端: 未开机</span></div>
+          <div style="margin-top:10px; font-size: 12.5px; line-height: 1.75; color:#fde68a; background:rgba(245, 158, 11, 0.08); border:1px solid rgba(245, 158, 11, 0.25); padding:8px 12px; border-radius:6px;">
             👉 <strong>开播动作引导：</strong>开播时系统需每秒毫秒级计算新嘴唇。请在开播前开机您的云端 GPU 算力主机即可！
           </div>
         </div>
@@ -331,17 +205,19 @@
   <!-- ========================================================== -->
   <!-- 第一步：全部主播档案 (置顶首屏展示列表) -->
   <!-- ========================================================== -->
-  <div class="panel-card">
-    <div class="panel-header">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span class="panel-title" style="display: flex; align-items: center; gap: 8px;">
-          <svg class="icon" viewBox="0 0 24 24">
+  <div class="panel-card" style="margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
             <circle cx="12" cy="7" r="4" />
           </svg>
+        </span>
+        <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700;">
           全部主播档案
         </span>
-        <span style="font-size: 13px; color: var(--text-muted); font-weight: normal;">(系统当前已有主播资产与人设风格定位)</span>
+        <span style="font-size: 12px; color: var(--text-muted); font-weight: normal;">(系统当前已有主播资产与人设风格定位)</span>
       </div>
       <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
         <button class="btn btn-sm" onclick="openStudioHelperModal()"
@@ -364,34 +240,40 @@
         </button>
       </div>
     </div>
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width: 17%;">主播姓名与肖像</th>
-          <th style="width: 14%;">主播人设定位</th>
-          <th style="width: 10%;">绑定音色</th>
-          <th style="width: 32%;">数字人模型与切片资产</th>
-          <th style="width: 6%;">备注</th>
-          <th style="width: 21%; text-align: right;">操作</th>
-        </tr>
-      </thead>
-      <tbody id="anchors-tbody"></tbody>
-    </table>
+    <div style="overflow-x: auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="col-pct-18">主播姓名与肖像</th>
+            <th class="col-pct-14">主播人设定位</th>
+            <th class="col-pct-10">绑定音色</th>
+            <th class="col-pct-32">数字人模型与切片资产</th>
+            <th class="col-pct-8">备注</th>
+            <th class="col-pct-18" style="text-align: right;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="anchors-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- ========================================================== -->
   <!-- 第二步：添加 / 编辑主播基础档案 (轻量化表单，无需上传视频) -->
   <!-- ========================================================== -->
-  <div class="panel-card" id="panel-anchor-form" style="margin-top: 20px;">
-    <div class="panel-header">
-      <span class="panel-title">
-        <svg class="icon" viewBox="0 0 24 24">
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-        </svg>
-        <span id="anchor-form-card-title">添加新主播基础档案</span>
-        <span id="anchor-edit-hint" style="font-size: 13px;color:var(--amber);font-weight:500;margin-left:8px;"></span>
-      </span>
+  <div class="panel-card cyber-panel-hw" id="panel-anchor-form" style="margin-top: 22px; margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+        </span>
+        <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700;">
+          <span id="anchor-form-card-title">添加新主播基础档案</span>
+          <span id="anchor-edit-hint" style="font-size: 13px; color: var(--amber); font-weight: 500; margin-left: 8px;"></span>
+        </span>
+      </div>
     </div>
     <div class="grid-3" style="margin-bottom: 16px;">
       <div>
@@ -441,7 +323,7 @@
       </div>
     </div>
     <div
-      style="padding: 12px 16px; background: rgba(56, 189, 248, 0.05); border: 1px dashed rgba(56, 189, 248, 0.25); border-radius: 8px; font-size: 13px; color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+      style="padding: 12px 16px; background: rgba(4, 14, 24, 0.85); border: 1px dashed rgba(148, 163, 184, 0.2); border-radius: 8px; font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
       <span>
         🎬 <strong>操作顺序提醒：</strong>先建立好基础档案并选择音色，接着在下方【制作数字人基础模型】上传 <strong>30秒~1分钟 (最长支持2分钟)</strong> 绿幕出镜视频即可，无需重复传视频。
       </span>
@@ -463,20 +345,18 @@
   <!-- ========================================================== -->
   <!-- 阶段二：制作数字人基础模型 (上传 30秒~1分钟 绿幕闭口静默视频 · 动作底模) -->
   <!-- ========================================================== -->
-  <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(16, 185, 129, 0.25);">
-    <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
-          <svg class="icon" viewBox="0 0 24 24" style="color: #34d399;">
+  <div class="panel-card cyber-panel-hw" style="margin-top: 24px; margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
             <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
             <line x1="7" y1="2" x2="7" y2="22" />
             <line x1="17" y1="2" x2="17" y2="22" />
             <line x1="2" y1="12" x2="22" y2="12" />
-            <line x1="2" y1="7" x2="7" y2="7" />
-            <line x1="2" y1="17" x2="7" y2="17" />
-            <line x1="17" y1="17" x2="22" y2="17" />
-            <line x1="17" y1="7" x2="22" y2="7" />
           </svg>
+        </span>
+        <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700;">
           制作数字人基础模型 (上传 30秒~1分钟 绿幕闭口视频 · 最长支持2分钟)
         </span>
       </div>
@@ -489,7 +369,7 @@
       </button>
     </div>
 
-    <p style="font-size: 13px; color: var(--text-muted); margin: 12px 0 16px 0; line-height: 1.85;">
+    <p class="page-intro" style="margin: 14px 0 16px 0;">
       上传一段 <strong>30秒~1分钟 (最长不超过2分钟)</strong> 真人<strong>全程自然闭口不说话</strong>的绿幕高清视频
       (MP4/MOV)，系统将自动完成<strong>动作画面逐帧分解</strong>、<strong>人脸与嘴型位置定位</strong>以及<strong>生成 25 FPS 连续动态底模</strong>。开播时由 AI
       神经网络根据实时语音在此底模上实时驱动嘴型。
@@ -517,9 +397,9 @@
     </div>
 
     <div
-      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; background: rgba(15, 23, 42, 0.45); border: 1px dashed rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 14px;">
-      <div style="font-size: 13px; color: #cbd5e1; display: flex; align-items: center; gap: 8px;">
-        <span class="brand-badge sky" style="font-size: 11px;">算力提示</span>
+      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; background: rgba(4, 14, 24, 0.85); border: 1px dashed rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 12px 16px;">
+      <div style="font-size: 13px; color: #7ea2bd; display: flex; align-items: center; gap: 8px;">
+        <span class="cyber-badge-glow green" style="font-size: 11px;">算力提示</span>
         <span>当前切片步骤由<strong>本地 CPU 流水线极速运算</strong>（无需显卡）；制作生成的写实数字人资产在<strong>直播开播时需独立 GPU 或远端租赁节点</strong>承载。</span>
       </div>
       <div style="display: flex; align-items: center; gap: 12px; margin-left: auto;">
@@ -536,19 +416,19 @@
 
     <!-- 实时进度卡片 (有活动任务时展示) -->
     <div id="avatar-task-active-box"
-      style="display: none; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+      style="display: none; background: rgba(4, 14, 24, 0.95); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 16px; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
         <span style="font-size: 14px; font-weight: 600; color: #34d399; display: flex; align-items: center; gap: 6px;">
           <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
           <span id="active-task-title">正在处理任务...</span>
         </span>
-        <span id="active-task-percent" style="font-size: 16px; font-weight: 700; color: #34d399;">0%</span>
+        <span id="active-task-percent" style="font-size: 16px; font-weight: 700; color: #34d399; font-family: var(--font-mono);">0%</span>
       </div>
       <!-- 进度条 -->
       <div
         style="width: 100%; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
         <div id="active-task-bar"
-          style="width: 0%; height: 100%; background: linear-gradient(90deg, #059669, #10b981); transition: width 0.3s ease;">
+          style="width: 0%; height: 100%; background: linear-gradient(90deg, #059669, #10e7b7); transition: width 0.3s ease;">
         </div>
       </div>
       <div
@@ -558,23 +438,54 @@
           style="padding: 2px 10px; font-size: 11px;">取消任务</button>
       </div>
     </div>
+
+    <!-- 数字人训练与切片任务队列 -->
+    <div style="margin-top: 16px;">
+      <div style="font-size: 13px; font-weight: 600; color: #ffffff; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="display: flex; align-items: center; gap: 6px;">
+          <span>📋</span> 数字人训练切片任务队列
+        </span>
+        <button class="btn btn-xs btn-ghost" onclick="loadAvatarTasks()" style="font-size: 11.5px; color: #38bdf8;">
+          刷新任务队列
+        </button>
+      </div>
+      <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%;">
+          <thead>
+            <tr>
+              <th style="width: 48px;">缩略图</th>
+              <th>模型资产名称</th>
+              <th>关联主播</th>
+              <th>切片帧数</th>
+              <th>状态</th>
+              <th>创建时间</th>
+              <th style="text-align: right; white-space: nowrap;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="avatar-tasks-tbody">
+            <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding: 16px;">正在加载数字人任务...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- ========================================================== -->
   <!-- 形象资产记录 (训练产出登记簿 · 可查看与清理) -->
   <!-- ========================================================== -->
-  <div class="panel-card" id="avatar-assets-card" style="margin-top: 24px; border: 1px solid rgba(56, 189, 248, 0.25);">
-    <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
-          <svg class="icon" viewBox="0 0 24 24" style="color: #38bdf8;">
+  <div class="panel-card cyber-panel-hw" id="avatar-assets-card" style="margin-top: 24px; margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
             <path d="M3 7h18v13H3z" />
             <path d="M3 7l3-4h12l3 4" />
           </svg>
-          🗂️ 形象资产记录 (训练产出登记簿)
         </span>
-        <span class="badge-recommend"
-          style="font-size:11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
+        <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700;">
+          形象资产记录 (训练产出登记簿)
+        </span>
+        <span class="cyber-badge-glow green" style="font-size: 11px;">
           每次切片训练自动登记 · 可清理冗余记录
         </span>
       </div>
@@ -591,7 +502,7 @@
     </div>
 
     <div
-      style="padding: 10px 14px; background: rgba(56, 189, 248, 0.06); border: 1px dashed rgba(56, 189, 248, 0.25); border-radius: 8px; font-size: 13px; color: #cbd5e1; margin-bottom: 16px; line-height: 1.85;">
+      style="padding: 10px 14px; background: rgba(4, 14, 24, 0.85); border: 1px dashed rgba(148, 163, 184, 0.2); border-radius: 8px; font-size: 13px; color: #7ea2bd; margin-bottom: 16px; line-height: 1.85;">
       💡 <strong>这是什么：</strong>每完成一次数字人切片训练，系统都会在这里自动登记一条形象资产记录，便于回溯"训练过什么、资产还在不在"。<br>
       <strong>与【全部主播档案】的关系：</strong>只有被正式加入主播档案的资产才会参与开播；这里的记录<strong>不参与直播渲染</strong>，可安全清理测试期间产生的冗余条目。标记为「资产缺失」的记录说明磁盘文件已被移除，仅剩一条空壳登记。
     </div>
@@ -621,18 +532,19 @@
   <!-- ========================================================== -->
   <!-- 阶段三：互动特定动作库 (进阶可选 · 让数字人能指商品、鞠躬致谢) -->
   <!-- ========================================================== -->
-  <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(245, 158, 11, 0.25);">
-    <div class="panel-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px;">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span class="panel-title" style="display:flex; align-items:center; gap:8px;">
-          <svg class="icon" viewBox="0 0 24 24" style="color: #f59e0b;">
+  <div class="panel-card cyber-panel-hw" style="margin-top: 24px; margin-bottom: 22px;">
+    <div class="panel-header" style="border-bottom: 1px dashed rgba(148, 163, 184, 0.2); padding-bottom: 14px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #00f2fe; fill: none; stroke-width: 2.2;">
             <polygon
               points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
           </svg>
-          🎭 互动特定动作库 (进阶可选 · 让数字人能指商品、鞠躬致谢)
         </span>
-        <span class="badge-recommend"
-          style="font-size:11px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">
+        <span class="panel-title" style="color: #ffffff; font-size: 16px; font-weight: 700;">
+          互动特定动作库 (进阶可选 · 让数字人能指商品、鞠躬致谢)
+        </span>
+        <span class="cyber-badge-glow green" style="font-size: 11px;">
           进阶选填 · 新手可直接跳过开播
         </span>
       </div>
@@ -649,30 +561,30 @@
 
     <!-- 状态机实时遥测仪表条 -->
     <div
-      style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; border: 1px solid rgba(255,255,255,0.06);">
+      style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; background: rgba(4, 14, 24, 0.85); border-radius: 8px; padding: 12px 16px; border: 1px dashed rgba(148, 163, 184, 0.2);">
       <div>
         <div style="font-size: 11px; color: var(--text-muted);">当前动作状态</div>
-        <div id="action-telemetry-current" style="font-size: 14px; font-weight: 600; color: #34d399; margin-top: 2px;">
+        <div id="action-telemetry-current" style="font-size: 13.5px; font-weight: 700; color: #10e7b7; margin-top: 2px;">
           Action 0: 待机呼吸</div>
       </div>
       <div>
         <div style="font-size: 11px; color: var(--text-muted);">运行中优先级</div>
-        <div id="action-telemetry-priority" style="font-size: 14px; font-weight: 600; color: #fbbf24; margin-top: 2px;">
+        <div id="action-telemetry-priority" style="font-size: 13.5px; font-weight: 700; color: #fbbf24; margin-top: 2px;">
           P0 (待机)</div>
       </div>
       <div>
         <div style="font-size: 11px; color: var(--text-muted);">持续倒计时 (自动衰减)</div>
         <div id="action-telemetry-countdown"
-          style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-top: 2px;">循环常驻</div>
+          style="font-size: 13.5px; font-weight: 700; color: #ffffff; margin-top: 2px;">循环常驻</div>
       </div>
       <div>
         <div style="font-size: 11px; color: var(--text-muted);">平滑过渡机制</div>
-        <div style="font-size: 14px; font-weight: 600; color: #38bdf8; margin-top: 2px;">镜像倒放平滑回位 (不跳画)</div>
+        <div style="font-size: 13.5px; font-weight: 700; color: #00f2fe; margin-top: 2px;">镜像倒放平滑回位 (不跳画)</div>
       </div>
     </div>
 
     <div
-      style="padding: 10px 14px; background: rgba(245, 158, 11, 0.06); border: 1px dashed rgba(245, 158, 11, 0.25); border-radius: 8px; font-size: 13px; color: #cbd5e1; margin-bottom: 16px; line-height: 1.85;">
+      style="padding: 10px 14px; background: rgba(4, 14, 24, 0.85); border: 1px dashed rgba(148, 163, 184, 0.2); border-radius: 8px; font-size: 13px; color: #7ea2bd; margin-bottom: 16px; line-height: 1.85;">
       💡 <strong>新手指南：</strong>完成上述二步（添加主播、上传绿幕视频）后，数字人主播就已经具备完整的<strong>日常说话与待机能力，已可正常开播</strong>！<br>
       本区域仅用于为数字人丰富互动表现（例如：主播口播“点击购物车”时自动插播指引动作、观众送大礼物时自动鞠躬感谢）。若暂无对应动作素材，保持系统默认即可。
     </div>
@@ -802,7 +714,7 @@
         <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
           <div style="width:32px; height:32px; border-radius:8px; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0;">🎬</div>
           <div style="min-width:0; display:flex; align-items:center; gap:10px; flex-wrap:nowrap;">
-            <h3 id="modal-avatar-title" style="margin:0; font-size:15px; font-weight:700; color:#f8fafc; letter-spacing:0.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">数字人模型与切片资产</h3>
+            <h3 id="modal-avatar-title" style="margin:0; font-size:15px; font-weight:700; color: #ffffff; letter-spacing:0.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">数字人模型与切片资产</h3>
             <span id="modal-avatar-badge"
               style="font-size:11.5px; background:rgba(16,185,129,0.12); color:#34d399; border:1px solid rgba(16,185,129,0.28); padding:3px 10px; border-radius:20px; font-weight:600; display:inline-flex; align-items:center; gap:5px; flex-shrink:0; white-space:nowrap;">
               <span style="width:6px; height:6px; border-radius:50%; background:#10b981; box-shadow:0 0 8px #10b981;"></span>
@@ -824,7 +736,7 @@
             <span>🔬</span> 神经切片与人脸动态追踪
           </button>
           <button id="tab-btn-preview-video" class="btn btn-sm" onclick="switchPreviewSubTab('video')"
-            style="font-size:12.5px; font-weight:500; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.05); padding:5px 14px; border-radius:6px; color:#cbd5e1;">
+            style="font-size:12.5px; font-weight:500; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.05); padding:5px 14px; border-radius:6px; color: #7ea2bd;">
             <span>🎬</span> 出镜母轨原片 (原始录像参考)
           </button>
         </div>
@@ -854,7 +766,7 @@
                   style="display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box; background:rgba(0,0,0,0.38); border:1px solid rgba(56,189,248,0.28); border-radius:10px; padding:10px 12px; position:relative; box-shadow:inset 0 0 25px rgba(0,0,0,0.5); min-width:0;">
                   <!-- 顶部标题与 GPU 硬件调度实况指示徽章 -->
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:6px; min-width:0;">
-                    <div style="font-size:12px; color:#f1f5f9; font-weight:700; display:flex; align-items:center; gap:5px; flex-shrink:0;">
+                    <div style="font-size:12px; color: #ffffff; font-weight:700; display:flex; align-items:center; gap:5px; flex-shrink:0;">
                       <span>👄</span> <span>人脸神经切片</span>
                     </div>
                     <!-- 动态显卡算力调度指示胶囊 (严格限制最大宽度与文本折叠，绝不撑破) -->
@@ -882,7 +794,7 @@
 
                   <!-- 底部开合度与发音频段指示条 (自适应换行，彻底消除横向拉伸) -->
                   <div id="slice-face-tip"
-                    style="font-size:11px; color:#cbd5e1; line-height:1.45; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); padding:5px 8px; border-radius:6px; text-align:center; transition:all 0.2s; margin-top:8px; word-break:break-all; box-sizing:border-box;">
+                    style="font-size:11px; color: #7ea2bd; line-height:1.45; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.22); padding:5px 8px; border-radius:6px; text-align:center; transition:all 0.2s; margin-top:8px; word-break:break-all; box-sizing:border-box;">
                     开播时，神经网络实时在此区域形变替换嘴唇咬合
                   </div>
                 </div>
@@ -908,7 +820,7 @@
                       </span>
                     </div>
                   </div>
-                  <div style="font-size:10.5px; color:#64748b; line-height:1.3; margin-top:6px;">
+                  <div style="font-size:10.5px; color: #7ea2bd; line-height:1.3; margin-top:6px;">
                     身体体态背景随帧联动
                   </div>
                 </div>
@@ -927,9 +839,17 @@
                   </span>
                 </div>
 
+                <!-- 抽样代表帧微调切片选择器 -->
+                <div style="margin-bottom:8px;">
+                  <div style="font-size:11px; color:#94a3b8; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+                    <span>抽样代表帧 (点击可单帧视准校对):</span>
+                  </div>
+                  <div id="slice-frames-selector" style="display:flex; gap:6px; flex-wrap:wrap; max-height:80px; overflow-y:auto; padding:2px;"></div>
+                </div>
+
                 <!-- 神经渲染与试播实时状态监视面板 (左侧专属高亮展示去噪渲染进程) -->
                 <div id="preview-render-status-box"
-                  style="margin-top:6px; padding:8px 12px; border-radius:8px; background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.22); font-size:11.5px; color:#cbd5e1; display:flex; align-items:center; gap:8px; line-height:1.5; min-width:0; box-shadow:inset 0 0 15px rgba(0,0,0,0.3);">
+                  style="margin-top:6px; padding:8px 12px; border-radius:8px; background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.22); font-size:11.5px; color: #7ea2bd; display:flex; align-items:center; gap:8px; line-height:1.5; min-width:0; box-shadow:inset 0 0 15px rgba(0,0,0,0.3);">
                   <span id="preview-render-status-icon" style="font-size:13px; flex-shrink:0;">⚡</span>
                   <div id="preview-render-status-text" style="flex:1; min-width:0; word-break:break-all;">
                     数字人就绪 · 待命中 (在右侧点击“试听台词驱动”可实时体验高精口型)
@@ -964,7 +884,7 @@
             <div
               style="background:rgba(15,23,42,0.55); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px 14px; box-sizing:border-box; min-width:0;">
               <div
-                style="font-size:12.5px; font-weight:600; color:#e2e8f0; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                style="font-size:12.5px; font-weight:600; color: #ffffff; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
                 <span style="display:flex; align-items:center; gap:6px;"><span>📐</span> 核心切片技术指标</span>
                 <span style="font-size:10.5px; color:#34d399; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); padding:1px 8px; border-radius:10px; flex-shrink:0;">标准 25 FPS</span>
               </div>
@@ -998,7 +918,7 @@
                 style="margin-top:10px; font-size:11px; color:#94a3b8; border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px; display:flex; align-items:center; gap:6px; min-width:0;">
                 <span style="flex-shrink:0;">资产目录:</span>
                 <code id="modal-spec-path"
-                  style="color:#cbd5e1; font-size:11px; font-family:ui-monospace, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:rgba(0,0,0,0.35); padding:3px 8px; border-radius:4px; flex:1; min-width:0; border:1px solid rgba(255,255,255,0.06);"
+                  style="color: #7ea2bd; font-size:11px; font-family:ui-monospace, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:rgba(0,0,0,0.35); padding:3px 8px; border-radius:4px; flex:1; min-width:0; border:1px solid rgba(255,255,255,0.06);"
                   title="点击可复制路径" onclick="navigator.clipboard.writeText(this.innerText);alert('已复制路径到剪贴板！');">-</code>
               </div>
             </div>
@@ -1017,7 +937,7 @@
                 <div style="display:flex; flex-direction:column; gap:8px;">
                   <!-- 核心引擎徽章 -->
                   <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.22); padding:5px 10px; border-radius:6px; gap:6px; min-width:0;">
-                    <span style="font-size:11px; color:#cbd5e1; font-weight:500; flex-shrink:0;">渲染引擎:</span>
+                    <span style="font-size:11px; color: #7ea2bd; font-weight:500; flex-shrink:0;">渲染引擎:</span>
                     <div style="display:flex; align-items:center; gap:5px; min-width:0; overflow:hidden;">
                       <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#10b981; box-shadow:0 0 6px #10b981; flex-shrink:0;"></span>
                       <span style="font-size:11px; color:#34d399; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="ByteDance LatentSync 官方潜在扩散模型 (SyncNet顶尖拟人口型)">💎 ByteDance LatentSync (官方扩散模型 · SyncNet)</span>
@@ -1025,11 +945,11 @@
                   </div>
 
                   <textarea id="preview-speech-text" class="form-control" rows="2"
-                    style="font-size:12px; resize:none; padding:6px 10px; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.1); border-radius:6px; line-height:1.5; min-height:54px; color:#f1f5f9;"
+                    style="font-size:12px; resize:none; padding:6px 10px; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.1); border-radius:6px; line-height:1.5; min-height:54px; color: #ffffff;"
                     placeholder="输入测试台词...">大家好，我是小琴琴，欢迎来到我的直播间！今天为大家带来超值精选好物，记得点赞关注哦！</textarea>
                   
                   <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; min-width:0;">
-                    <span id="preview-speech-status" style="font-size:11.5px; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">点击右侧测试主播发音</span>
+                    <span id="preview-speech-status" style="font-size:11.5px; color: #7ea2bd; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">点击右侧测试主播发音</span>
                     <button id="btn-preview-speech" class="btn btn-sm btn-primary" onclick="testAnchorSpeechDemo()"
                       style="font-size:12px; padding:4px 12px; display:flex; align-items:center; gap:5px; border-radius:6px; flex-shrink:0;">
                       <span>🔊</span> 试听台词驱动
@@ -1042,19 +962,19 @@
               <div
                 style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.05); padding:8px 10px; border-radius:6px; font-size:11px; color:#94a3b8; margin-top:8px;">
                 <div
-                  style="color:#cbd5e1; font-weight:600; margin-bottom:5px; display:flex; align-items:center; justify-content:space-between;">
+                  style="color: #7ea2bd; font-weight:600; margin-bottom:5px; display:flex; align-items:center; justify-content:space-between;">
                   <span style="display:flex; align-items:center; gap:5px;"><span>🔄</span> 实时驱动闭环流水线</span>
                   <span style="font-size:9.5px; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:1px 5px; border-radius:4px;">全自动音画对齐</span>
                 </div>
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:2px; text-align:center;">
-                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color:#cbd5e1;">① 音频合成<br><span style="color:#64748b; font-size:9px;">TTS生成</span></div>
-                  <span style="color:#475569; font-size:9px;">➔</span>
-                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color:#cbd5e1;">② 提取特征<br><span style="color:#64748b; font-size:9px;">梅尔频谱</span></div>
-                  <span style="color:#475569; font-size:9px;">➔</span>
-                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color:#cbd5e1;">③ 口型形变<br><span style="color:#a78bfa; font-size:9px;">face_imgs</span></div>
-                  <span style="color:#475569; font-size:9px;">➔</span>
-                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color:#cbd5e1;">④ 坐标缝合<br><span style="color:#34d399; font-size:9px;">coords回贴</span></div>
-                  <span style="color:#475569; font-size:9px;">➔</span>
+                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color: #7ea2bd;">① 音频合成<br><span style="color: #7ea2bd; font-size:9px;">TTS生成</span></div>
+                  <span style="color: #7ea2bd; font-size:9px;">➔</span>
+                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color: #7ea2bd;">② 提取特征<br><span style="color: #7ea2bd; font-size:9px;">梅尔频谱</span></div>
+                  <span style="color: #7ea2bd; font-size:9px;">➔</span>
+                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color: #7ea2bd;">③ 口型形变<br><span style="color:#a78bfa; font-size:9px;">face_imgs</span></div>
+                  <span style="color: #7ea2bd; font-size:9px;">➔</span>
+                  <div style="flex:1; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:4px; padding:3px 2px; font-size:10px; color: #7ea2bd;">④ 坐标缝合<br><span style="color:#34d399; font-size:9px;">coords回贴</span></div>
+                  <span style="color: #7ea2bd; font-size:9px;">➔</span>
                   <div style="flex:1; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:4px; padding:3px 2px; font-size:10px; color:#34d399;">⑤ 实时推流<br><span style="color:#34d399; font-size:9px;">25 FPS</span></div>
                 </div>
               </div>
@@ -1067,11 +987,11 @@
       <!-- 弹窗底部固定底栏 -->
       <div
         style="display:flex; justify-content:space-between; align-items:center; padding:10px 20px; border-top:1px solid rgba(255,255,255,0.08); background:rgba(15,23,42,0.45); flex-shrink:0;">
-        <span style="font-size:11.5px; color:#64748b;">
+        <span style="font-size:11.5px; color: #7ea2bd;">
           💡 提示：本预览基于主播真实底模视频与 coords.pkl 坐标驱动，开播时将采用所选算力通道实时去噪合成。
         </span>
         <button class="btn btn-sm" onclick="closeAvatarPreviewModal()"
-          style="padding:4px 16px; font-size:12.5px; border-radius:6px; background:rgba(255,255,255,0.08); color:#f1f5f9; cursor:pointer;">完成浏览</button>
+          style="padding:4px 16px; font-size:12.5px; border-radius:6px; background:rgba(255,255,255,0.08); color: #ffffff; cursor:pointer;">完成浏览</button>
       </div>
 
     </div>
@@ -1083,12 +1003,12 @@
   <div id="modal-shooting-guide"
     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center; -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);">
     <div
-      style="background:#0f172a; border:1px solid rgba(255,255,255,0.12); border-radius:12px; width:92%; max-width:820px; max-height:88vh; display:flex; flex-direction:column; padding:24px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7); overflow-y:auto;">
+      style="background: rgba(8, 20, 32, 0.96); backdrop-filter: blur(20px); border: 1px solid rgba(0, 242, 254, 0.3); box-shadow: 0 0 25px rgba(0, 242, 254, 0.15); border-radius:12px; width:92%; max-width:820px; max-height:88vh; display:flex; flex-direction:column; padding:24px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7); overflow-y:auto;">
       <div
         style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-size:20px;">🎬</span>
-          <span style="font-size:16px; font-weight:700; color:#f8fafc;">AI 数字人动态绿幕 3 段式实拍 SOP 指南</span>
+          <span style="font-size:16px; font-weight:700; color: #ffffff;">AI 数字人动态绿幕 3 段式实拍 SOP 指南</span>
           <span
             style="font-size:11px; background:rgba(52,211,153,0.15); color:#34d399; padding:2px 8px; border-radius:12px; font-weight:600;">工业级标准</span>
         </div>
@@ -1096,7 +1016,7 @@
           style="border:none; background:transparent; font-size:18px; color:var(--text-muted); cursor:pointer;">✕</button>
       </div>
 
-      <div style="display:flex; flex-direction:column; gap:16px; font-size:13px; color:#cbd5e1; line-height: 1.85;">
+      <div style="display:flex; flex-direction:column; gap:16px; font-size:13px; color: #7ea2bd; line-height: 1.85;">
         <!-- 核心原则 -->
         <div
           style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:12px;">
@@ -1110,28 +1030,28 @@
         </div>
 
         <!-- 官方源素材 4 维标准与避坑指南 -->
-        <div style="background:rgba(15, 23, 42, 0.6); border:1px solid rgba(56, 189, 248, 0.2); border-radius:8px; padding:12px;">
-          <div style="color:#38bdf8; font-weight:700; margin-bottom:8px;">📋 ByteDance LatentSync 官方手册规格标准：</div>
+        <div style="background: rgba(8, 22, 36, 0.88); border: 1px solid rgba(0, 242, 254, 0.2); border-radius:8px; padding:12px;">
+          <div style="color:#0284c7; font-weight:700; margin-bottom:8px;">📋 ByteDance LatentSync 官方手册规格标准：</div>
           <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:10px; font-size:12.5px;">
-            <div style="background:rgba(0,0,0,0.25); padding:8px 10px; border-radius:6px;">
-              <span style="color:#94a3b8;">1. 视频时长</span><br>
-              <strong>30 秒 ~ 1 分钟 (最长 2 分钟)</strong><br>
-              <span style="color:#64748b;">官方 5~10 秒微段对齐；30 秒足以闭环循环。</span>
+            <div style="background: rgba(8, 22, 36, 0.9); border: 1px solid rgba(0, 242, 254, 0.2); padding:8px 10px; border-radius:6px;">
+              <span style="color: #7ea2bd;">1. 视频时长</span><br>
+              <strong style="color: #ffffff;">30 秒 ~ 1 分钟 (最长 2 分钟)</strong><br>
+              <span style="color: #7ea2bd;">官方 5~10 秒微段对齐；30 秒足以闭环循环。</span>
             </div>
-            <div style="background:rgba(0,0,0,0.25); padding:8px 10px; border-radius:6px;">
-              <span style="color:#94a3b8;">2. 镜头远近</span><br>
-              <strong>半身中景 (胸部以上至头顶)</strong><br>
-              <span style="color:#64748b;">人脸高度占 25%~40%，严禁全身远景或大特写。</span>
+            <div style="background: rgba(8, 22, 36, 0.9); border: 1px solid rgba(0, 242, 254, 0.2); padding:8px 10px; border-radius:6px;">
+              <span style="color: #7ea2bd;">2. 镜头远近</span><br>
+              <strong style="color: #ffffff;">半身中景 (胸部以上至头顶)</strong><br>
+              <span style="color: #7ea2bd;">人脸高度占 25%~40%，严禁全身远景或大特写。</span>
             </div>
-            <div style="background:rgba(0,0,0,0.25); padding:8px 10px; border-radius:6px;">
-              <span style="color:#94a3b8;">3. 是否需要绿幕</span><br>
-              <strong>实战强烈建议平整纯绿幕</strong><br>
-              <span style="color:#64748b;">算法不限背景，但直播需抠像叠展台贴片。</span>
+            <div style="background: rgba(8, 22, 36, 0.9); border: 1px solid rgba(0, 242, 254, 0.2); padding:8px 10px; border-radius:6px;">
+              <span style="color: #7ea2bd;">3. 是否需要绿幕</span><br>
+              <strong style="color: #ffffff;">实战强烈建议平整纯绿幕</strong><br>
+              <span style="color: #7ea2bd;">算法不限背景，但直播需抠像叠展台贴片。</span>
             </div>
-            <div style="background:rgba(0,0,0,0.25); padding:8px 10px; border-radius:6px;">
-              <span style="color:#94a3b8;">4. 是否需要说话</span><br>
-              <strong style="color:#f87171;">【铁律】绝对不能说话！全程微笑微合唇</strong><br>
-              <span style="color:#64748b;">纯动作录制，AI 全权掌控下颌开合与吐字。</span>
+            <div style="background: rgba(8, 22, 36, 0.9); border: 1px solid rgba(0, 242, 254, 0.2); padding:8px 10px; border-radius:6px;">
+              <span style="color: #7ea2bd;">4. 是否需要说话</span><br>
+              <strong style="color:#dc2626;">【铁律】绝对不能说话！全程微笑微合唇</strong><br>
+              <span style="color: #7ea2bd;">纯动作录制，AI 全权掌控下颌开合与吐字。</span>
             </div>
           </div>
         </div>
@@ -1182,18 +1102,18 @@
   <div id="modal-studio-helper"
     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center; -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);">
     <div
-      style="background:#0f172a; border:1px solid rgba(255,255,255,0.12); border-radius:12px; width:92%; max-width:840px; max-height:88vh; display:flex; flex-direction:column; padding:24px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7); overflow-y:auto;">
+      style="background: rgba(8, 20, 32, 0.96); backdrop-filter: blur(20px); border: 1px solid rgba(0, 242, 254, 0.3); box-shadow: 0 0 25px rgba(0, 242, 254, 0.15); border-radius:12px; width:92%; max-width:840px; max-height:88vh; display:flex; flex-direction:column; padding:24px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.7); overflow-y:auto;">
       <div
         style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-size:20px;">🎛️</span>
-          <span style="font-size:16px; font-weight:700; color:#f8fafc;">OBS Studio 与抖音直播伴侣演播室配置助手</span>
+          <span style="font-size:16px; font-weight:700; color: #ffffff;">OBS Studio 与抖音直播伴侣演播室配置助手</span>
         </div>
         <button class="btn btn-sm" onclick="closeStudioHelperModal()"
           style="border:none; background:transparent; font-size:18px; color:var(--text-muted); cursor:pointer;">✕</button>
       </div>
 
-      <div style="display:flex; flex-direction:column; gap:16px; font-size:13px; color:#cbd5e1; line-height: 1.85;">
+      <div style="display:flex; flex-direction:column; gap:16px; font-size:13px; color: #7ea2bd; line-height: 1.85;">
         <!-- 拓扑流程说明 -->
         <div
           style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:8px; padding:12px;">
@@ -1207,7 +1127,7 @@
         <div
           style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:14px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <span style="font-weight:600; color:#f8fafc;">🎯 OBS 色度键 (Chroma Key) 最佳抠像参数建议</span>
+            <span style="font-weight:600; color: #ffffff;">🎯 OBS 色度键 (Chroma Key) 最佳抠像参数建议</span>
             <button class="btn btn-sm" onclick="copyObsSettings()" style="font-size:11px; padding:3px 10px;">📋
               一键复制参数</button>
           </div>
@@ -1236,7 +1156,7 @@
         <div
           style="background:rgba(16,185,129,0.05); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:14px;">
           <div style="font-weight:600; color:#34d399; margin-bottom:8px;">🛡️ 抖音/快手平台安全合规防封自检清单：</div>
-          <div style="display:flex; flex-direction:column; gap:6px; font-size: 13px; color:#cbd5e1;">
+          <div style="display:flex; flex-direction:column; gap:6px; font-size: 13px; color: #7ea2bd;">
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
               <input type="checkbox" checked disabled> <span><strong>官方推流客户端：</strong>使用抖音直播伴侣推流，杜绝第三方外挂推流被封禁。</span>
             </label>
@@ -1268,14 +1188,14 @@
   <div id="modal-anchor-actions"
     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; -webkit-backdrop-filter:blur(5px); backdrop-filter:blur(5px);">
     <div
-      style="background:#0f172a; border:1px solid rgba(255,255,255,0.14); border-radius:12px; width:94%; max-width:960px; max-height:90vh; display:flex; flex-direction:column; padding:22px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.8); overflow-y:auto;">
+      style="background: rgba(8, 20, 32, 0.96); backdrop-filter: blur(20px); border:1px solid rgba(255,255,255,0.14); border-radius:12px; width:94%; max-width:960px; max-height:90vh; display:flex; flex-direction:column; padding:22px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.8); overflow-y:auto;">
       <!-- 模态框头部 -->
       <div
         style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-size:22px;">🎭</span>
           <div>
-            <div style="font-size:16px; font-weight:700; color:#f8fafc; display:flex; align-items:center; gap:8px;">
+            <div style="font-size:16px; font-weight:700; color: #ffffff; display:flex; align-items:center; gap:8px;">
               <span>主播【<span id="modal-actions-anchor-name" style="color:#38bdf8;">-</span>】动作切片与带货状态机</span>
               <span
                 style="font-size:11px; background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); padding:1px 8px; border-radius:10px;">电商带货高保真</span>
@@ -1292,7 +1212,7 @@
       <!-- 当前已绑定动作切片卡片列表 -->
       <div style="margin-bottom:20px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <span style="font-weight:600; color:#f8fafc; font-size:13px; display:flex; align-items:center; gap:6px;">
+          <span style="font-weight:600; color: #ffffff; font-size:13px; display:flex; align-items:center; gap:6px;">
             <span>📋 已绑定的动作切片列表</span>
             <span id="modal-actions-count-badge"
               style="font-size:11px; background:rgba(56,189,248,0.15); color:#38bdf8; padding:1px 6px; border-radius:4px;">0
@@ -1328,7 +1248,7 @@
 
         <!-- 面板 A：单视频多时间戳智能拆解 -->
         <div id="panel-action-split" style="display:block;">
-          <div style="font-size: 13px; color:#cbd5e1; margin-bottom:10px;">
+          <div style="font-size: 13px; color: #7ea2bd; margin-bottom:10px;">
             若已为主播上传过完整的 3 段式绿幕视频，可直接配置时间戳区间，系统将自动裁剪并批量生成动作模型：
           </div>
           <div

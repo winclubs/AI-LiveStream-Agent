@@ -289,13 +289,22 @@ function logDanmaku(user, text, isP0 = false, rich = false) {
     // 仅系统内部构建的富文本模板 (内嵌 svg 图标) 经 rich=true 放行，动态值仍需调用方自行转义
     const safeUser = rich ? user : escapeHtml(user);
     const safeText = rich ? text : escapeHtml(text);
+    const isSystem = rich || user.includes("系统") || user.includes("画层") || user.includes("看门狗");
+    const blockBtn = !isSystem
+        ? `<button class="btn btn-xs btn-danger" style="padding: 1px 5px; font-size: 10px; margin-left: 6px; cursor: pointer;" onclick="blockDanmakuUser('${escapeHtml(user).replace(/'/g, "\\'")}', '${escapeHtml(text).slice(0, 30).replace(/'/g, "\\'")}')" title="一键拉黑用户与发言">🚫 拉黑</button>`
+        : '';
     item.innerHTML = `
-        <div>
-            <span class="danmaku-user">${safeUser}:</span>
-            <span>${safeText}</span>
-            ${isP0 ? '<span class="danmaku-p0-tag">P0 抢占</span>' : ''}
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+            <div>
+                <span class="danmaku-user">${safeUser}:</span>
+                <span>${safeText}</span>
+                ${isP0 ? '<span class="danmaku-p0-tag">P0 抢占</span>' : ''}
+            </div>
+            <div style="display: flex; align-items: center;">
+                <span style="color: var(--text-muted); font-size: 11px;">${new Date().toLocaleTimeString()}</span>
+                ${blockBtn}
+            </div>
         </div>
-        <span style="color: var(--text-muted); font-size: 11px;">${new Date().toLocaleTimeString()}</span>
     `;
     container.prepend(item);
 
@@ -304,6 +313,30 @@ function logDanmaku(user, text, isP0 = false, rich = false) {
         container.removeChild(container.lastChild);
     }
 }
+
+async function blockDanmakuUser(userName, text) {
+    if (!confirm(`确认拉黑违规用户【${userName}】并将其拦截入库？`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/live/danmaku/block`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                user_name: userName,
+                keyword: text.slice(0, 20),
+                reason: "控制台实时弹幕一键拉黑",
+            }),
+        });
+        const json = await res.json();
+        if (json.code === 0) {
+            showToast(`已成功拉黑违规用户【${userName}】！`, "success");
+        } else {
+            alert(json.message || "拉黑失败");
+        }
+    } catch (e) {
+        alert("网络异常: " + e.message);
+    }
+}
+window.blockDanmakuUser = blockDanmakuUser;
 
 // 弹出独立无边框数字人绿幕视窗 (供抖音/快手/视频号直播伴侣窗口捕获与色度抠图)
 function openAvatarViewport() {
@@ -358,8 +391,11 @@ async function initWebRTCPlayer() {
         });
         _webrtcPeerConnection = pc;
 
-        // 仅接收视频
+        // 同时协商音视频通道，让浏览器原生底层时钟处理 NTP/RTCP 唇形音画对齐 (P0-4)
         pc.addTransceiver("video", { direction: "recvonly" });
+        try {
+            pc.addTransceiver("audio", { direction: "recvonly" });
+        } catch (e) {}
 
         pc.ontrack = (event) => {
             if (event.streams && event.streams[0]) {
@@ -496,6 +532,8 @@ async function startFullDuplexMic() {
             btn.style.borderColor = "#60a5fa";
         }
         if (badge) badge.style.display = "inline-block";
+        const btnText = document.getElementById("mic-asr-btn-text");
+        if (btnText) btnText.innerText = "🎙️ 关闭麦克风";
         showToast("🎙️ 麦克风全双工监听已启动，说话可瞬间打断数字人播报！", "success");
     } catch (e) {
         console.error("启动麦克风失败:", e);
@@ -530,6 +568,8 @@ function stopFullDuplexMic() {
         btn.style.borderColor = "rgba(59, 130, 246, 0.4)";
     }
     if (badge) badge.style.display = "none";
+    const btnText = document.getElementById("mic-asr-btn-text");
+    if (btnText) btnText.innerText = "🎙️ 开启麦克风";
 }
 
 // ============================================================================
@@ -587,6 +627,22 @@ async function startRecording() {
             }, 1000);
 
             showToast("🎥 切片录制已开始，正在持续捕获音画...", "success");
+
+            // 前端本地双录备份 (P2-15: MediaRecorder 捕获视窗流)
+            _frontendRecordedChunks = [];
+            const webrtcVideo = document.getElementById("digital-human-webrtc-video");
+            if (webrtcVideo && webrtcVideo.srcObject && typeof MediaRecorder !== "undefined") {
+                try {
+                    const stream = webrtcVideo.srcObject;
+                    _frontendMediaRecorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+                    _frontendMediaRecorder.ondataavailable = (e) => {
+                        if (e.data && e.data.size > 0) _frontendRecordedChunks.push(e.data);
+                    };
+                    _frontendMediaRecorder.start(1000);
+                } catch (e) {
+                    console.warn("前端 MediaRecorder 录制启动跳过:", e);
+                }
+            }
         } else {
             showToast(json.detail || json.message || "开启录制失败", "error");
         }
@@ -597,6 +653,12 @@ async function startRecording() {
 
 async function stopRecording() {
     clearInterval(_recordingTimer);
+    if (_frontendMediaRecorder && _frontendMediaRecorder.state !== "inactive") {
+        try {
+            _frontendMediaRecorder.stop();
+            _frontendMediaRecorder = null;
+        } catch (e) {}
+    }
     try {
         const res = await fetch(`${API_BASE}/live/record/stop`, {
             method: "POST"
@@ -733,7 +795,7 @@ async function refreshLiveGpuTelemetry() {
             badge.className = "brand-badge sky";
             badge.innerText = "⚡ 远端租赁 GPU";
             const provider = cloudGpu.provider_name || "云端 GPU 算力";
-            detail.innerHTML = `已实测连通远端算力节点【${escapeHtml(provider)}】· <span style="color:#38bdf8;font-weight:600;">本地 0 显存负担</span> · 1080P 写实真人就绪`;
+            detail.innerHTML = `已实测连通远端算力节点【${escapeHtml(provider)}】· <span style="color:#38bdf8;font-weight:600;">本地 0 显存负担</span> · 720P 高清写实真人就绪`;
             if (tip) tip.innerHTML = `远端算力模式：本地仅需轻薄本 CPU 调度与推流`;
         } else if (cap.can_execute && !cap.is_low_spec_local) {
             // 模式 1: 本地高性能独立显卡
@@ -749,7 +811,7 @@ async function refreshLiveGpuTelemetry() {
             badge.innerText = "⚠️ 轻量 CPU 免显卡";
             const gpuName = localGpu.gpu_name || "轻薄本/核显";
             detail.innerHTML = `当前硬件：${escapeHtml(gpuName)} (显存不足 2.0GB) · <span style="color:#fbbf24;font-weight:600;">已安全切换免显卡程序化驱动</span>`;
-            if (tip) tip.innerHTML = `如需 1080P 写实真人直播，建议前往配置远端租赁 GPU (约 1.2元/h)`;
+            if (tip) tip.innerHTML = `如需 720P 高清写实真人直播，建议前往配置远端租赁 GPU (约 1.2元/h)`;
         }
     } catch (e) {
         console.warn("更新直播大屏算力状态失败:", e);

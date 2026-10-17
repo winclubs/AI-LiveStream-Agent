@@ -2,7 +2,6 @@
 本地知识库管理路由 (规划 §5.4 / §12.1 /knowledge/upload)
 支持上传 TXT/Markdown/CSV 直接解析，PDF/DOCX 依赖可选库自动探测
 """
-import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel, Field

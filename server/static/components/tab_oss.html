@@ -24,9 +24,9 @@
       padding: 4px 10px;
       font-size: 12px;
       font-family: var(--font-mono, monospace);
-      color: #94a3b8;
-      background: rgba(15, 23, 42, 0.7);
-      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: #7ea2bd;
+      background: #f1f5f9;
+      border: 1px solid rgba(0, 242, 254, 0.2);
       border-radius: 6px;
       cursor: pointer;
       transition: all 0.18s ease;
@@ -34,14 +34,14 @@
       user-select: none;
     }
     #tab-oss .oss-pill:hover {
-      color: #34d399;
-      background: rgba(16, 185, 129, 0.12);
-      border-color: rgba(16, 185, 129, 0.45);
+      color: #059669;
+      background: rgba(16, 231, 183, 0.08);
+      border-color: #a7f3d0;
       transform: translateY(-1px);
     }
     #tab-oss .oss-pill.active {
-      color: #10b981;
-      background: rgba(16, 185, 129, 0.18);
+      color: #059669;
+      background: #d1fae5;
       border-color: #10b981;
       font-weight: 600;
     }
@@ -52,8 +52,8 @@
       justify-content: space-between;
       gap: 16px;
       padding: 14px 18px;
-      background: rgba(15, 23, 42, 0.6);
-      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(8, 22, 36, 0.88);
+      border: 1px solid rgba(0, 242, 254, 0.2);
       border-radius: var(--radius-md, 10px);
       transition: border-color 0.2s ease;
     }
@@ -142,61 +142,63 @@
   </style>
 
   <!-- 1. 顶栏指引与状态面板 -->
-  <div class="panel-card" style="margin-bottom: 20px;">
-    <div class="panel-header" style="margin-bottom: 8px;">
-      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <span class="panel-title" style="color: var(--signal); font-size: 17px; font-weight: 700;">
-          <svg class="icon" viewBox="0 0 24 24" style="stroke: var(--signal); width: 20px; height: 20px;">
+  <div class="cyber-panel-hw" style="margin-bottom: 20px;">
+    <div class="cyber-panel-header">
+      <div class="cyber-panel-title">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #00f2fe; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="17 8 12 3 7 8" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
-          阿里云 OSS 存储与直播录像全量复盘
         </span>
-        <span class="brand-badge green">私域资产留存中心</span>
+        <span>阿里云 OSS 存储与直播录像全量复盘中枢</span>
+        <span class="cyber-chip-tag active">STORAGE ARCHIVE</span>
       </div>
       <div style="display: flex; align-items: center; gap: 10px;">
         <span class="status-indicator">
           <span class="status-dot" id="oss-status-dot"></span>
-          <span id="oss-status-label" style="font-size: 13px; color: var(--text-secondary); font-family: var(--font-mono);">
+          <span id="oss-status-label" style="font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono);">
             正在检测 OSS 接入状态...
           </span>
         </span>
       </div>
     </div>
-    <p class="page-intro" style="margin-bottom: 0;">
-      通过无缝桥接<strong>阿里云 OSS (Object Storage Service)</strong>，每场直播下播后自动合成标准 <strong>H.264 + AAC</strong> 高清 MP4 录像切片，全量静默同步至您的私域存储桶。您可随时在后台<strong>一键无延迟在线复盘播放、回溯带货战绩并导出本地</strong>。
-    </p>
+    <div style="padding: 16px 20px;">
+      <p class="page-intro" style="margin-bottom: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+        通过无缝桥接<strong>阿里云 OSS (Object Storage Service)</strong>，每场直播下播后自动合成标准 <strong>H.264 + AAC</strong> 高清 MP4 录像切片，全量静默同步至您的私域存储桶。您可随时在后台<strong>一键无延迟在线复盘播放、回溯带货战绩并导出本地</strong>。
+      </p>
+    </div>
   </div>
 
   <!-- 2. 阿里云 OSS 接入参数配置面板 -->
-  <div class="panel-card" style="margin-bottom: 24px; border: 1.5px solid rgba(45, 212, 160, 0.32);">
-    <div class="panel-header" style="border-bottom: 1px solid rgba(148, 163, 184, 0.12); padding-bottom: 14px; margin-bottom: 18px;">
-      <div>
-        <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-          <svg class="icon" viewBox="0 0 24 24" style="stroke: #34d399; width: 18px; height: 18px;">
+  <div class="cyber-panel-hw" style="margin-bottom: 24px;">
+    <div class="cyber-panel-header" style="flex-wrap: wrap; gap: 12px;">
+      <div class="cyber-panel-title">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #00f2fe; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
             <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
             <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
             <line x1="6" y1="6" x2="6.01" y2="6"/>
             <line x1="6" y1="18" x2="6.01" y2="18"/>
           </svg>
-          存储桶授权与接入鉴权
-        </div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-          密钥与凭证由本地 AES-256 硬件安全隔离，仅在下播同步时调用。
-        </div>
+        </span>
+        <span>存储空间授权与接入鉴权</span>
+        <span class="cyber-chip-tag active">AES-256 ISOLATED</span>
       </div>
       <div style="display: flex; gap: 10px; align-items: center;">
         <button type="button" class="btn btn-secondary btn-sm" id="btn-oss-test" style="display: inline-flex; align-items: center; gap: 6px;">
-          <svg class="icon-sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
           连通性测试
         </button>
         <button type="button" class="btn btn-primary btn-sm" id="btn-oss-save" style="display: inline-flex; align-items: center; gap: 6px;">
-          <svg class="icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
           保存配置
         </button>
       </div>
     </div>
+
+    <div style="padding: 18px 20px;">
 
     <!-- 表单网格 (规整 2 列) -->
     <div class="oss-config-grid">
@@ -299,31 +301,30 @@
       </div>
     </div>
 
-    <!-- 连通性测试结果面板 (动态展开) -->
-    <div id="oss-test-result-box" style="display: none; margin-top: 16px; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.6;"></div>
+      <!-- 连通性测试结果面板 (动态展开) -->
+      <div id="oss-test-result-box" style="display: none; margin-top: 16px; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.6;"></div>
+    </div>
   </div>
 
   <!-- 3. 直播录像归档与复盘分析看板 -->
-  <div class="panel-card" style="padding: 0; overflow: hidden;">
-    <div style="padding: 20px 24px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-      <div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-          <svg class="icon" viewBox="0 0 24 24" style="stroke: var(--amber); width: 18px; height: 18px;">
+  <div class="cyber-panel-hw">
+    <div class="cyber-panel-header" style="flex-wrap: wrap; gap: 12px;">
+      <div class="cyber-panel-title">
+        <span class="cyber-hud-icon">
+          <svg viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: #00f2fe; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;">
             <polygon points="23 7 16 12 23 17 23 7" />
             <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
           </svg>
-          直播录像归档与复盘分析
-        </div>
-        <div style="font-size: 12.5px; color: var(--text-secondary); margin-top: 3px;">
-          每一次实况直播均自动沉淀关键带货战绩、弹幕峰值以及 1080P 高清实况录像。
-        </div>
+        </span>
+        <span>直播录像归档与复盘分析看板</span>
+        <span class="cyber-chip-tag active">PERFORMANCE MATRIX</span>
       </div>
       <div style="display: flex; align-items: center; gap: 12px;">
-        <span id="oss-records-count-badge" class="brand-badge" style="font-family: var(--font-mono); font-size: 12px;">
+        <span id="oss-records-count-badge" class="cyber-badge-glow" style="font-family: var(--font-mono); font-size: 11.5px;">
           已记录 0 场
         </span>
         <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-oss-records" style="display: inline-flex; align-items: center; gap: 6px;">
-          <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           刷新场次列表
         </button>
       </div>
@@ -331,9 +332,9 @@
 
     <!-- 数据表格容器 -->
     <div style="overflow-x: auto;">
-      <table class="data-table" style="width: 100%; border-collapse: collapse;">
+      <table class="data-table" style="width: 100%; border-collapse: collapse; margin-bottom: 0;">
         <thead>
-          <tr style="background: rgba(15, 23, 42, 0.45);">
+          <tr style="background: rgba(8, 22, 36, 0.88); border-bottom: 1px dashed rgba(148, 163, 184, 0.18);">
             <th style="padding: 13px 18px; width: 22%;">场次主题 / ID</th>
             <th style="padding: 13px 18px; width: 17%;">开播时间 / 时长</th>
             <th style="padding: 13px 18px; width: 14%;">带货战绩 (GMV / 单数)</th>
@@ -348,7 +349,7 @@
           <tr>
             <td colspan="7" style="text-align: center; padding: 48px 20px; color: var(--text-muted);">
               <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
-                <svg viewBox="0 0 24 24" style="width: 28px; height: 28px; stroke: rgba(148,163,184,0.4); fill: none; stroke-width: 1.5; animation: spin 1.5s linear infinite;">
+                <svg viewBox="0 0 24 24" style="width: 28px; height: 28px; stroke: rgba(0, 242, 254, 0.4); fill: none; stroke-width: 1.5; animation: spin 1.5s linear infinite;">
                   <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"/>
                 </svg>
                 <span style="font-size: 13px;">正在加载直播历史记录...</span>
@@ -363,15 +364,15 @@
 
 <!-- 4. 直播录像高清复盘播放器模态弹窗 -->
 <div id="oss-video-modal" style="display: none; position: fixed; inset: 0; background: rgba(5, 8, 14, 0.88); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); z-index: 10002; align-items: center; justify-content: center; padding: 20px;">
-  <div style="width: min(940px, 95vw); background: #0c121e; border: 1.5px solid rgba(45, 212, 160, 0.35); border-radius: var(--radius-lg, 14px); overflow: hidden; box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85), 0 0 30px rgba(45, 212, 160, 0.15);">
-    <div style="padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(148, 163, 184, 0.14); background: rgba(15, 23, 42, 0.8);">
+  <div style="width: min(940px, 95vw); background: #0c121e; border: 1.5px solid rgba(0, 242, 254, 0.35); border-radius: var(--radius-lg, 14px); overflow: hidden; box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85), 0 0 30px rgba(0, 242, 254, 0.15);">
+    <div style="padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(148, 163, 184, 0.18); background: rgba(8, 22, 36, 0.88);">
       <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 8px rgba(45, 212, 160, 0.8);"></span>
-        <h4 id="oss-modal-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">
+        <span style="width: 8px; height: 8px; border-radius: 50%; background: #00f2fe; box-shadow: 0 0 8px rgba(0, 242, 254, 0.5);"></span>
+        <h4 id="oss-modal-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #ffffff;">
           直播实况复盘回放
         </h4>
       </div>
-      <button type="button" id="btn-close-oss-modal" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px 8px; font-size: 20px; line-height: 1; border-radius: 4px; transition: color 0.15s ease;" onmouseover="this.style.color='#f1f5f9'" onmouseout="this.style.color='var(--text-muted)'">
+      <button type="button" id="btn-close-oss-modal" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px 8px; font-size: 20px; line-height: 1; border-radius: 4px; transition: color 0.15s ease;" onmouseover="this.style.color='#00f2fe'" onmouseout="this.style.color='var(--text-muted)'">
         &times;
       </button>
     </div>
@@ -380,13 +381,13 @@
         您的浏览器不支持 HTML5 视频播放。
       </video>
     </div>
-    <div style="padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6); border-top: 1px solid rgba(148, 163, 184, 0.12); font-size: 12.5px; color: var(--text-secondary); flex-wrap: wrap; gap: 10px;">
+    <div style="padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; background: rgba(8, 22, 36, 0.88); border-top: 1px dashed rgba(148, 163, 184, 0.18); font-size: 12.5px; color: var(--text-secondary); flex-wrap: wrap; gap: 10px;">
       <div id="oss-modal-source-info" style="font-family: var(--font-mono);">
         视频源: 本地分片流 / 阿里云 OSS 加速直链
       </div>
       <div>
         <a id="oss-modal-download-btn" href="#" target="_blank" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px; text-decoration: none;">
-          <svg class="icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <svg class="icon-sm" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           下载到本地
         </a>
       </div>

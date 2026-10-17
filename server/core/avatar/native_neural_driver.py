@@ -11,9 +11,10 @@
 import asyncio
 import logging
 import math
+import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import cv2
 import numpy as np
@@ -93,6 +94,10 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
 
         # 最近一帧的 16kHz float32 音频切片，供神经 Mel 特征提取使用
         self._latest_pcm_16k: Optional["np.ndarray"] = None
+        # 连续音频流缓冲与滑动播放窗口 (以 16kHz float32 存储)，消除音频窗口与时钟脱节 (D1/P2)
+        self._audio_stream_lock = threading.Lock()
+        self._audio_stream_pcm: "np.ndarray" = np.array([], dtype=np.float32)
+        self._audio_stream_play_idx: int = 0
 
     async def start(self) -> bool:
         self.is_active = True
@@ -119,7 +124,7 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             and getattr(self.lip_renderer, "is_ready", False)
             and getattr(self.lip_renderer, "has_anchor_assets", False)
         )
-        engine_desc = "⚡ 真实深度神经网络驱动 (LatentSync ONNX 唇形重绘)" if neural_active else "⚠️ 神经引擎未就绪 (开播将严格阻断)"
+        engine_desc = "⚡ 真实深度神经网络驱动 (Wav2Lip-256 ONNX 唇形重绘)" if neural_active else "⚠️ 神经引擎未就绪 (开播将严格阻断)"
         logger.info(
             f"原生自包含数字人驱动器已启动 (引擎模式: {engine_desc}, 分辨率: {self.width}x{self.height}@{self.fps}FPS)"
         )
@@ -160,7 +165,12 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             # 引入非线性平滑放大函数
             self._current_energy = min(1.0, math.sqrt(energy) * 2.8)
             # 保留 16kHz float32 切片供神经唇形 Mel 特征提取
-            self._latest_pcm_16k = samples.astype(np.float32) / 32768.0
+            f32_chunk = samples.astype(np.float32) / 32768.0
+            self._latest_pcm_16k = f32_chunk
+            with self._audio_stream_lock:
+                if len(self._audio_stream_pcm) == 0:
+                    self._audio_stream_play_idx = 0
+                self._audio_stream_pcm = np.concatenate([self._audio_stream_pcm, f32_chunk])
 
         # 2. 话术关键词双轨研判动作状态机 (复用全局单例，弹幕事件可驱动同一画面)
         if eventpoint and eventpoint.get("text"):
@@ -179,6 +189,9 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
         self._current_energy = 0.0
         self._last_speech_time = 0.0
         self.action_state_machine.reset_to_idle()
+        with self._audio_stream_lock:
+            self._audio_stream_pcm = np.array([], dtype=np.float32)
+            self._audio_stream_play_idx = 0
         while not self._audio_queue.empty():
             try:
                 self._audio_queue.get_nowait()
@@ -225,9 +238,37 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             raise RuntimeError("动作切片缺少逐帧 coords，无法对齐神经唇形重绘的人脸位置")
         # 静音帧同样送神经渲染：模型依据静音 mel 自然闭合嘴唇，
         # 避免停顿段退回底片造成"说话才动、停顿回到微笑脸"的割裂感
-        pcm_window = self._latest_pcm_16k if self._speaking else None
-        if pcm_window is None:
-            pcm_window = np.zeros(3200, dtype=np.float32)
+        # 精准滑动音频切片：每帧步长对应 640 采样点 (40ms @ 16kHz)，切取精准 Mel 窗口 (D1/P2)
+        pcm_window = None
+        if self._speaking:
+            with self._audio_stream_lock:
+                buf_len = len(self._audio_stream_pcm)
+                if buf_len > 0 and self._audio_stream_play_idx < buf_len:
+                    center_sample = self._audio_stream_play_idx + 320
+                    win_start = center_sample - 1600
+                    win_end = center_sample + 1600
+                    pad_left = max(0, -win_start)
+                    act_start = max(0, win_start)
+                    act_end = min(buf_len, win_end)
+                    pad_right = max(0, win_end - buf_len)
+                    slice_data = self._audio_stream_pcm[act_start:act_end]
+                    if pad_left > 0 or pad_right > 0:
+                        slice_data = np.pad(slice_data, (pad_left, pad_right), mode="constant")
+                    pcm_window = slice_data
+                    self._audio_stream_play_idx += 640
+                    if self._audio_stream_play_idx > 32000:
+                        self._audio_stream_pcm = self._audio_stream_pcm[self._audio_stream_play_idx:]
+                        self._audio_stream_play_idx = 0
+                else:
+                    pcm_window = self._latest_pcm_16k
+        if pcm_window is None or len(pcm_window) != 3200:
+            if pcm_window is not None and len(pcm_window) > 0:
+                if len(pcm_window) < 3200:
+                    pcm_window = np.pad(pcm_window, (0, 3200 - len(pcm_window)), mode="constant")
+                else:
+                    pcm_window = pcm_window[:3200]
+            else:
+                pcm_window = np.zeros(3200, dtype=np.float32)
         canvas = base_frame if base_frame is not None else np.zeros((self.height, self.width, 3), dtype=np.uint8)
         try:
             neural_frame = self.lip_renderer.render_lip_frame(
@@ -287,7 +328,7 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             "self_contained": True,
             # 恪守 ADR-16：只有 ONNX 会话与主播切片资产同时就绪才宣称神经推理
             "neural_lipsync": neural_lip_active,
-            "engine_type": "latentsync_onnx" if neural_lip_active else "unavailable",
+            "engine_type": self.active_model_key if neural_lip_active else "unavailable",
             "model_key": self.active_model_key,
             "model_installed": bool(self.is_neural_ready),
             "model_path": str(self.active_model_path) if self.active_model_path else "",
@@ -308,7 +349,7 @@ class NativeNeuralAvatarDriver(BaseAvatarDriver):
             "self_contained": True,
             "neural_lipsync": neural_lip_active,
             "is_neural_ready": neural_lip_active,
-            "engine_type": "latentsync_onnx" if neural_lip_active else "unavailable",
+            "engine_type": self.active_model_key if neural_lip_active else "unavailable",
             "active_model_key": self.active_model_key,
             "total_frames_synthesized": self.total_frames_synthesized,
             "current_energy": round(self._current_energy, 3),

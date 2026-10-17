@@ -18,8 +18,10 @@ if (-not $?) { Write-Host "❌ Mypy 检查失败" -ForegroundColor Red; exit 1 }
 Write-Host "==> [4/5] Node.js 前端脚本语法解析检查..." -ForegroundColor Cyan
 node --check apps/desktop-ui/main.js
 if (-not $?) { Write-Host "❌ main.js 语法错误" -ForegroundColor Red; exit 1 }
-node --check server/static/js/console.js
-if (-not $?) { Write-Host "❌ console.js 语法错误" -ForegroundColor Red; exit 1 }
+Get-ChildItem server\static\js\modules\*.js | Sort-Object Name | ForEach-Object {
+    node --check $_.FullName
+    if (-not $?) { Write-Host "❌ $($_.Name) 语法错误" -ForegroundColor Red; exit 1 }
+}
 
 Write-Host "==> [5/5] Pytest 自动化测试与覆盖率校验 (隔离数据目录)..." -ForegroundColor Cyan
 $TempDataDir = Join-Path $env:TEMP ('ai-live-agent-ci-' + [guid]::NewGuid().ToString('N'))

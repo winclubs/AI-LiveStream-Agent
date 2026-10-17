@@ -6,36 +6,63 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win",
+    "dist": "electron-builder --win --publish never",
     "dist:dir": "electron-builder --dir",
-    "dist:mac": "electron-builder --mac"
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:all": "electron-builder --win --mac --linux --publish always",
+    "prepublishOnly": "node scripts/verify_release_contract.js"
   },
   "devDependencies": {
     "electron": "44.3.0",
     "electron-builder": "26.15.3"
   },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
   "build": {
     "appId": "com.ailive.agent",
     "productName": "AI-LiveStream-Agent",
+    "copyright": "Copyright (c) 2026 AI-LiveStream-Agent",
     "directories": {
       "output": "release"
     },
     "files": [
       "main.js",
+      "autoupdate.js",
+      "preload.js",
       "package.json"
     ],
     "extraResources": [
       {
         "from": "resources/python",
-        "to": "python"
+        "to": "python",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
       },
       {
         "from": "../../server",
-        "to": "server"
+        "to": "server",
+        "filter": [
+          "**/*",
+          "!**/tests/**",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/requirements-test.txt"
+        ]
       },
       {
         "from": "../../scripts",
-        "to": "scripts"
+        "to": "scripts",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/examples/**"
+        ]
       },
       {
         "from": "../../launcher.py",
@@ -55,22 +82,82 @@
       },
       {
         "from": "../../docs",
-        "to": "docs"
+        "to": "docs",
+        "filter": [
+          "**/*",
+          "!**/superpowers/**",
+          "!**/notes/**"
+        ]
       }
     ],
     "win": {
       "target": [
-        "nsis"
-      ]
-    },
-    "mac": {
-      "target": [
-        "dmg"
-      ]
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "publisherName": "AI-LiveStream-Agent",
+      "verifyUpdateCodeSignature": true
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AI-LiveStream-Agent 专业版",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.video",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "sign": false
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "AudioVideo",
+      "maintainer": "AI-LiveStream-Agent",
+      "desktop": {
+        "StartupWMClass": "AI-LiveStream-Agent"
+      }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "${env.UPDATE_SERVER_URL}"
+      }
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
+    "compression": "maximum",
+    "removePackageScripts": true
   }
 }

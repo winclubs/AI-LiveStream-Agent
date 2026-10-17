@@ -14,7 +14,7 @@
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 logger = logging.getLogger("LiveAgent.FrameBus")
 
@@ -35,6 +35,65 @@ class FramePublishBus:
         self.frames_suppressed_by_owner = 0
         # 最近一次实际发布的帧 (供诊断与测试断言)
         self.last_published_frame = None
+        # 画面异常抽检：每 N 帧比对一次亮度/差异，避免逐帧全像素运算拖慢渲染热路径
+        self._anomaly_sample_stride = 25
+        self._anomaly_counter = 0
+        self._last_anomaly_signature: Optional[Tuple[int, int]] = None
+
+    # ------------------------------------------------------------------
+    # 媒体质量看门狗上报
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _global_media_watchdog():
+        """延迟导入，避免 frame_bus 与看门狗之间产生循环导入。"""
+        from server.core.monitoring.media_quality_watchdog import global_media_watchdog
+        return global_media_watchdog
+
+    def _notify_watchdog_render(self, frame_rgb) -> None:
+        try:
+            watchdog = self._global_media_watchdog()
+        except Exception:
+            return
+        try:
+            watchdog.record_frame_rendered()
+            self._detect_frame_anomaly(watchdog, frame_rgb)
+        except Exception:
+            pass
+
+    def _notify_watchdog_drop(self) -> None:
+        try:
+            self._global_media_watchdog().record_frame_dropped()
+        except Exception:
+            pass
+
+    def _detect_frame_anomaly(self, watchdog, frame_rgb) -> None:
+        """抽检黑屏与画面冻结：连续超阈值时由看门狗触发降级回调。
+
+        健康样本同样必须上报：看门狗据此把「连续异常」定义为连续异常抽检，
+        并在首个健康样本解除降级闩锁，使恢复后的新异常段仍可触发降级。
+        """
+        self._anomaly_counter += 1
+        if self._anomaly_counter % self._anomaly_sample_stride != 0:
+            return
+        try:
+            import numpy as np
+
+            array = np.asarray(frame_rgb)
+            if array.size == 0:
+                return
+            sample = array[::8, ::8, :3] if array.ndim == 3 else array[::8, ::8]
+            signature = (int(sample.mean()), int(sample.std()))
+        except Exception:
+            return
+
+        previous = self._last_anomaly_signature
+        self._last_anomaly_signature = signature
+        is_black = signature[1] < 3 and signature[0] < 12
+        is_frozen = previous is not None and signature == previous
+        try:
+            watchdog.record_frame_anomaly(is_black=is_black, is_frozen=is_frozen)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # 租约仲裁
@@ -110,10 +169,12 @@ class FramePublishBus:
             return False, None
 
         if not self._acquire_ownership(owner, priority, lease_seconds):
+            self._notify_watchdog_drop()
             return False, None
 
         self.total_published += 1
         self.last_published_frame = frame_rgb
+        self._notify_watchdog_render(frame_rgb)
 
         # 1. 共享单调时钟打视频 PTS (音画漂移补偿的视频侧锚点)
         try:
@@ -179,13 +240,15 @@ class FramePublishBus:
         except Exception:
             pass
 
-        # 6. 短视频切片录制器 (RGB 原帧)
+        # 6. 短视频切片录制器 (BGR 帧，OpenCV VideoWriter 规范)
         try:
             if recorder is None and not explicit_sinks:
                 from server.core.media.recorder import get_record_manager
                 recorder = get_record_manager()
             if recorder is not None and getattr(recorder, "is_recording", lambda: False)():
-                recorder.feed_frame(publish_frame)
+                bgr_frame = self._to_bgr(publish_frame)
+                if bgr_frame is not None:
+                    recorder.feed_frame(bgr_frame)
         except Exception:
             pass
 

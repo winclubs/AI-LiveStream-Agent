@@ -53,12 +53,13 @@ async def get_active_cosyvoice_config():
     return "", ""
 
 
-def _customization_url(base_url: str) -> str:
+def _customization_url(base_url: Optional[str] = "") -> str:
     """声音复刻管理端点：业务空间域名优先，否则走百炼全局域名。"""
     clean = (base_url or "").strip().rstrip("/")
     if "maas.aliyuncs.com" in clean:
         return f"{clean}/services/audio/tts/customization"
     return f"{DASHSCOPE_API_BASE}/services/audio/tts/customization"
+
 
 
 def _sanitize_prefix(raw: str) -> str:
@@ -136,7 +137,7 @@ async def upload_audio_to_dashscope_tmp(api_key: str, model: str, file_path: str
 
 
 async def create_dashscope_cloned_voice(
-    base_url: str,
+    base_url: Optional[str],
     api_key: str,
     *,
     audio_url: str,
@@ -192,7 +193,7 @@ async def create_dashscope_cloned_voice(
         raise DashscopeCloneError(f"调用百炼声音复刻异常：{e}")
 
 
-async def list_dashscope_cloned_voices(base_url: str, api_key: str) -> list[dict]:
+async def list_dashscope_cloned_voices(base_url: Optional[str], api_key: str) -> list[dict]:
     """拉取百炼当前业务空间内已复刻的所有音色清单（状态为 OK 的音色）"""
     if not api_key:
         return []
@@ -222,7 +223,7 @@ async def list_dashscope_cloned_voices(base_url: str, api_key: str) -> list[dict
     return []
 
 
-async def query_dashscope_cloned_voice(base_url: str, api_key: str, voice_id: str) -> dict:
+async def query_dashscope_cloned_voice(base_url: Optional[str], api_key: str, voice_id: str) -> dict:
     """查询复刻音色状态（OK / DEPLOYING / UNDEPLOYED），返回 output 字典。"""
     payload = {"model": "voice-enrollment", "input": {"action": "query_voice", "voice_id": voice_id}}
     headers = {
@@ -242,7 +243,7 @@ async def query_dashscope_cloned_voice(base_url: str, api_key: str, voice_id: st
         return {"_error": "Exception", "detail": str(e)}
 
 
-async def diagnose_voice_error(base_url: str, api_key: str, voice_id: str, raw_err: str) -> str:
+async def diagnose_voice_error(base_url: Optional[str], api_key: str, voice_id: str, raw_err: str) -> str:
     """对百炼合成错误进行诊断并生成简短易懂的说明"""
     try:
         q_res = await query_dashscope_cloned_voice(base_url, api_key, voice_id)
@@ -258,7 +259,7 @@ async def diagnose_voice_error(base_url: str, api_key: str, voice_id: str, raw_e
 
 
 async def synthesize_dashscope_cosyvoice(
-    base_url: str,
+    base_url: Optional[str],
     api_key: str,
     voice_id: str,
     text: str,
@@ -275,7 +276,7 @@ async def synthesize_dashscope_cosyvoice(
     if not voice_id:
         raise DashscopeCloneError("缺少云端复刻 Voice-ID，无法合成克隆台词。")
 
-    from server.core.audio.cosyvoice_ws import infer_model_from_voice_id, synthesize_via_cosyvoice_ws, CosyVoiceWSError
+    from server.core.audio.cosyvoice_ws import infer_model_from_voice_id, synthesize_via_cosyvoice_ws
     model = infer_model_from_voice_id(voice_id, target_model)
 
     async def _do_ws_synthesize(m: str) -> Optional[bytes]:

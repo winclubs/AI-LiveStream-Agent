@@ -126,12 +126,7 @@ def test_explicit_sink_none_skips_global_fallback(bus):
         def feed_frame(self, frame):
             received.append("global_recorder")
 
-    import server.core.media.virtual_cam as vc_mod
-    import server.core.media.rtmp_streamer as rtmp_mod
-    import server.core.media.webrtc_streamer as rtc_mod
-    import server.core.media.recorder as rec_mod
 
-    bus_cls = type(bus)
     # 显式 sinks 全部为 None：所有通道跳过，全局单例不应被触碰
     ok, _ = bus.publish_frame(
         _frame(),
@@ -172,3 +167,47 @@ def test_encode_jpeg_returns_bytes(bus):
 def test_encode_jpeg_handles_failure(bus):
     # 传入非图像对象不应抛错
     assert bus.encode_jpeg("not-a-frame") == b""
+
+
+def _watchdog_with_sink(reasons: list) -> object:
+    """构造把降级原因写入 reasons 的看门狗实例。"""
+    from server.core.monitoring.media_quality_watchdog import MediaQualityWatchdog
+
+    return MediaQualityWatchdog(on_degraded_callback=reasons.append)
+
+
+def test_black_screen_samples_trigger_media_degraded_once_and_rearm(bus, monkeypatch):
+    """真实发布路径的黑帧/冻结抽检必须触发 MEDIA_DEGRADED，且同一异常段只广播一次。
+
+    回归缺陷：抽检步长为每 25 帧一次，而 record_frame_rendered 逐帧清零异常计数，
+    导致连续黑屏永远无法累计到阈值，生产环境虚假输出不会被阻断 (fail-open)。
+    """
+    import server.core.monitoring.media_quality_watchdog as watchdog_module
+
+    degraded_reasons: list = []
+    monkeypatch.setattr(watchdog_module, "global_media_watchdog", _watchdog_with_sink(degraded_reasons))
+    watchdog = watchdog_module.global_media_watchdog
+
+    def publish(samples: int, builder) -> None:
+        for index in range(samples * bus._anomaly_sample_stride):
+            frame = builder(index)
+            assert bus.publish_frame(frame, owner="sidecar", priority=100, compose=False)[0] is True
+
+    def black(index: int) -> np.ndarray:
+        return np.zeros((240, 320, 3), dtype=np.uint8)
+
+    def healthy(index: int) -> np.ndarray:
+        return np.full((240, 320, 3), 20 + (index * 7) % 200, dtype=np.uint8)
+
+    publish(40, black)
+    assert watchdog._consecutive_black_frames >= 10
+    assert len(degraded_reasons) == 1
+
+    publish(40, black)  # 异常持续：闩锁生效，不得按帧刷屏告警
+    assert len(degraded_reasons) == 1
+
+    publish(40, healthy)  # 画面恢复：闩锁重新武装
+    assert watchdog._consecutive_black_frames == 0
+
+    publish(40, black)  # 二次黑屏必须再次触发降级
+    assert len(degraded_reasons) == 2

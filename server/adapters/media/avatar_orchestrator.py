@@ -426,7 +426,7 @@ class AvatarProviderOrchestrator:
                 await runtime.entry.provider.start()
         except asyncio.CancelledError:
             raise
-        except TimeoutError as exc:
+        except TimeoutError:
             error = ProviderError(
                 ProviderErrorCode.CONNECT_TIMEOUT,
                 "Avatar Provider 启动/握手超时",

@@ -7,10 +7,8 @@
 3. 自动生成切片封面图 preview.jpg 与切片元数据；
 4. 提供切片列表查询、状态轮询与安全下载删除管理。
 """
-import io
 import json
 import logging
-import os
 import shutil
 import subprocess
 import time
@@ -89,7 +87,7 @@ class VideoAudioRecorder:
         return True
 
     def feed_frame(self, frame_bgr: np.ndarray):
-        """写入一帧画面"""
+        """写入一帧画面，支持时间戳对齐与自适应补帧防漂移"""
         if not self.is_recording or self._video_writer is None or frame_bgr is None:
             return
         if frame_bgr.shape[1] != self.width or frame_bgr.shape[0] != self.height:
@@ -98,6 +96,17 @@ class VideoAudioRecorder:
         # 保存第一帧作为封面预览图
         if self.total_frames == 0:
             cv2.imwrite(str(self.preview_path), frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+
+        # 掉帧时间补偿：根据墙钟时间计算预期帧数，适度补帧以防止音画渐进式累积漂移
+        if self.start_time > 0 and self.fps > 0:
+            elapsed = time.time() - self.start_time
+            expected_frames = int(elapsed * self.fps)
+            frame_lag = expected_frames - self.total_frames
+            # 若掉帧且落后大于 1 帧，最多平滑复制 3 帧补齐
+            if 1 < frame_lag <= 3:
+                for _ in range(frame_lag - 1):
+                    self._video_writer.write(frame_bgr)
+                    self.total_frames += 1
 
         self._video_writer.write(frame_bgr)
         self.total_frames += 1
@@ -149,6 +158,7 @@ class VideoAudioRecorder:
                 "-i", str(self.raw_audio_path),
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
                 "-c:a", "aac", "-b:a", "128k",
+                "-shortest",
                 str(self.final_mp4_path)
             ]
         else:

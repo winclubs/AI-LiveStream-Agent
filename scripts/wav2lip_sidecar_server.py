@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from gpu_sidecar.backend import LatentSyncBackend, Wav2LipBackend  # noqa: E402
+from gpu_sidecar.backend import Wav2LipBackend  # noqa: E402
 from gpu_sidecar.config import SidecarConfig  # noqa: E402
 from gpu_sidecar.server import serve  # noqa: E402
 
