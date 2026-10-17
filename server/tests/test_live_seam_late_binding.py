@@ -48,7 +48,14 @@ CALLABLE_SEAMS = (
     "_hardware_payload",
 )
 
-ALL_SEAMS = set(GLOBAL_SEAMS) | set(CALLABLE_SEAMS)
+#: 必须留在 ``server.routes.live`` 命名空间的**类**缝。
+#:
+#: ``EdgeTTSMediaDriver`` 尤其危险：mixin 若在**模块顶层** import 它，
+#: ``patch("server.routes.live.EdgeTTSMediaDriver")`` 会被静默绕过 ——
+#: 降级路径转而请求真实 Edge-TTS，测试表现为「拿到真实 MP3 而非替身」。
+CLASS_SEAMS = ("EdgeTTSMediaDriver",)
+
+ALL_SEAMS = set(GLOBAL_SEAMS) | set(CALLABLE_SEAMS) | set(CLASS_SEAMS)
 
 #: 拆分后的模块范围。结构守卫只扫描这些文件（façade 自身除外：
 #: façade 持有缝是设计意图，它的顶层 `from ... import` 合法）。
@@ -168,6 +175,17 @@ def test_callable_seam_exists(name):
     assert obj is not None, f"{name} 缺失或为 None"
     assert callable(obj), f"{name} 不是可调用对象"
     assert inspect.unwrap(obj) is not None
+
+
+@pytest.mark.parametrize("name", CLASS_SEAMS)
+def test_class_seam_is_resolvable(name):
+    """类缝必须在 live 命名空间可取用，且确实是可 patch 的类对象。"""
+    from server.routes import live
+
+    obj = getattr(live, name, None)
+    assert obj is not None, f"{name} 缺失，patch 将直接报错"
+    assert isinstance(obj, type), f"{name} 不是类对象，patch 语义不符"
+    assert obj.__name__ == name, f"{name} 指向了其他类"
 
 
 # ---------------------------------------------------------------------------
