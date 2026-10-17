@@ -71,10 +71,14 @@ def _split_modules() -> list[Path]:
 
 
 def _top_level_seam_imports(tree: ast.Module) -> set[str]:
-    """模块**顶层**（不在函数体内）从 server.routes.live 导入的缝名集合。
+    """模块**顶层**（不在函数体内）从 server.routes.live 导入的名字集合。
 
     只看 ``tree.body`` 是本检查的关键：函数体里的 import 是**正确**写法
     （调用时解析），只有顶层 import 才是早绑定的违规写法。
+
+    返回**全部**顶层导入名（而不仅仅是已知缝）：拆分模块根本不应该在顶层
+    依赖 façade 的任何名字 —— 哪怕今天还没人 patch 它。一旦放开，将来新增
+    ``patch("server.routes.live.<任意工具>")`` 又会静默失效。
     """
     hits: set[str] = set()
     for node in tree.body:
@@ -193,22 +197,24 @@ def test_class_seam_is_resolvable(name):
 # ---------------------------------------------------------------------------
 
 def test_no_split_module_uses_top_level_seam_import():
-    """拆分后的任何模块都不得在**模块顶层** from server.routes.live import <缝>。
+    """拆分后的任何模块都不得在**模块顶层** from server.routes.live import 任何名字。
 
     顶层 import = 早绑定 = patch 静默失效。正确写法是函数体内 import。
 
+    本检查是**全量**而非仅已知缝（ALL_SEAMS）：拆分模块对 façade 的任何顶层
+    依赖都是同一类隐患 —— 今天没被 patch 的工具，明天可能就会是。
     拆分尚未开始时本测试天然通过（无子模块可扫），从第一个子模块落地起
     开始生效。
     """
     offenders: list[str] = []
     for path in _split_modules():
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        bad = sorted(_top_level_seam_imports(tree) & ALL_SEAMS)
+        bad = sorted(_top_level_seam_imports(tree))
         if bad:
             offenders.append(f"{path.relative_to(ROOT).as_posix()}: 顶层 import 了 {bad}")
 
     assert not offenders, (
-        "以下模块在顶层 import 了缝（早绑定，patch 会静默失效）:\n  "
+        "以下模块在顶层 import 了 server.routes.live 的名字（早绑定，patch 会静默失效）:\n  "
         + "\n  ".join(offenders)
         + "\n  正确写法：写在函数体内的 `from server.routes.live import X`。"
     )
@@ -228,7 +234,6 @@ def test_split_modules_declare_live_seam_where_needed():
             continue
         if not _has_function_body_seam_import(tree):
             problems.append(path.relative_to(ROOT).as_posix())
-
     assert not problems, (
         "以下模块用到了缝却没有函数体内的 `from server.routes.live import <缝>`:\n  "
         + "\n  ".join(problems)
