@@ -10,7 +10,7 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 
 from server.core.audio.full_duplex_asr import get_full_duplex_asr_manager
 
@@ -150,3 +150,47 @@ async def transcribe_audio_file(
             "file_size": len(content)
         }
     }
+
+# ============================================================================
+# 语音插话 (由 live_lifecycle.py 迁入：本端点是 ASR 链路的消费方)
+# ============================================================================
+
+@router.post("/voice-interrupt")
+async def voice_interrupt_live(
+    file: UploadFile = File(...),
+    auto_reply: bool = Form(True),
+):
+    """麦克风实时语音打断与人工插话 (解决 7.4-7 无 ASR/VAD 语音输入通道短板)
+
+    上传麦克风录音切片，自动调用 ASR 引擎识别文本；
+    若识别出有效内容，立即触发 P0 级打断当前主播，并作为高优先级事件抢占播报。
+    """
+    from server.routes.live import global_live_controller
+
+    if not global_live_controller.is_live:
+        raise HTTPException(status_code=400, detail="直播尚未开播，禁止语音插播")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的语音内容为空")
+
+    from server.core.audio.asr_engine import transcribe_audio_bytes
+    text = transcribe_audio_bytes(content)
+    if not text.strip():
+        text = "收到现场麦克风紧急语音插话"
+
+    res = await global_live_controller.ingest_event(
+        event_type="chat",
+        user_name="现场麦克风",
+        payload={"text": text, "from_voice": True},
+        priority=0,  # P0 触发毫秒级强打断
+        source="voice_interrupt",
+        is_mock=False,
+    )
+    return {
+        "code": 0,
+        "message": f"麦克风语音识别成功: '{text}'，已触发 P0 强打断抢占播报",
+        "transcribed_text": text,
+        "data": res
+    }
+

@@ -295,3 +295,86 @@ async def get_virtual_camera_status():
     """获取本地虚拟摄像头设备状态、输出帧率与写入统计"""
     from server.core.media.virtual_cam import global_virtual_cam
     return {"code": 0, "message": "success", "data": global_virtual_cam.get_status()}
+
+
+# ============================================================================
+# 推流生命周期联动 (由 live_lifecycle.py 迁入：这两个子过程只做 OBS/RTMP 协同)
+# ============================================================================
+
+async def link_obs_push_stream(req, session_id: str) -> tuple[bool, Optional[str]]:
+    """按需联动 OBS 自动推流，返回 (是否联动成功, 降级原因)。
+
+    推流所有权在 ``session_id`` 归属本 Agent 且此前非推流中时才登记，
+    避免停播时误切用户手工开的流。
+    """
+    from server.routes.live import global_live_controller, global_obs_client
+
+    if not getattr(req, "obs_auto_link", False):
+        return False, None
+    if not global_obs_client.is_connected:
+        logger.warning("OBS 未连接，无法自动联动推流")
+        return False, "OBS 未连接，无法自动联动推流"
+    try:
+        res = await global_obs_client.start_stream()
+        if res.get("result"):
+            if not res.get("already_streaming"):
+                global_live_controller.obs_owner_session_id = session_id
+                global_live_controller.obs_owner_connection_epoch = global_obs_client.connection_epoch
+            else:
+                logger.info("OBS 此前已在推流中，保持现有推流所有权不变，停播时不主动切断")
+            return True, None
+        msg = res.get("comment") or res.get("error") or "OBS 拒绝推流"
+        logger.warning("联动 OBS 开始推流失败: %s", msg)
+        return False, msg
+    except Exception as e:
+        logger.warning("联动 OBS 开始推流异常: %s", e)
+        return False, str(e)
+
+
+async def stop_obs_push_and_rtmp(
+    *, session_id: Optional[str], should_stop_obs: bool,
+    owner_session_id: Optional[str], owner_epoch: Optional[int],
+) -> list[str]:
+    """按所有权 token 停止 OBS 推流并联动停止内置 RTMP 直推，随后清空所有权。
+
+    返回本次清理产生的错误列表（供停播流程汇总为 stopped_with_errors）。
+    ``session_id`` 由停播方在会话销毁前冻结传入 —— 不能在 stop() 之后再读
+    ``global_live_controller.session_id``，否则所有权复核会拿到已清空的值。
+    """
+    from server.routes.live import global_live_controller, global_obs_client
+
+    cleanup_errors: list[str] = []
+    try:
+        stop_epoch = getattr(global_obs_client, "connection_epoch", None)
+        if not isinstance(stop_epoch, int):
+            stop_epoch = owner_epoch
+        owner_still_current = bool(
+            should_stop_obs
+            and owner_session_id == session_id
+            and owner_epoch == stop_epoch
+            and global_obs_client.is_connected
+            and global_obs_client.is_streaming
+        )
+        if owner_still_current:
+            try:
+                res = await global_obs_client.stop_stream()
+                if not res.get("result") and not res.get("already_stopped"):
+                    err_msg = res.get("error") or res.get("comment") or "OBS 拒绝停止推流"
+                    logger.warning("联动 OBS 停止推流失败: %s", err_msg)
+                    cleanup_errors.append(f"obs_stop_rejected: {err_msg}")
+            except Exception as e:
+                logger.warning("联动 OBS 停止推流异常: %s", e)
+                cleanup_errors.append(f"obs_stop_failed: {e}")
+    finally:
+        # 场次结束无条件清空完整所有权 token，防止跨场残留。
+        global_live_controller.obs_stream_started_by_agent = False
+        global_live_controller.obs_owner_session_id = None
+        global_live_controller.obs_owner_connection_epoch = None
+
+        try:
+            from server.core.media.rtmp_streamer import global_rtmp_streamer
+            if global_rtmp_streamer.is_streaming:
+                global_rtmp_streamer.stop()
+        except Exception as e:
+            logger.warning("联动停止 RTMP 直推异常: %s", e)
+    return cleanup_errors

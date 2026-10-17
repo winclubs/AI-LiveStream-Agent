@@ -12,9 +12,9 @@ import asyncio
 import logging
 import os
 import uuid
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -529,3 +529,47 @@ async def _legacy_preflight_check(db: AsyncSession):
             "checks": checks
         }
     }
+
+
+async def assert_production_gates(
+    *, execution_mode: str, avatar_asset_dir: str, voice_id: Optional[str],
+    platform: str, anchor_id: Optional[str],
+) -> Dict[str, Any]:
+    """统一生产开播门禁 + Kill Switch 校验。未通过则强制阻断。"""
+    from server.core.compliance.kill_switch import global_kill_switch
+    from server.core.operations.preflight import global_preflight_service
+
+    preflight_report = await global_preflight_service.run_preflight(
+        mode=execution_mode,
+        avatar_asset_dir=avatar_asset_dir or None,
+        voice_id=voice_id,
+        force=True,
+    )
+    if not preflight_report.passed:
+        logger.error(
+            "统一生产开播门禁未通过，已强制阻断: mode=%s, reasons=%s",
+            execution_mode, preflight_report.blocking_reasons,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "PREFLIGHT_BLOCKED",
+                "message": f"当前环境未达到 {execution_mode} 档位生产准入标准，已强制阻断开播",
+                "blocking_reasons": preflight_report.blocking_reasons,
+                "report": preflight_report.to_dict(),
+            },
+        )
+
+    if not global_kill_switch.is_feature_enabled("stream_push", platform=platform, anchor_id=anchor_id):
+        logger.critical(
+            "🚨【Kill Switch 熔断阻断开播】主播 %s 在平台 %s 的推流权限已被熔断切断！",
+            anchor_id, platform,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "KILL_SWITCH_BLOCKED",
+                "message": f"当前主播或平台 ({platform}) 已被 Kill Switch 熔断禁用开播与推流",
+            },
+        )
+    return preflight_report
