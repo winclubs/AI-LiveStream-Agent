@@ -6,7 +6,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-Desktop%20UI-47848F?style=flat&logo=electron&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL%20Mode-003B57?style=flat&logo=sqlite&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-765%20Collected%20737%20Passed%2028%20Skipped-4caf50?style=flat&logo=pytest&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-871%20Collected%20868%20Passed%203%20Skipped-4caf50?style=flat&logo=pytest&logoColor=white)
 ![Version](https://img.shields.io/badge/Version-v2.0.1-orange?style=flat)
 ![License](https://img.shields.io/badge/License-Proprietary%20%2F%20Commercial-blue?style=flat)
 
@@ -231,9 +231,9 @@ flowchart TD
    - **内容防封**：Aho-Corasick 算法毫秒级扫描敏感词与广告法违规词，智能同义替换或整句熔断；
    - **视觉防封**：底层视频流注入亚感知高斯微扰与 0.05Hz 光影微动，使逐帧像素持续离散，粉碎平台固定指纹静态查处；
    - **拟人发声**：智能注入换气微停顿与“嗯、那个”等自然语气助词，消除机械感。
-6. ✅ **765 项全量自动化测试验证（0 失败）**：
-   - 全链路覆盖 API 路由、核心推理引擎、算力调度、端云通信与数字人专项用例（实测 765 项收集 / **737 项通过 / 28 项跳过 / 0 失败**，分支覆盖率 **63.5%**，门禁 55%）；
-   - 跳过项为依赖真实 GPU / 真实主播资产 / 外网的用例，属如实跳过而非放水：依赖 Edge-TTS 外网端点的用例带 `requires_edge_tts_network` 标记，由会话级出网探针在离线环境**如实跳过**而非静默失败；
+ 6. ✅ **871 项全量自动化测试验证（0 失败）**：
+   - 全链路覆盖 API 路由、核心推理引擎、算力调度、端云通信与数字人专项用例（实测 871 项收集 / **868 项通过 / 3 项跳过 / 0 失败**，分支覆盖率 **64.2%**，门禁 55%）；
+   - 跳过项均为环境前置依赖缺失（如本地未安装 `torch`、离线环境缺 Edge-TTS 外网端点等），由会话级探针**如实跳过**而非静默失败；具体跳过数量随运行环境浮动（本次实测 3 项，均为未安装 `torch` 的 Wav2Lip 导出工具用例）；
    - 前端模块化 JS 全部通过 Node.js 严格语法检测，另有 4 个前端断言测试纳入 CI 实际执行；
    - 上述数字取自最近一次本地全量实测，随测试增减同步更新。
 7. 🔗 **帧源一致性与输出诚实（统一帧发布总线）**：
@@ -539,7 +539,7 @@ python scripts/cloud_sidecar_bootstrap.py --port 8010
 
 系统实行工业级严苛的代码质量门禁与自动化回归体系：
 
-- **自动化测试套件**：全量 **765 项单元与端到端集成测试**（实测 **737 项通过 / 28 项跳过 / 0 失败**，分支覆盖率约 **63.5%**，门禁 55%），覆盖 API 路由、核心推理引擎、算力调度、端云通信与数字人专项用例；
+- **自动化测试套件**：全量 **871 项单元与端到端集成测试**（实测 **868 项通过 / 3 项跳过 / 0 失败**，分支覆盖率约 **64.2%**，门禁 55%），覆盖 API 路由、核心推理引擎、算力调度、端云通信与数字人专项用例；
 - **全量语法静态校验**：所有 Python 源文件通过 `py_compile` 静态编译解析，**0 语法错误，0 致命异常**（覆盖 `launcher.py` / `scripts/` / `server/` / `gpu_sidecar/`）；
 - **代码风格门禁**：ruff 校验覆盖 `launcher.py`、`scripts/`、`server/`、`gpu_sidecar/`，**未使用导入（F401）与未使用变量（F841）均已纳入强制门禁**，杜绝死代码沉淀；
 - **前端 JS 规范检验**：所有模块化 JavaScript 经 Node.js 严格语法检测（`node --check`，含 18 个源模块与 Electron 主进程）；另有 4 个前端断言测试（资产面板 / 试播音画同步 / 音色友好名 / 药丸防重）由 `scripts/run_all_tests.py --js-only` 在 CI 中**实际执行**，不再只做语法校验；
@@ -571,7 +571,7 @@ python -m ruff check launcher.py scripts server
 node --check apps/desktop-ui/main.js
 Get-ChildItem server/static/js/modules/*.js | ForEach-Object { node --check $_.FullName }
 
-# 3. 运行全量自动化测试并统计覆盖率 (765 项 / 0 失败)
+# 3. 运行全量自动化测试并统计覆盖率 (871 项 / 0 失败)
 $env:LIVE_AGENT_DATA_DIR = Join-Path $env:TEMP ('ai-live-agent-test-' + [guid]::NewGuid().ToString('N'))
 python -m pytest -q server/tests --cov=server --cov-branch
 
